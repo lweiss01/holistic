@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "sync": {
+    "strategy": "state-branch",
+    "remote": "origin",
+    "stateBranch": "holistic/state",
+    "postHandoffPush": true,
+    "restoreOnStartup": true,
+    "trackedPaths": [
+      "HOLISTIC.md",
+      "AGENTS.md",
+      ".holistic"
+    ]
+  },
+  "daemon": {
+    "intervalSeconds": 30,
+    "agent": "unknown"
+  }
+}
