@@ -1,10 +1,10 @@
-# Cross-Agent Handoff Walkthrough
+﻿# Cross-Agent Handoff Walkthrough
 
 This is a practical example of the workflow Holistic is built for.
 
 ## Scenario
 
-Lisa starts work in one agent, switches tools later, then picks the same project back up from a phone session.
+You start work in one agent, switch tools later, then pick the same project back up from a phone session.
 
 Without Holistic, each session starts with a re-brief.
 
@@ -116,3 +116,4 @@ A laptop daemon can improve passive capture on that laptop, but the real continu
 - portable state synced through git
 
 That is why Holistic is cross-agent and cross-platform instead of laptop-bound.
+
