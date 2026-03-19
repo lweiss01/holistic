@@ -1,6 +1,12 @@
 .holistic/
 HOLISTIC.md
 AGENTS.md
+.gitattributes
+.beads/.gitignore
+.beads/README.md
+.beads/config.yaml
+.beads/interactions.jsonl
+.beads/metadata.json
 node_modules/
 dist/
 *.log
