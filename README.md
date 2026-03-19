@@ -23,11 +23,20 @@ Holistic turns your repo into a shared memory layer for project work so every ne
 
 If you use Claude, Codex, Gemini, Antigravity, desktop apps, IDEs, mobile sessions, or a mix of all of them, Holistic is designed for that reality.
 
-## Try it in 30 seconds
+## Try Holistic today
+
+Today, Holistic is source-first. To try it in your own repo, you will want Node.js 24+ and a quick local CLI install:
 
 ```bash
+git clone https://github.com/lweiss01/holistic.git
+cd holistic
+npm link
+
+cd /path/to/your/project
 holistic init --remote origin --state-branch holistic/state
 ```
+
+If you just want to explore the project locally first, clone this repo and run the CLI directly from source.
 
 Drop one command in your repo and give it durable cross-agent memory across agents, apps, IDEs, and devices.
 
@@ -289,4 +298,5 @@ Holistic v1 is focused on a practical, durable foundation:
 The goal is simple:
 
 Your project should remember what the agents forget.
+
 
