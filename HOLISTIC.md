@@ -70,6 +70,6 @@ Clarified that one-time Holistic init does not guarantee Antigravity IDE will as
 
 ## Historical Memory
 
-- Last updated: 2026-03-19T23:33:58.383Z
+- Last updated: 2026-03-19T23:35:06.565Z
 - Last handoff: Clarified that one-time Holistic init does not guarantee Antigravity IDE will ask what to do on repo open; current behavior still depends on app cooperation or a real startup integration.
 - Pending sessions remembered: 1
