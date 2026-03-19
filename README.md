@@ -16,6 +16,12 @@ Holistic gives your repo a durable memory layer so the next agent can understand
 - what regressed
 - what should happen next
 
+## Quick links
+
+- [Walkthrough](./docs/handoff-walkthrough.md)
+- [Contributing](./CONTRIBUTING.md)
+- [License](./LICENSE)
+
 ## Why Holistic exists
 
 Modern project work is spread across tools and devices:
