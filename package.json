@@ -1,0 +1,18 @@
+﻿{
+  "name": "holistic",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Repo-first cross-agent handoff helper",
+  "type": "module",
+  "bin": {
+    "holistic": "./bin/holistic.js"
+  },
+  "scripts": {
+    "holistic": "node --experimental-strip-types ./src/cli.ts",
+    "daemon": "node --experimental-strip-types ./src/daemon.ts",
+    "test": "node --experimental-strip-types ./tests/run-tests.ts"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}
