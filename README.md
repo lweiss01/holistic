@@ -21,7 +21,15 @@ Holistic turns your repo into a shared memory layer for project work so every ne
 - :white_check_mark: what must not regress
 - :white_check_mark: what should happen next
 
-If you use Claude, Codex, Antigravity, mobile sessions, desktop apps, IDE agents, or a mix of all of them, Holistic is designed for that reality.
+If you use Claude, Codex, Gemini, Antigravity, desktop apps, IDEs, mobile sessions, or a mix of all of them, Holistic is designed for that reality.
+
+## Try it in 30 seconds
+
+```bash
+holistic init --remote origin --state-branch holistic/state
+```
+
+Drop one command in your repo and give it durable cross-agent memory across agents, apps, IDEs, and devices.
 
 ## Quick links
 
@@ -281,3 +289,4 @@ Holistic v1 is focused on a practical, durable foundation:
 The goal is simple:
 
 Your project should remember what the agents forget.
+
