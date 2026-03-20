@@ -6,7 +6,7 @@ Phase 1 rollout and real repo usage
 
 ## Latest Status
 
-Committed: feat: add phase 1 workflow tools and MCP support
+Committed: docs: set the low-touch continuity north star
 
 ## Planned Next Steps
 

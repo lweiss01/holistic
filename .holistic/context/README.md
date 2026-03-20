@@ -12,4 +12,4 @@ This folder holds repo-visible memory that any agent can reuse.
 - [Antigravity Adapter](./adapters/antigravity.md)
 
 Project: holistic
-Updated: 2026-03-20T22:24:49.716Z
+Updated: 2026-03-20T22:27:53.624Z
