@@ -32,8 +32,7 @@
     "holistic": "./bin/holistic.js"
   },
   "scripts": {
-    "build": "find src -name '*.ts' -exec sed -i 's/from \"\\(.*\\)\\.ts\"/from \"\\1.js\"/g' {} \\; && tsc && find src -name '*.ts' -exec sed -i 's/from \"\\(.*\\)\\.js\"/from \"\\1.ts\"/g' {} \\;",
-    "build:win": "powershell -Command \"Get-ChildItem -Path src -Recurse -Filter *.ts | ForEach-Object { (Get-Content $_.FullName) -replace 'from \\\"(.+)\\\\.ts\\\"', 'from \\\"$1.js\\\"' | Set-Content $_.FullName }\" && tsc && powershell -Command \"Get-ChildItem -Path src -Recurse -Filter *.ts | ForEach-Object { (Get-Content $_.FullName) -replace 'from \\\"(.+)\\\\.js\\\"', 'from \\\"$1.ts\\\"' | Set-Content $_.FullName }\"",
+    "build": "node scripts/build.mjs",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run clean && npm run build",
     "holistic": "node --experimental-strip-types ./src/cli.ts",

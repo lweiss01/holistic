@@ -1,10 +1,10 @@
 ﻿import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { writeDerivedDocs } from "./docs.ts";
-import { captureRepoSnapshot } from "./git.ts";
-import { loadState, saveState } from "./state.ts";
-import type { AgentName, HolisticState, RuntimePaths } from "./types.ts";
+import { writeDerivedDocs } from './docs.ts';
+import { captureRepoSnapshot } from './git.ts';
+import { loadState, saveState } from './state.ts';
+import type { AgentName, HolisticState, RuntimePaths } from './types.ts';
 
 export interface InitOptions {
   installDaemon?: boolean;
