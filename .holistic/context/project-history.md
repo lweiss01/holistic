@@ -2,6 +2,53 @@
 
 This archive is the durable memory of what agents changed, why they changed it, and what the project impact was. Review it before revisiting a feature area.
 
+## Structured metadata and roadmap planning
+
+- Session: session-2026-03-20T01-56-30-503Z
+- Agent: claude
+- Status: active
+- When: 2026-03-20T02:07:07.484Z
+- Goal: Enhance history/regression docs with structured metadata and create implementation plans for daemon, sync, integrations, and visualization features
+- Summary: All 5 recommended next steps documented with detailed implementation plans
+- Work done:
+- Added Severity, OutcomeStatus, AreaTag types
+- Added ValidationItem, ImpactNote, RegressionRisk structured types
+- Extended SessionRecord with optional structured metadata fields
+- Updated checkpoint and handoff inputs to support structured metadata
+- Enhanced docs.ts with structured rendering functions
+- Updated project history and regression watch rendering
+- Implemented structured metadata types (Severity, OutcomeStatus, AreaTag)
+- Created ValidationItem, ImpactNote, RegressionRisk structured types
+- Extended SessionRecord with backward-compatible optional metadata fields
+- Enhanced doc rendering to show structured metadata when available
+- Created comprehensive structured-metadata.md guide with examples
+- Created detailed roadmap for daemon passive capture (02)
+- Created detailed roadmap for cross-device sync (03)
+- Created detailed roadmap for agent integrations (04)
+- Created detailed roadmap for visualization & search (05)
+- Created roadmap README with implementation order and dependencies
+- Why it mattered:
+- History and regression docs can now show severity, affected areas, outcome status, and validation checklists
+- Backward compatible - existing sessions continue working with plain text
+- History and regression docs now support rich metadata (severity, areas, outcomes, validation checklists)
+- Roadmaps provide 2-3 session implementation plans for each major feature
+- Clear path forward: daemon+sync (foundation), integrations (adoption), visualization (scale)
+- Backward compatible - existing sessions work unchanged, new sessions can use structured metadata
+- Regression risks:
+- Do not remove legacy impactNotes and regressionRisks string arrays - needed for backward compatibility
+- Do not remove legacy impactNotes/regressionRisks string arrays - backward compatibility
+- Rendering logic must check for structured metadata first, gracefully fall back to plain text
+- References:
+- docs/structured-metadata.md
+- docs/roadmap/README.md
+- docs/roadmap/02-daemon-passive-capture.md
+- docs/roadmap/03-cross-device-sync.md
+- docs/roadmap/04-agent-integrations.md
+- docs/roadmap/05-visualization-search.md
+- src/core/types.ts
+- src/core/docs.ts
+- src/core/state.ts
+
 ## Finalize Holistic v1 implementation
 
 - Session: session-2026-03-20T00-07-50-104Z

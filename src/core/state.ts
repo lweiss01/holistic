@@ -267,6 +267,27 @@ export function checkpointState(rootDir: string, state: HolisticState, input: Ch
   session.references = uniqueMerge(session.references, sanitizeList(input.references));
   session.impactNotes = uniqueMerge(session.impactNotes, sanitizeList(input.impacts));
   session.regressionRisks = uniqueMerge(session.regressionRisks, sanitizeList(input.regressions));
+  
+  // Handle enhanced structured metadata
+  if (input.impactsStructured) {
+    session.impactNotesStructured = input.impactsStructured;
+  }
+  if (input.regressionsStructured) {
+    session.regressionRisksStructured = input.regressionsStructured;
+  }
+  if (input.affectedAreas) {
+    session.affectedAreas = input.affectedAreas;
+  }
+  if (input.relatedSessions) {
+    session.relatedSessions = input.relatedSessions;
+  }
+  if (input.outcomeStatus) {
+    session.outcomeStatus = input.outcomeStatus;
+  }
+  if (input.severity) {
+    session.severity = input.severity;
+  }
+  
   session.lastCheckpointReason = sanitizeText(input.reason || "manual");
   session.checkpointCount += 1;
   session.resumeRecap = buildResumeRecap({
@@ -400,6 +421,27 @@ export function applyHandoff(rootDir: string, state: HolisticState, input: Hando
   session.references = uniqueMerge(session.references, sanitizeList(input.references));
   session.impactNotes = uniqueMerge(session.impactNotes, sanitizeList(input.impacts));
   session.regressionRisks = uniqueMerge(session.regressionRisks, sanitizeList(input.regressions));
+  
+  // Handle enhanced structured metadata
+  if (input.impactsStructured) {
+    session.impactNotesStructured = input.impactsStructured;
+  }
+  if (input.regressionsStructured) {
+    session.regressionRisksStructured = input.regressionsStructured;
+  }
+  if (input.affectedAreas) {
+    session.affectedAreas = input.affectedAreas;
+  }
+  if (input.relatedSessions) {
+    session.relatedSessions = input.relatedSessions;
+  }
+  if (input.outcomeStatus) {
+    session.outcomeStatus = input.outcomeStatus;
+  }
+  if (input.severity) {
+    session.severity = input.severity;
+  }
+  
   session.resumeRecap = buildResumeRecap({
     ...refreshed.state,
     activeSession: session,

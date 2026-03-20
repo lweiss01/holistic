@@ -1,12 +1,65 @@
 ﻿import fs from "node:fs";
 import path from "node:path";
-import type { HolisticState, RuntimePaths, SessionRecord } from "./types.ts";
+import type { HolisticState, ImpactNote, RegressionRisk, RuntimePaths, SessionRecord, ValidationItem } from "./types.ts";
 
 function renderList(items: string[], emptyText: string): string {
   if (items.length === 0) {
     return `- ${emptyText}`;
   }
   return items.map((item) => `- ${item}`).join("\n");
+}
+
+function renderStructuredImpacts(impacts: ImpactNote[]): string {
+  return impacts.map((impact) => {
+    let line = `- ${impact.description}`;
+    const metadata: string[] = [];
+    if (impact.severity) {
+      metadata.push(`severity: ${impact.severity}`);
+    }
+    if (impact.affectedAreas && impact.affectedAreas.length > 0) {
+      metadata.push(`areas: ${impact.affectedAreas.join(", ")}`);
+    }
+    if (impact.outcome) {
+      metadata.push(`outcome: ${impact.outcome}`);
+    }
+    if (metadata.length > 0) {
+      line += ` _[${metadata.join(" | ")}]_`;
+    }
+    return line;
+  }).join("\n");
+}
+
+function renderValidationChecklist(items: ValidationItem[]): string {
+  return items.map((item) => {
+    let line = `  - ${item.description}`;
+    if (item.command) {
+      line += `\n    - Command: \`${item.command}\``;
+    }
+    if (item.expectedOutcome) {
+      line += `\n    - Expected: ${item.expectedOutcome}`;
+    }
+    return line;
+  }).join("\n");
+}
+
+function renderStructuredRegressions(regressions: RegressionRisk[]): string {
+  return regressions.map((risk) => {
+    let line = `- ${risk.description}`;
+    const metadata: string[] = [];
+    if (risk.severity) {
+      metadata.push(`severity: ${risk.severity}`);
+    }
+    if (risk.affectedAreas && risk.affectedAreas.length > 0) {
+      metadata.push(`areas: ${risk.affectedAreas.join(", ")}`);
+    }
+    if (metadata.length > 0) {
+      line += ` _[${metadata.join(" | ")}]_`;
+    }
+    if (risk.validationChecklist && risk.validationChecklist.length > 0) {
+      line += `\n  - Validation checklist:\n${renderValidationChecklist(risk.validationChecklist)}`;
+    }
+    return line;
+  }).join("\n");
 }
 
 function readArchivedSessions(paths: RuntimePaths): SessionRecord[] {
@@ -290,17 +343,86 @@ function renderProjectHistory(paths: RuntimePaths, state: HolisticState): string
   const sessions = state.activeSession ? [state.activeSession, ...readArchivedSessions(paths)] : readArchivedSessions(paths);
   const body = sessions.length === 0
     ? "No archived sessions yet. Use handoffs to build durable project history."
-    : sessions.map((session) => `## ${session.title}\n\n- Session: ${session.id}\n- Agent: ${session.agent}\n- Status: ${session.status}\n- When: ${session.endedAt || session.updatedAt}\n- Goal: ${session.currentGoal}\n- Summary: ${session.latestStatus}\n- Work done:\n${renderList(session.workDone, "No completed work recorded.")}\n- Why it mattered:\n${renderList(session.impactNotes, "No impact notes recorded.")}\n- Regression risks:\n${renderList(session.regressionRisks, "No specific regression risks recorded.")}\n- References:\n${renderList(session.references, "No references recorded.")}\n`).join("\n");
+    : sessions.map((session) => {
+        let sessionBlock = `## ${session.title}\n\n- Session: ${session.id}\n- Agent: ${session.agent}\n- Status: ${session.status}\n- When: ${session.endedAt || session.updatedAt}\n- Goal: ${session.currentGoal}`;
+        
+        // Add structured metadata if present
+        if (session.severity) {
+          sessionBlock += `\n- Severity: ${session.severity}`;
+        }
+        if (session.outcomeStatus) {
+          sessionBlock += `\n- Outcome: ${session.outcomeStatus}`;
+        }
+        if (session.affectedAreas && session.affectedAreas.length > 0) {
+          sessionBlock += `\n- Affected areas: ${session.affectedAreas.join(", ")}`;
+        }
+        if (session.relatedSessions && session.relatedSessions.length > 0) {
+          sessionBlock += `\n- Related sessions: ${session.relatedSessions.join(", ")}`;
+        }
+        
+        sessionBlock += `\n- Summary: ${session.latestStatus}\n- Work done:\n${renderList(session.workDone, "No completed work recorded.")}`;
+        
+        // Use structured impacts if available, fall back to plain text
+        if (session.impactNotesStructured && session.impactNotesStructured.length > 0) {
+          sessionBlock += `\n- Why it mattered:\n${renderStructuredImpacts(session.impactNotesStructured)}`;
+        } else {
+          sessionBlock += `\n- Why it mattered:\n${renderList(session.impactNotes, "No impact notes recorded.")}`;
+        }
+        
+        // Use structured regressions if available, fall back to plain text
+        if (session.regressionRisksStructured && session.regressionRisksStructured.length > 0) {
+          sessionBlock += `\n- Regression risks:\n${renderStructuredRegressions(session.regressionRisksStructured)}`;
+        } else {
+          sessionBlock += `\n- Regression risks:\n${renderList(session.regressionRisks, "No specific regression risks recorded.")}`;
+        }
+        
+        sessionBlock += `\n- References:\n${renderList(session.references, "No references recorded.")}\n`;
+        
+        return sessionBlock;
+      }).join("\n");
 
   return `# Project History\n\nThis archive is the durable memory of what agents changed, why they changed it, and what the project impact was. Review it before revisiting a feature area.\n\n${body}\n`;
 }
 
 function renderRegressionWatch(paths: RuntimePaths, state: HolisticState): string {
   const sessions = (state.activeSession ? [state.activeSession, ...readArchivedSessions(paths)] : readArchivedSessions(paths))
-    .filter((session) => session.regressionRisks.length > 0 || session.impactNotes.length > 0 || session.workDone.length > 0);
+    .filter((session) => session.regressionRisks.length > 0 || session.regressionRisksStructured?.length || session.impactNotes.length > 0 || session.impactNotesStructured?.length || session.workDone.length > 0);
   const body = sessions.length === 0
     ? "No regression watch items yet. Add them during checkpoints and handoffs when a change must stay fixed."
-    : sessions.map((session) => `## ${session.title}\n\n- Goal: ${session.currentGoal}\n- Durable changes:\n${renderList(session.workDone, "No durable changes recorded.")}\n- Why this matters:\n${renderList(session.impactNotes, "No impact notes recorded.")}\n- Do not regress:\n${renderList(session.regressionRisks, "No explicit regression risk recorded.")}\n- Source session: ${session.id}\n`).join("\n");
+    : sessions.map((session) => {
+        let sessionBlock = `## ${session.title}\n\n- Goal: ${session.currentGoal}`;
+        
+        // Add structured metadata if present
+        if (session.severity) {
+          sessionBlock += `\n- Severity: ${session.severity}`;
+        }
+        if (session.affectedAreas && session.affectedAreas.length > 0) {
+          sessionBlock += `\n- Affected areas: ${session.affectedAreas.join(", ")}`;
+        }
+        if (session.relatedSessions && session.relatedSessions.length > 0) {
+          sessionBlock += `\n- Related sessions: ${session.relatedSessions.join(", ")}`;
+        }
+        
+        sessionBlock += `\n- Durable changes:\n${renderList(session.workDone, "No durable changes recorded.")}`;
+        
+        // Use structured impacts if available, fall back to plain text
+        if (session.impactNotesStructured && session.impactNotesStructured.length > 0) {
+          sessionBlock += `\n- Why this matters:\n${renderStructuredImpacts(session.impactNotesStructured)}`;
+        } else {
+          sessionBlock += `\n- Why this matters:\n${renderList(session.impactNotes, "No impact notes recorded.")}`;
+        }
+        
+        // Use structured regressions if available, fall back to plain text
+        if (session.regressionRisksStructured && session.regressionRisksStructured.length > 0) {
+          sessionBlock += `\n- Do not regress:\n${renderStructuredRegressions(session.regressionRisksStructured)}`;
+        } else {
+          sessionBlock += `\n- Do not regress:\n${renderList(session.regressionRisks, "No explicit regression risk recorded.")}`;
+        }
+        
+        sessionBlock += `\n- Source session: ${session.id}\n`;
+        
+        return sessionBlock;
+      }).join("\n");
 
   return `# Regression Watch\n\nUse this before changing existing behavior. It is the short list of fixes and outcomes that future agents should preserve.\n\n${body}\n`;
 }

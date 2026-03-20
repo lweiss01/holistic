@@ -4,6 +4,43 @@ export type SessionStatus = "active" | "handed_off" | "superseded";
 
 export type Priority = "high" | "medium" | "low";
 
+export type Severity = "critical" | "high" | "medium" | "low" | "info";
+
+export type OutcomeStatus = "success" | "partial" | "failed" | "ongoing" | "unknown";
+
+export type AreaTag = 
+  | "cli"
+  | "daemon"
+  | "state-management"
+  | "docs"
+  | "git-integration"
+  | "sync"
+  | "adapters"
+  | "tests"
+  | "types"
+  | "architecture"
+  | "ux";
+
+export interface ValidationItem {
+  description: string;
+  command?: string;
+  expectedOutcome?: string;
+}
+
+export interface ImpactNote {
+  description: string;
+  severity?: Severity;
+  affectedAreas?: AreaTag[];
+  outcome?: OutcomeStatus;
+}
+
+export interface RegressionRisk {
+  description: string;
+  severity?: Severity;
+  affectedAreas?: AreaTag[];
+  validationChecklist?: ValidationItem[];
+}
+
 export interface PendingWorkItem {
   id: string;
   title: string;
@@ -41,8 +78,17 @@ export interface SessionRecord {
   assumptions: string[];
   blockers: string[];
   references: string[];
+  // Legacy string arrays - kept for backward compatibility
   impactNotes: string[];
   regressionRisks: string[];
+  // Enhanced structured metadata (optional, v2+)
+  impactNotesStructured?: ImpactNote[];
+  regressionRisksStructured?: RegressionRisk[];
+  affectedAreas?: AreaTag[];
+  relatedSessions?: string[];
+  outcomeStatus?: OutcomeStatus;
+  severity?: Severity;
+  // End of enhanced metadata
   changedFiles: string[];
   checkpointCount: number;
   lastCheckpointReason: string;
@@ -114,6 +160,13 @@ export interface CheckpointInput {
   references?: string[];
   impacts?: string[];
   regressions?: string[];
+  // Enhanced structured inputs (optional)
+  impactsStructured?: ImpactNote[];
+  regressionsStructured?: RegressionRisk[];
+  affectedAreas?: AreaTag[];
+  relatedSessions?: string[];
+  outcomeStatus?: OutcomeStatus;
+  severity?: Severity;
 }
 
 export interface HandoffInput {
@@ -127,6 +180,13 @@ export interface HandoffInput {
   impacts?: string[];
   regressions?: string[];
   status?: string;
+  // Enhanced structured inputs (optional)
+  impactsStructured?: ImpactNote[];
+  regressionsStructured?: RegressionRisk[];
+  affectedAreas?: AreaTag[];
+  relatedSessions?: string[];
+  outcomeStatus?: OutcomeStatus;
+  severity?: Severity;
 }
 
 export interface ResumePayload {

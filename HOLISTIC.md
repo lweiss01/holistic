@@ -6,13 +6,13 @@ This repo uses Holistic for cross-agent handoffs. The source of truth is the rep
 
 ## Current Objective
 
-**Resume from last handoff**
+**Structured metadata and roadmap planning**
 
-Review the generated history/regression docs and decide whether to add more structured fields like severity, affected areas, or validation notes.
+Enhance history/regression docs with structured metadata and create implementation plans for daemon, sync, integrations, and visualization features
 
 ## Latest Work Status
 
-Clarified that hholistic is a local Beeftext shortcut on one laptop, while the startup prompt text is the portable part that should be reused across tools and devices.
+All 5 recommended next steps documented with detailed implementation plans
 
 ## What Was Tried
 
@@ -20,19 +20,30 @@ Clarified that hholistic is a local Beeftext shortcut on one laptop, while the s
 
 ## What To Try Next
 
-- Review the generated history/regression docs and decide whether to add more structured fields like severity, affected areas, or validation notes.
+- Run `holistic start-new --goal "Describe the task"` to begin capturing work.
 
 ## Active Plan
 
-- No active plan has been captured yet.
+- Review current history/regression format
+- Design enhanced metadata schema
+- Update TypeScript types
+- Implement doc generation
+- Create roadmap plans for items 2-5
 
 ## Overall Impact So Far
 
-- No durable impact notes recorded yet.
+- History and regression docs can now show severity, affected areas, outcome status, and validation checklists
+- Backward compatible - existing sessions continue working with plain text
+- History and regression docs now support rich metadata (severity, areas, outcomes, validation checklists)
+- Roadmaps provide 2-3 session implementation plans for each major feature
+- Clear path forward: daemon+sync (foundation), integrations (adoption), visualization (scale)
+- Backward compatible - existing sessions work unchanged, new sessions can use structured metadata
 
 ## Regression Watch
 
-- Review the regression watch document before changing related behavior.
+- Do not remove legacy impactNotes and regressionRisks string arrays - needed for backward compatibility
+- Do not remove legacy impactNotes/regressionRisks string arrays - backward compatibility
+- Rendering logic must check for structured metadata first, gracefully fall back to plain text
 
 ## Key Assumptions
 
@@ -44,7 +55,14 @@ Clarified that hholistic is a local Beeftext shortcut on one laptop, while the s
 
 ## Changed Files In Current Session
 
-- No repo changes detected for the active session.
+- .bg-shell/manifest.json
+- .holistic/state.json
+- docs/roadmap/02-daemon-passive-capture.md
+- docs/roadmap/03-cross-device-sync.md
+- docs/roadmap/04-agent-integrations.md
+- docs/roadmap/05-visualization-search.md
+- docs/roadmap/README.md
+- docs/structured-metadata.md
 
 ## Pending Work Queue
 
@@ -70,6 +88,6 @@ Clarified that hholistic is a local Beeftext shortcut on one laptop, while the s
 
 ## Historical Memory
 
-- Last updated: 2026-03-20T00:08:05.344Z
-- Last handoff: Clarified that hholistic is a local Beeftext shortcut on one laptop, while the startup prompt text is the portable part that should be reused across tools and devices.
+- Last updated: 2026-03-20T01:58:46.397Z
+- Last handoff: No explicit handoff captured yet.
 - Pending sessions remembered: 1
