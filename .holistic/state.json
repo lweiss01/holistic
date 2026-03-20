@@ -2,28 +2,28 @@
   "version": 1,
   "projectName": "holistic",
   "createdAt": "2026-03-19T19:23:41.405Z",
-  "updatedAt": "2026-03-19T23:52:59.938Z",
+  "updatedAt": "2026-03-20T00:05:25.864Z",
   "activeSession": null,
   "pendingWork": [
     {
-      "id": "pending-session-2026-03-19T23-33-42-124Z",
+      "id": "pending-session-2026-03-20T00-04-53-218Z",
       "title": "Finalize Holistic v1 implementation",
-      "context": "Confirmed that one-time Holistic init does not force Antigravity IDE to ask what to do on repo open; current behavior depends on app cooperation or integration.",
+      "context": "Added a platform-agnostic startup prompt pattern the user can bind to a hotkey so future agents reliably read the Holistic instructions before working.",
       "recommendedNextStep": "Review the generated history/regression docs and decide whether to add more structured fields like severity, affected areas, or validation notes.",
       "priority": "high",
-      "carriedFromSession": "session-2026-03-19T23-33-42-124Z",
-      "createdAt": "2026-03-19T23:35:06.518Z"
+      "carriedFromSession": "session-2026-03-20T00-04-53-218Z",
+      "createdAt": "2026-03-20T00:05:25.833Z"
     }
   ],
   "lastHandoff": {
-    "sessionId": "session-2026-03-19T23-33-42-124Z",
-    "summary": "Clarified that one-time Holistic init does not guarantee Antigravity IDE will ask what to do on repo open; current behavior still depends on app cooperation or a real startup integration.",
+    "sessionId": "session-2026-03-20T00-04-53-218Z",
+    "summary": "Added platform-agnostic hotkey guidance so the next session can prompt any agent to read the Holistic instructions and recap state before doing work.",
     "blockers": [
-      "No confirmed Antigravity startup integration point has been identified yet."
+      "No blockers recorded."
     ],
     "nextAction": "Review the generated history/regression docs and decide whether to add more structured fields like severity, affected areas, or validation notes.",
-    "committedAt": "2026-03-19T23:52:59.914Z",
-    "createdAt": "2026-03-19T23:35:06.519Z"
+    "committedAt": null,
+    "createdAt": "2026-03-20T00:05:25.839Z"
   },
   "docIndex": {
     "masterDoc": "HOLISTIC.md",
@@ -47,10 +47,10 @@
     ".beads/bd.sock": "45:1773962048277",
     ".beads/beads.db": "282624:1773963269376",
     ".beads/beads.db-shm": "32768:1773962048181",
-    ".beads/beads.db-wal": "131872:1773964363546",
+    ".beads/beads.db-wal": "337872:1773964660871",
     ".beads/config.yaml": "2509:1773961751986",
     ".beads/daemon.lock": "186:1773962048174",
-    ".beads/daemon.log": "32070:1773964375838",
+    ".beads/daemon.log": "41497:1773965112157",
     ".beads/daemon.pid": "6:1773962048179",
     ".beads/export-state/263571a4cc647266.json": "301:1773963268336",
     ".beads/interactions.jsonl": "0:1773961716041",
@@ -59,20 +59,21 @@
     ".beads/metadata.json": "62:1773961716168",
     ".beads/README.md": "2250:1773961716169",
     ".gitattributes": "70:1773961719501",
-    ".gitignore": "76:1773955556324",
+    ".gitignore": "185:1773964555152",
     ".holistic/config.json": "343:1773955764428",
-    ".holistic/context/adapters/antigravity.md": "954:1773964379933",
-    ".holistic/context/adapters/claude-cowork.md": "951:1773964379932",
-    ".holistic/context/adapters/codex.md": "942:1773964379932",
-    ".holistic/context/current-plan.md": "646:1773964379917",
-    ".holistic/context/project-history.md": "5583:1773964379929",
-    ".holistic/context/README.md": "494:1773964379932",
-    ".holistic/context/regression-watch.md": "4724:1773964379931",
-    ".holistic/context/session-protocol.md": "1222:1773964379918",
-    ".holistic/context/zero-touch.md": "1750:1773964379931",
+    ".holistic/context/adapters/antigravity.md": "954:1773965125859",
+    ".holistic/context/adapters/claude-cowork.md": "951:1773965125859",
+    ".holistic/context/adapters/codex.md": "942:1773965125859",
+    ".holistic/context/current-plan.md": "608:1773965125841",
+    ".holistic/context/project-history.md": "6743:1773965125857",
+    ".holistic/context/README.md": "494:1773965125859",
+    ".holistic/context/regression-watch.md": "5558:1773965125858",
+    ".holistic/context/session-protocol.md": "1222:1773965125841",
+    ".holistic/context/zero-touch.md": "1750:1773965125859",
     ".holistic/sessions/session-2026-03-19T19-30-32-935Z.json": "10592:1773955889921",
     ".holistic/sessions/session-2026-03-19T23-33-42-124Z.json": "4921:1773963306519",
-    ".holistic/state.json": "5453:1773963306566",
+    ".holistic/sessions/session-2026-03-20T00-04-53-218Z.json": "4012:1773965125839",
+    ".holistic/state.json": "8089:1773965104037",
     ".holistic/system/README.md": "505:1773955764431",
     ".holistic/system/restore-state.ps1": "657:1773955764430",
     ".holistic/system/restore-state.sh": "527:1773955764431",
@@ -80,13 +81,13 @@
     ".holistic/system/run-daemon.sh": "287:1773955764430",
     ".holistic/system/sync-state.ps1": "1283:1773955764430",
     ".holistic/system/sync-state.sh": "928:1773955764431",
-    "AGENTS.md": "1003:1773964379917",
+    "AGENTS.md": "1003:1773965125841",
     "bin/holistic": "734:1773955556324",
     "bin/holistic.cmd": "815:1773955556324",
     "bin/holistic.js": "2190:1773955556325",
     "CONTRIBUTING.md": "3377:1773955750673",
     "docs/handoff-walkthrough.md": "3373:1773958062116",
-    "HOLISTIC.md": "3120:1773964379916",
+    "HOLISTIC.md": "2990:1773965125840",
     "LICENSE": "1062:1773955750645",
     "package.json": "476:1773955556325",
     "README.md": "9258:1773957891628",
@@ -102,5 +103,12 @@
     "tests/run-tests.ts": "10547:1773955556332",
     "tsconfig.json": "304:1773955556332"
   },
-  "pendingCommit": null
+  "pendingCommit": {
+    "message": "docs(holistic): handoff session session-2026-03-20T00-04-53-218Z",
+    "files": [
+      "HOLISTIC.md",
+      "AGENTS.md",
+      ".holistic"
+    ]
+  }
 }

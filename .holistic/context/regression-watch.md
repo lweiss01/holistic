@@ -4,6 +4,19 @@ Use this before changing existing behavior. It is the short list of fixes and ou
 
 ## Finalize Holistic v1 implementation
 
+- Goal: Review the generated history/regression docs and decide whether to add more structured fields like severity, affected areas, or validation notes.
+- Durable changes:
+- Provided a reusable hotkey-safe startup prompt for repo resume across IDEs and agent tools.
+- Provided a reusable startup prompt the user can bind to a hotkey across IDEs and agent tools.
+- Updated the Holistic session state so the hotkey guidance is preserved in the handoff docs.
+- Why this matters:
+- The next session can start with a consistent agent-agnostic startup prompt instead of relying on tool-specific behavior or memory.
+- Do not regress:
+- Do not assume repo initialization alone will make every IDE agent read the Holistic docs automatically on open.
+- Source session: session-2026-03-20T00-04-53-218Z
+
+## Finalize Holistic v1 implementation
+
 - Goal: Clarify Antigravity startup behavior and close the session cleanly.
 - Durable changes:
 - Reviewed the Holistic repo instructions, durable memory docs, and Antigravity adapter to verify the intended startup contract.

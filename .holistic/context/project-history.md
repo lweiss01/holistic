@@ -4,6 +4,27 @@ This archive is the durable memory of what agents changed, why they changed it, 
 
 ## Finalize Holistic v1 implementation
 
+- Session: session-2026-03-20T00-04-53-218Z
+- Agent: codex
+- Status: handed_off
+- When: 2026-03-20T00:05:25.833Z
+- Goal: Review the generated history/regression docs and decide whether to add more structured fields like severity, affected areas, or validation notes.
+- Summary: Added a platform-agnostic startup prompt pattern the user can bind to a hotkey so future agents reliably read the Holistic instructions before working.
+- Work done:
+- Provided a reusable hotkey-safe startup prompt for repo resume across IDEs and agent tools.
+- Provided a reusable startup prompt the user can bind to a hotkey across IDEs and agent tools.
+- Updated the Holistic session state so the hotkey guidance is preserved in the handoff docs.
+- Why it mattered:
+- The next session can start with a consistent agent-agnostic startup prompt instead of relying on tool-specific behavior or memory.
+- Regression risks:
+- Do not assume repo initialization alone will make every IDE agent read the Holistic docs automatically on open.
+- References:
+- HOLISTIC.md
+- .holistic/context/zero-touch.md
+- .holistic/context/adapters/antigravity.md
+
+## Finalize Holistic v1 implementation
+
 - Session: session-2026-03-19T23-33-42-124Z
 - Agent: codex
 - Status: handed_off

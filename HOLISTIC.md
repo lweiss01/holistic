@@ -12,7 +12,7 @@ Review the generated history/regression docs and decide whether to add more stru
 
 ## Latest Work Status
 
-Clarified that one-time Holistic init does not guarantee Antigravity IDE will ask what to do on repo open; current behavior still depends on app cooperation or a real startup integration.
+Added platform-agnostic hotkey guidance so the next session can prompt any agent to read the Holistic instructions and recap state before doing work.
 
 ## What Was Tried
 
@@ -40,7 +40,7 @@ Clarified that one-time Holistic init does not guarantee Antigravity IDE will as
 
 ## Blockers
 
-- No confirmed Antigravity startup integration point has been identified yet.
+- No blockers recorded.
 
 ## Changed Files In Current Session
 
@@ -70,6 +70,6 @@ Clarified that one-time Holistic init does not guarantee Antigravity IDE will as
 
 ## Historical Memory
 
-- Last updated: 2026-03-19T23:35:06.565Z
-- Last handoff: Clarified that one-time Holistic init does not guarantee Antigravity IDE will ask what to do on repo open; current behavior still depends on app cooperation or a real startup integration.
+- Last updated: 2026-03-20T00:05:04.037Z
+- Last handoff: Added platform-agnostic hotkey guidance so the next session can prompt any agent to read the Holistic instructions and recap state before doing work.
 - Pending sessions remembered: 1
