@@ -4,6 +4,26 @@ This archive is the durable memory of what agents changed, why they changed it, 
 
 ## Finalize Holistic v1 implementation
 
+- Session: session-2026-03-20T00-07-50-104Z
+- Agent: codex
+- Status: handed_off
+- When: 2026-03-20T00:08:05.321Z
+- Goal: Review the generated history/regression docs and decide whether to add more structured fields like severity, affected areas, or validation notes.
+- Summary: Clarified that hholistic is the user's local Beeftext shortcut on one laptop; the portable part is the startup prompt text, not the trigger itself.
+- Work done:
+- Recorded that the startup prompt is portable across tools, while the hholistic trigger is just a local text-expander shortcut.
+- Updated the Holistic handoff to distinguish the portable startup prompt from the local hholistic trigger.
+- Why it mattered:
+- The handoff now distinguishes between portable prompt content and a machine-specific hotkey trigger, which should reduce confusion in future sessions.
+- Future sessions now have a clearer explanation that the prompt content is portable but the hotkey trigger is machine-specific.
+- Regression risks:
+- Do not imply that hholistic or any specific hotkey name is portable across devices or IDEs.
+- References:
+- HOLISTIC.md
+- .holistic/context/zero-touch.md
+
+## Finalize Holistic v1 implementation
+
 - Session: session-2026-03-20T00-04-53-218Z
 - Agent: codex
 - Status: handed_off

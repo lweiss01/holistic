@@ -6,6 +6,19 @@ Use this before changing existing behavior. It is the short list of fixes and ou
 
 - Goal: Review the generated history/regression docs and decide whether to add more structured fields like severity, affected areas, or validation notes.
 - Durable changes:
+- Recorded that the startup prompt is portable across tools, while the hholistic trigger is just a local text-expander shortcut.
+- Updated the Holistic handoff to distinguish the portable startup prompt from the local hholistic trigger.
+- Why this matters:
+- The handoff now distinguishes between portable prompt content and a machine-specific hotkey trigger, which should reduce confusion in future sessions.
+- Future sessions now have a clearer explanation that the prompt content is portable but the hotkey trigger is machine-specific.
+- Do not regress:
+- Do not imply that hholistic or any specific hotkey name is portable across devices or IDEs.
+- Source session: session-2026-03-20T00-07-50-104Z
+
+## Finalize Holistic v1 implementation
+
+- Goal: Review the generated history/regression docs and decide whether to add more structured fields like severity, affected areas, or validation notes.
+- Durable changes:
 - Provided a reusable hotkey-safe startup prompt for repo resume across IDEs and agent tools.
 - Provided a reusable startup prompt the user can bind to a hotkey across IDEs and agent tools.
 - Updated the Holistic session state so the hotkey guidance is preserved in the handoff docs.

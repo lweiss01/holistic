@@ -12,7 +12,7 @@ Review the generated history/regression docs and decide whether to add more stru
 
 ## Latest Work Status
 
-Added platform-agnostic hotkey guidance so the next session can prompt any agent to read the Holistic instructions and recap state before doing work.
+Clarified that hholistic is a local Beeftext shortcut on one laptop, while the startup prompt text is the portable part that should be reused across tools and devices.
 
 ## What Was Tried
 
@@ -70,6 +70,6 @@ Added platform-agnostic hotkey guidance so the next session can prompt any agent
 
 ## Historical Memory
 
-- Last updated: 2026-03-20T00:05:25.864Z
-- Last handoff: Added platform-agnostic hotkey guidance so the next session can prompt any agent to read the Holistic instructions and recap state before doing work.
+- Last updated: 2026-03-20T00:07:57.928Z
+- Last handoff: Clarified that hholistic is a local Beeftext shortcut on one laptop, while the startup prompt text is the portable part that should be reused across tools and devices.
 - Pending sessions remembered: 1
