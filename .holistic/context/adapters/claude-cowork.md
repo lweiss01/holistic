@@ -24,10 +24,3 @@ Include impact notes and regression risks when they matter.
 
 - Preferred: map your session-end workflow to `holistic handoff`
 - Fallback: ask the user to run `holistic handoff` before leaving the session
-
-## Resume Contract
-
-When the user returns to this project in a new session:
-- Remind them to run `npm run holistic -- resume` (or `holistic resume` if installed globally)
-- This shows: current objective, latest status, what was tried, what's next, regression warnings
-- If they forget and jump straight into work, gently remind them: "Have you run `holistic resume` yet? It'll show where we left off."

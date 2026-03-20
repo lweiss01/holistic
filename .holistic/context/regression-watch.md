@@ -16,13 +16,27 @@ Use this before changing existing behavior. It is the short list of fixes and ou
 - Added state migration skeleton (Task 1c)
 - Consolidated readline usage (Task 1d)
 - Prepared package.json and .npmignore for publishing
+- Fixed branch fallback ambiguity (holistic-imq)
+- Expanded AgentName union to 8 agents (holistic-nbr)
+- Added state migration skeleton (holistic-64o)
+- Consolidated readline usage (holistic-eh8)
+- Built TypeScript compilation system (holistic-yn3)
+- Created 22 beads issues for Phases 0-4
+- Added Windows-compatible build script
+- Added resume reminder to Claude adapter
 - Why this matters:
 - Failed git reads now visibly different from actual 'master' branch
 - Phase 0 foundation fixes prevent embarrassing bugs when users arrive
 - 4/5 critical bugs fixed - only npm publishing remains
+- Foundation prevents embarrassing bugs when users arrive
+- All 8 agent types now supported with adapters
+- Schema changes have safe migration path
+- Windows users can now build successfully
 - Do not regress:
 - Do not use 'master' as a fallback value anywhere - use 'unknown' for failures
 - Node.js --experimental-strip-types doesn't work in node_modules, must build to JS
+- Always test npm install -g locally before publishing
+- Never skip Phase 0 on future projects - foundation matters
 - Source session: session-2026-03-20T02-39-52-257Z
 
 ## Structured metadata and roadmap planning
