@@ -7,21 +7,29 @@ This archive is the durable memory of what agents changed, why they changed it, 
 - Session: session-2026-03-20T02-39-52-257Z
 - Agent: claude
 - Status: active
-- When: 2026-03-20T02:40:17.739Z
+- When: 2026-03-20T02:56:12.945Z
 - Goal: Test branch fallback fix
-- Summary: Fixed silent branch detection failure, moving to Task 1b (expand AgentName)
+- Summary: Phase 0 almost complete - discovered TypeScript stripping limitation in node_modules
 - Work done:
 - Changed getBranchName() fallback from 'master' to 'unknown'
 - Changed createSession() branch init from 'master' to empty string
 - All tests passing
 - Created 22 beads issues from roadmap
 - Closed holistic-imq after successful fix
+- Fixed branch fallback ambiguity (Task 1a)
+- Expanded AgentName union with 5 new agents (Task 1b)
+- Added state migration skeleton (Task 1c)
+- Consolidated readline usage (Task 1d)
+- Prepared package.json and .npmignore for publishing
 - Why it mattered:
 - Failed git reads now visibly different from actual 'master' branch
+- Phase 0 foundation fixes prevent embarrassing bugs when users arrive
+- 4/5 critical bugs fixed - only npm publishing remains
 - Regression risks:
 - Do not use 'master' as a fallback value anywhere - use 'unknown' for failures
+- Node.js --experimental-strip-types doesn't work in node_modules, must build to JS
 - References:
-- No references recorded.
+- holistic-yn3
 
 ## Structured metadata and roadmap planning
 

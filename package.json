@@ -1,8 +1,32 @@
 ﻿{
   "name": "holistic",
   "version": "0.1.0",
-  "private": true,
-  "description": "Repo-first cross-agent handoff helper",
+  "private": false,
+  "description": "Cross-agent, cross-platform memory for AI coding work",
+  "keywords": [
+    "ai",
+    "coding-assistant",
+    "context-management",
+    "agent-memory",
+    "claude",
+    "cursor",
+    "copilot",
+    "gemini",
+    "handoff",
+    "session-management",
+    "multi-agent",
+    "context-preservation"
+  ],
+  "author": "lweis",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lweiss01/holistic.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lweiss01/holistic/issues"
+  },
+  "homepage": "https://github.com/lweiss01/holistic#readme",
   "type": "module",
   "bin": {
     "holistic": "./bin/holistic.js"
@@ -10,7 +34,8 @@
   "scripts": {
     "holistic": "node --experimental-strip-types ./src/cli.ts",
     "daemon": "node --experimental-strip-types ./src/daemon.ts",
-    "test": "node --experimental-strip-types ./tests/run-tests.ts"
+    "test": "node --experimental-strip-types ./tests/run-tests.ts",
+    "prepublishOnly": "npm test"
   },
   "engines": {
     "node": ">=24.0.0"

@@ -12,7 +12,7 @@ Test branch fallback fix
 
 ## Latest Work Status
 
-Fixed silent branch detection failure, moving to Task 1b (expand AgentName)
+Phase 0 almost complete - discovered TypeScript stripping limitation in node_modules
 
 ## What Was Tried
 
@@ -21,6 +21,8 @@ Fixed silent branch detection failure, moving to Task 1b (expand AgentName)
 ## What To Try Next
 
 - Expand AgentName union to include Gemini, Copilot, Cursor, Goose, GSD
+- Add build step for npm publishing (TypeScript → JavaScript)
+- Complete Phase 0 Task 1e
 
 ## Active Plan
 
@@ -30,10 +32,13 @@ Fixed silent branch detection failure, moving to Task 1b (expand AgentName)
 ## Overall Impact So Far
 
 - Failed git reads now visibly different from actual 'master' branch
+- Phase 0 foundation fixes prevent embarrassing bugs when users arrive
+- 4/5 critical bugs fixed - only npm publishing remains
 
 ## Regression Watch
 
 - Do not use 'master' as a fallback value anywhere - use 'unknown' for failures
+- Node.js --experimental-strip-types doesn't work in node_modules, must build to JS
 
 ## Key Assumptions
 
@@ -48,7 +53,23 @@ Fixed silent branch detection failure, moving to Task 1b (expand AgentName)
 - .beads/beads.db-wal
 - .beads/daemon.log
 - .bg-shell/manifest.json
+- .holistic/context/README.md
+- .holistic/context/adapters/antigravity.md
+- .holistic/context/adapters/claude-cowork.md
+- .holistic/context/adapters/codex.md
+- .holistic/context/current-plan.md
+- .holistic/context/project-history.md
+- .holistic/context/regression-watch.md
+- .holistic/context/session-protocol.md
+- .holistic/context/zero-touch.md
 - .holistic/state.json
+- .npmignore
+- AGENTS.md
+- HOLISTIC.md
+- holistic-0.1.0.tgz
+- package.json
+- src/cli.ts
+- src/core/state.ts
 
 ## Pending Work Queue
 
@@ -80,6 +101,6 @@ Fixed silent branch detection failure, moving to Task 1b (expand AgentName)
 
 ## Historical Memory
 
-- Last updated: 2026-03-20T02:53:37.913Z
+- Last updated: 2026-03-20T02:41:38.553Z
 - Last handoff: No explicit handoff captured yet.
 - Pending sessions remembered: 2
