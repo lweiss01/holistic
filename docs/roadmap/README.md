@@ -1,226 +1,199 @@
 # Holistic Roadmap
 
-This directory contains detailed implementation plans for upcoming Holistic features. Each roadmap document includes tasks, validation steps, testing strategy, and success criteria.
+This directory contains detailed implementation plans for Holistic features organized into phases. Each roadmap document includes tasks, validation steps, testing strategy, and success criteria.
 
-## Status Overview
+## ⚠️ CRITICAL: Implementation Order
 
-| # | Feature | Priority | Complexity | Status | Docs |
-|---|---------|----------|------------|--------|------|
-| 1 | **Structured Metadata** | High | Low-Medium | ✅ **Complete** | [docs/structured-metadata.md](../structured-metadata.md) |
-| 2 | **Daemon Passive Capture** | High | Medium | 📋 Planned | [02-daemon-passive-capture.md](./02-daemon-passive-capture.md) |
-| 3 | **Cross-Device Sync** | High | Medium-High | 📋 Planned | [03-cross-device-sync.md](./03-cross-device-sync.md) |
-| 4 | **Agent Integrations** | Medium-High | Low-Medium | 📋 Planned | [04-agent-integrations.md](./04-agent-integrations.md) |
-| 5 | **Visualization & Search** | Medium | Medium | 📋 Planned | [05-visualization-search.md](./05-visualization-search.md) |
+**Do NOT skip Phase 0.** Building features on a shaky foundation wastes time and creates embarrassing bugs when new users arrive.
 
----
+The roadmap is organized as: **Foundation → Growth → Extension**
 
-## 1. Structured Metadata ✅
-
-**Completed:** March 20, 2026
-
-Enhanced history and regression docs with rich metadata:
-- Severity levels (critical, high, medium, low, info)
-- Area tags (cli, daemon, state-management, docs, etc.)
-- Outcome status (success, partial, failed, ongoing)
-- Validation checklists for regression prevention
-- Session relationships and dependencies
-
-**Impact:** Agents can now quickly filter and assess importance of historical changes. Backward compatible with existing plain-text sessions.
-
-**Regressions to guard:**
-- Do not remove legacy `impactNotes` and `regressionRisks` string arrays - needed for backward compatibility
-- Rendering logic must prefer structured metadata when available, fall back gracefully to plain text
+1. **Phase 0: Code Hardening** - Fix foundational issues (MUST DO FIRST)
+2. **Phase 1: Feature Expansion** - Add high-value features
+3. **Phase 2: Team/Org Mode** - Enable collaborative workflows  
+4. **Phase 3: Audience Growth** - Marketing and community building
+5. **Phase 4: IDE Extensions** - Deep integrations (VS Code, etc.)
 
 ---
 
-## 2. Daemon Passive Capture
+## Phase Overview
 
-**Goal:** Enable true zero-touch background capture where the daemon watches the repo and creates automatic checkpoints when meaningful changes occur.
+| Phase | Focus | Priority | Status | Docs |
+|-------|-------|----------|--------|------|
+| **Phase 0** | **Code Hardening** | 🔴 **CRITICAL** | 📋 **START HERE** | [00-code-hardening.md](./00-code-hardening.md) |
+| **Phase 1** | **Feature Expansion** | 🟠 High | 📋 After Phase 0 | [01-feature-expansion.md](./01-feature-expansion.md) |
+| **Phase 2** | **Team/Org Mode** | 🟡 Medium-High | 📋 After Phase 1 | *Coming soon* |
+| **Phase 3** | **Audience Growth** | 🟢 Medium | 📋 After Phase 2 | *Coming soon* |
+| **Phase 4** | **IDE Extensions** | 🔵 Medium | 📋 After Phase 3 | *Coming soon* |
 
-**Key features:**
-- Background file watcher with smart debouncing
-- Auto-checkpoint on commits, branch switches, significant file changes
-- Platform-specific service installers (Windows Task Scheduler, macOS LaunchAgent, Linux systemd)
-- Daemon health monitoring and auto-restart
-- Configurable watch patterns and sensitivity
+### ✅ Completed
 
-**Estimated effort:** 2-3 sessions  
-**Affected areas:** `daemon`, `state-management`, `git-integration`
-
-**Success criteria:**
-- Daemon starts automatically on system boot (all platforms)
-- Auto-checkpoints created within 30s of meaningful changes
-- Zero manual `holistic checkpoint` commands needed for normal work
-- Daemon uptime >99% with automatic restart after crashes
-- CPU usage <1% idle, <5% during active file changes
-
-[Full plan →](./02-daemon-passive-capture.md)
+| Feature | Completed | Docs |
+|---------|-----------|------|
+| **Structured Metadata** | 2026-03-20 | [docs/structured-metadata.md](../structured-metadata.md) |
 
 ---
 
-## 3. Cross-Device State Sync
+## Phase 0: Code Hardening 🔴 CRITICAL
 
-**Goal:** Make cross-device continuity seamless by automating state synchronization via the dedicated `holistic/state` branch.
+**Goal:** Fix foundational code issues before any marketing or new features.
 
-**Key features:**
-- `holistic sync` and `holistic pull` commands for manual sync
-- Auto-sync on handoff, auto-pull on resume
-- Conflict resolution when two devices both create handoffs offline
-- State branch isolation (never merges into working branches)
-- Sync status tracking and health checks
+**Why This Can't Wait:**
+- Silent failures confuse users
+- No migration path = breaking changes for existing users
+- Unprofessional rough edges when new users arrive
+- Technical debt compounds with every new feature
 
-**Estimated effort:** 2-3 sessions  
-**Affected areas:** `sync`, `git-integration`, `cli`, `state-management`
+**Tasks:**
+1. Fix branch fallback ambiguity (`"master"` → `"unknown"`)
+2. Expand `AgentName` union (add Gemini, Copilot, Cursor, Goose, GSD)
+3. Add state migration pattern
+4. Consolidate readline usage (prevent interface leaks)
+5. Publish to npm (`private: false`)
 
-**Success criteria:**
-- Auto-sync works on all platforms (Windows, macOS, Linux)
-- Zero manual git commands needed for cross-device continuity
-- Conflict resolution succeeds >95% of time with auto-merge
-- State branch remains orphan (no common history with working branches)
-- Sync operation completes in <3 seconds on average
+**Effort:** 1-2 sessions  
+**Dependencies:** None
 
-[Full plan →](./03-cross-device-sync.md)
-
----
-
-## 4. Agent Integration Examples
-
-**Goal:** Lower the barrier to adoption by providing concrete, copy-paste integration examples for popular tools and workflows.
-
-**Key features:**
-- GitHub Actions workflow for PR-based resume and context comments
-- Pre-commit hook template for auto-checkpoint before every commit
-- VS Code extension stub with workspace open integration
-- Shell helper functions for common workflows (bash, zsh, PowerShell)
-- Integration guides for each major AI coding tool
-
-**Estimated effort:** 2-3 sessions  
-**Affected areas:** `adapters`, `docs`, `ux`, `architecture`
-
-**Success criteria:**
-- GitHub Actions workflow works on any Holistic-enabled repo
-- Git hooks auto-installed on `holistic init`
-- Shell helpers work on all platforms
-- VS Code extension activates and shows context
-- Users report <5 minutes to set up first integration
-
-[Full plan →](./04-agent-integrations.md)
+👉 **[Full Plan](./00-code-hardening.md)**
 
 ---
 
-## 5. Visualization & Search
+## Phase 1: Feature Expansion
 
-**Goal:** Make accumulated Holistic history searchable, filterable, and visualizable.
+**Goal:** Add features that make Holistic clearly better than doing nothing.
 
-**Key features:**
-- `holistic search` with keyword search and metadata filtering
-- `holistic timeline` with chronological overview and HTML export
-- `holistic diff` to compare two sessions
-- `holistic show` to display full session details
-- `holistic stats` for aggregated project analytics
-- Rich HTML visualization with interactive timeline
+**⚠️ Prerequisites:** Phase 0 MUST be complete first
 
-**Estimated effort:** 2-3 sessions  
-**Affected areas:** `cli`, `docs`, `ux`, `state-management`
+**Tasks:**
+1. MCP server mode (`holistic serve`)
+2. `holistic diff` command
+3. `holistic status` command
+4. Git hook installer (auto-checkpoint on commit)
+5. State file concurrency protection
 
-**Success criteria:**
-- Search returns relevant results in <1s for 100+ sessions
-- Timeline HTML loads in <2s for 50+ sessions
-- Filters reduce results accurately based on metadata
-- Users find old decisions faster than grepping raw JSON
-- HTML export is shareable with team members
+**Effort:** 3-4 sessions  
+**Dependencies:** Phase 0
 
-[Full plan →](./05-visualization-search.md)
+👉 **[Full Plan](./01-feature-expansion.md)**
 
 ---
 
-## Implementation Order Recommendation
+## Phase 2: Team/Org Mode
 
-### Phase 1: Foundation (Items 2-3)
-Start with **Daemon** and **Sync** since they're the foundation for true zero-touch cross-device continuity. These enable the core value proposition.
+**Goal:** Enable collaborative workflows with contributor tracking and team-level features.
 
-**Rationale:**
-- Daemon makes passive capture automatic
-- Sync makes cross-device "just work"
-- Together they deliver the "repo remembers what agents forget" promise
+**⚠️ Prerequisites:** Phase 1 MUST be complete first
 
-### Phase 2: Adoption (Item 4)
-Next, add **Integrations** to lower friction for new users.
+**Tasks:**
+1. Contributor identity in `SessionRecord`
+2. Per-contributor session filtering (`--contributor alice`)
+3. Team regression ownership
+4. `holistic export` for PR descriptions
+5. Team handoff visualization
 
-**Rationale:**
-- People can try Holistic in their existing workflow (GitHub Actions, VS Code, git hooks)
-- Copy-paste examples dramatically reduce setup time
-- Builds momentum and community contributions
+**Effort:** 2-3 sessions  
+**Dependencies:** Phase 1
 
-### Phase 3: Scale (Item 5)
-Finally, add **Visualization & Search** for long-term project memory.
-
-**Rationale:**
-- Only valuable after you have accumulated session history
-- Most useful for teams and long-running projects
-- Natural evolution from "capture everything" to "find anything"
+👉 **Full plan coming soon**
 
 ---
 
-## Dependencies Between Items
+## Phase 3: Audience Growth
 
-```mermaid
-graph TD
-    A[1. Structured Metadata ✅] --> B[2. Daemon]
-    A --> C[3. Sync]
-    A --> E[5. Visualization]
-    B --> C
-    C --> D[4. Integrations]
-    B --> D
-    E -.optional.-> D
-```
+**Goal:** Build community and grow the user base before investing in IDE extensions.
 
-- **Structured Metadata** enables richer search/filter in Visualization
-- **Daemon** can auto-trigger sync after checkpoints
-- **Sync** is most useful when daemon creates frequent checkpoints
-- **Integrations** benefit from daemon + sync being stable
-- **Visualization** can work independently but is better with structured metadata
+**⚠️ Prerequisites:** Phase 1-2 complete, features are solid
 
----
+**Tasks:**
+1. Website (`holistic.dev` or similar)
+2. "The Context Tax" blog post
+3. Discord / GitHub Discussions
+4. Community outreach (Reddit, Discord, etc.)
+5. GitHub topic tag and discoverability SEO
 
-## Risk Assessment
+**Effort:** 2-3 sessions  
+**Dependencies:** Solid features (Phase 1-2)
 
-### High Risk Items
-- **Sync (3):** Conflict resolution is complex, potential for data loss if bugs exist
-  - *Mitigation:* Extensive testing, atomic operations, state backups before merge
-
-### Medium Risk Items
-- **Daemon (2):** Platform-specific service installers can break on OS updates
-  - *Mitigation:* Fallback to manual startup, clear error messages, thorough platform testing
-
-### Low Risk Items
-- **Integrations (4):** Self-contained examples, users can opt-in selectively
-- **Visualization (5):** Read-only operations, low risk of data corruption
+👉 **Full plan coming soon**
 
 ---
 
-## Community Contribution Opportunities
+## Phase 4: IDE Extensions
 
-Each roadmap includes extension points for community contributions:
+**Goal:** Deep integrations with IDEs - build this AFTER you have a real community with real feedback.
 
-- **Daemon:** Add watchers for monorepos, cloud IDE integration
-- **Sync:** Alternative backends (S3, Google Cloud, Notion API)
-- **Integrations:** Adapters for Cursor, Windsurf, Gemini, Aider, etc.
-- **Visualization:** Custom themes, export formats, analytics dashboards
+**⚠️ Prerequisites:** Phase 3 complete (real users providing feedback)
+
+**Tasks:**
+1. VS Code extension (session status bar, sidebar panel, inline checkpoint)
+2. Cursor integration (leverage MCP server from Phase 1)
+3. JetBrains plugin (IntelliJ, PyCharm, WebStorm)
+4. Neovim/Vim plugin
+5. Cross-IDE sync and handoff
+
+**Effort:** 4-5 sessions  
+**Dependencies:** Phase 3 (community feedback)
+
+👉 **Full plan coming soon**
 
 ---
 
-## Feedback Welcome
+## 📋 Suggested Issue Order
 
-These roadmaps are living documents. If you have:
-- Better implementation ideas
-- Additional use cases to support
-- Concerns about complexity or risks
+If you want to turn this into a GitHub issue backlog right now:
 
-Please open an issue or PR!
+### Phase 0 Issues (Critical - Do First)
+1. Fix branch fallback ambiguity (`git.ts` + `state.ts`)
+2. Expand `AgentName` + add adapter docs (Gemini, Copilot, Cursor, Goose, GSD)
+3. Add `migrateState()` skeleton
+4. Consolidate readline in `cli.ts`
+5. Flip `private: false`, publish to npm
+
+### Phase 1 Issues (After Phase 0)
+6. Add `holistic status` command
+7. Add git hook installer to `holistic init`
+8. MCP server mode (`holistic serve`)
+9. State lock file for concurrency
+10. `holistic diff` command
+
+### Phase 2 Issues (Team Mode)
+11. Contributor identity + team session tracking
+12. `holistic export` for PR descriptions
+13. Per-contributor filtering
+14. Team regression ownership
+
+### Phase 3 Issues (Audience Growth)
+15. Landing page (`holistic.dev`)
+16. "The Context Tax" blog post
+17. Community setup (Discord/Discussions)
+18. Community outreach plan
+
+### Phase 4 Issues (IDE Extensions)
+19. VS Code extension scaffold
+20. Cursor integration
+21. JetBrains plugin
+22. Neovim/Vim plugin
+
+---
+
+## Original Feature Roadmaps (Reference)
+
+**Note:** The following roadmaps (02-05) were created before incorporating the phase-based approach. They contain valuable implementation details and code examples, but should be considered **reference material** rather than the active roadmap. The phase-based approach above (Phases 0-4) supersedes these.
+
+### For Reference Only:
+
+- **[02-daemon-passive-capture.md](./02-daemon-passive-capture.md)** - Technical details for background file watching and auto-checkpointing. Relevant parts will be incorporated into Phase 2 and 4.
+
+- **[03-cross-device-sync.md](./03-cross-device-sync.md)** - State branch sync implementation. Relevant parts will be incorporated into Phase 2 (Team Mode).
+
+- **[04-agent-integrations.md](./04-agent-integrations.md)** - GitHub Actions, git hooks, shell helpers, VS Code extension. Parts incorporated into Phase 1 (git hooks) and Phase 4 (IDE extensions).
+
+- **[05-visualization-search.md](./05-visualization-search.md)** - Search, timeline, diff, and stats commands. Parts incorporated into Phase 1 (`holistic diff`) and Phase 2 (`holistic export`).
+
+These documents contain implementation code examples that may be useful when building the features described in Phases 1-4.
 
 ---
 
 **Last updated:** March 20, 2026  
-**Roadmap version:** 1.0  
-**Next review:** After each major feature completion
+**Roadmap version:** 2.0 (Phase-based)  
+**Next review:** After Phase 0 completion
