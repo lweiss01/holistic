@@ -89,6 +89,37 @@ function ensureDirs(paths: RuntimePaths): void {
   fs.mkdirSync(paths.adaptersDir, { recursive: true });
 }
 
+const CURRENT_STATE_VERSION = 1;
+
+function migrateState(state: HolisticState, fromVersion: number, toVersion: number): HolisticState {
+  let migrated = { ...state };
+  
+  // No migrations needed yet, but the pattern is in place for future schema changes
+  // Example for when we need to migrate from v1 to v2:
+  // if (fromVersion < 2) {
+  //   migrated = migrateV1ToV2(migrated);
+  // }
+  
+  migrated.version = toVersion;
+  migrated.updatedAt = now();
+  
+  // Log migration for debugging
+  if (fromVersion !== toVersion) {
+    process.stdout.write(`Migrated Holistic state from v${fromVersion} to v${toVersion}\n`);
+  }
+  
+  return migrated;
+}
+
+// Future migration example (commented out until needed):
+// function migrateV1ToV2(state: HolisticState): HolisticState {
+//   return {
+//     ...state,
+//     // Add new fields with defaults
+//     // newField: "default value",
+//   };
+// }
+
 export function loadState(rootDir: string): { state: HolisticState; paths: RuntimePaths; created: boolean } {
   const paths = getRuntimePaths(rootDir);
   ensureDirs(paths);
@@ -98,7 +129,14 @@ export function loadState(rootDir: string): { state: HolisticState; paths: Runti
   }
 
   const raw = fs.readFileSync(paths.stateFile, "utf8");
-  const state = JSON.parse(raw) as HolisticState;
+  let state = JSON.parse(raw) as HolisticState;
+  
+  // Migrate if needed
+  if (state.version < CURRENT_STATE_VERSION) {
+    state = migrateState(state, state.version, CURRENT_STATE_VERSION);
+  }
+  
+  // Apply defaults
   const defaults = defaultDocIndex();
   state.docIndex = {
     ...defaults,
