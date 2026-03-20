@@ -52,7 +52,7 @@ The roadmap is organized as: Foundation -> Utility -> Workflow Disappearance -> 
 |-------|-------|----------|--------|------|
 | **Phase 0** | **Code Hardening** | Critical | Start here | [00-code-hardening.md](./00-code-hardening.md) |
 | **Phase 1** | **Feature Expansion** | High | After Phase 0 | [01-feature-expansion.md](./01-feature-expansion.md) |
-| **Phase 1.5** | **Workflow Disappearance** | High | Next planning target after Phase 1 | *Coming soon* |
+| **Phase 1.5** | **Workflow Disappearance** | High | Ready to implement after Phase 1 | [01.5-workflow-disappearance.md](./01.5-workflow-disappearance.md) |
 | **Phase 2** | **Team/Org Mode** | Medium-High | After Phase 1 | *Coming soon* |
 | **Phase 3** | **Core Workflow Tightening** | Medium | After Phase 2 | *Coming soon* |
 | **Phase 4** | **Focused Integrations** | Medium | After Phase 3 | *Coming soon* |
