@@ -114,6 +114,48 @@ function currentSnapshot(state: HolisticState): {
   };
 }
 
+function parseKnownFixes(regressions: string[]): { fixes: string[]; other: string[] } {
+  const fixes: string[] = [];
+  const other: string[] = [];
+  for (const r of regressions) {
+    if (r.startsWith("[FIX] ")) {
+      fixes.push(r);
+    } else {
+      other.push(r);
+    }
+  }
+  return { fixes, other };
+}
+
+function renderKnownFixes(fixes: string[]): string {
+  if (fixes.length === 0) {
+    return "";
+  }
+  const items = fixes.map((fix) => {
+    // Format: [FIX] <description> | files: <files> | risk: <risk>
+    const withoutPrefix = fix.slice("[FIX] ".length);
+    const parts = withoutPrefix.split(" | ");
+    const description = parts[0] ?? withoutPrefix;
+    const filesPart = parts.find((p) => p.startsWith("files: "));
+    const riskPart = parts.find((p) => p.startsWith("risk: "));
+    let entry = `- ${description}`;
+    if (filesPart) {
+      entry += `\n  Sensitive files: ${filesPart.slice("files: ".length)}`;
+    }
+    if (riskPart) {
+      entry += `\n  Risk: ${riskPart.slice("risk: ".length)}`;
+    }
+    return entry;
+  }).join("\n");
+  return `## Known Fixes — Do Not Regress
+
+⚠️  If you are about to edit a file listed here, STOP and read the fix entry first.
+
+${items}
+
+`;
+}
+
 function renderHolisticMd(state: HolisticState): string {
   const snapshot = currentSnapshot(state);
   const pendingPreview = state.pendingWork.slice(0, 5);
@@ -121,7 +163,24 @@ function renderHolisticMd(state: HolisticState): string {
     .map(([name, target]) => `- ${name}: [${target}](${target})`)
     .join("\n");
 
+  const { fixes, other: otherRegressions } = parseKnownFixes(snapshot.regressions);
+  const knownFixesBlock = renderKnownFixes(fixes);
+
   return `# HOLISTIC
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     AGENT INSTRUCTIONS — READ THIS ENTIRE FILE BEFORE DOING ANYTHING ELSE
+     ═══════════════════════════════════════════════════════════════════════
+
+  1. Read this file top-to-bottom.
+  2. Read AGENTS.md for the setup steps specific to your agent.
+  3. Summarise to the user: what was last worked on, what's planned next.
+  4. Ask: "Continue as planned, tweak the plan, or do something different?"
+  5. Run \`holistic resume --agent <your-agent-name>\` to open a session.
+
+  ⚠️  If you are about to edit a file listed under KNOWN FIXES, STOP and
+     read that fix entry carefully before proceeding.
+  ════════════════════════════════════════════════════════════════════════ -->
 
 ## Start Here
 
@@ -133,7 +192,7 @@ Open repo, start working, Holistic quietly keeps continuity alive.
 
 That is the intended end state for this project. Prefer changes that reduce ceremony, keep continuity durable, and make Holistic fade further into the background of normal work.
 
-## Current Objective
+${knownFixesBlock}## Current Objective
 
 **${snapshot.title}**
 
@@ -161,7 +220,7 @@ ${renderList(snapshot.impacts, "No durable impact notes recorded yet.")}
 
 ## Regression Watch
 
-${renderList(snapshot.regressions, "Review the regression watch document before changing related behavior.")}
+${renderList(otherRegressions, "Review the regression watch document before changing related behavior.")}
 
 ## Key Assumptions
 
@@ -206,6 +265,22 @@ ${adapterLinks}
 function renderAgentsMd(state: HolisticState): string {
   return `# AGENTS
 
+<!-- ═══════════════════════════════════════════════════════════════════
+     AGENT AUTO-START INSTRUCTIONS
+     ═══════════════════════════════════════════════════════════════════
+
+  YOU ARE READING THIS FILE AUTOMATICALLY AT SESSION START. GOOD.
+  Now do the following BEFORE responding to the user or doing any work:
+
+  1. Read HOLISTIC.md in full.
+  2. Summarise to the user: what was last worked on, what's planned next,
+     and flag any KNOWN FIXES they should be aware of.
+  3. Ask: "Continue as planned, tweak the plan, or do something different?"
+  4. Run: holistic resume --agent <your-agent-name>
+
+  DO NOT skip step 1. HOLISTIC.md is the source of truth.
+  ══════════════════════════════════════════════════════════════════ -->
+
 ## Holistic Protocol
 
 ### Product North Star
@@ -218,8 +293,7 @@ Every agent working in this repo should:
 
 1. Read [HOLISTIC.md](./HOLISTIC.md) first.
 2. Review [Project History](./.holistic/context/project-history.md), [Regression Watch](./.holistic/context/regression-watch.md), and [Zero-Touch Architecture](./.holistic/context/zero-touch.md) before changing behavior that may already have been fixed.
-3. Read the app-specific adapter in \
-\`${state.docIndex.contextDir}/adapters/\`.
+3. Read the app-specific adapter in \`${state.docIndex.contextDir}/adapters/\`.
 4. If the Holistic daemon is installed, assume passive capture is already running in the background.
 5. Run \`holistic resume --agent <codex|claude|antigravity|gemini|copilot|cursor|goose|gsd>\` only when you need an explicit recap or recovery flow.
 6. Recap the current state for the user and ask whether to continue, tweak the plan, or start something new.
@@ -228,9 +302,19 @@ Every agent working in this repo should:
 ## Handoff Commands
 
 - \`holistic checkpoint --reason "<why>"\`
+- \`holistic checkpoint --fixed "<bug>" --fix-files "<file>" --fix-risk "<what would reintroduce it>"\`
 - \`holistic handoff\`
 - \`holistic start-new --goal "<goal>"\`
 - \`holistic watch\`
+
+## Adding a New Agent Adapter
+
+To add instructions for a new agent, create a file at:
+
+\`${state.docIndex.contextDir}/adapters/<agent-name>.md\`
+
+Copy any existing adapter as a template and customise the agent name and startup steps.
+Do not edit Holistic source files to register agents — adapters are data, not code.
 `;
 }
 
@@ -483,6 +567,70 @@ Updated: ${state.updatedAt}
 `;
 }
 
+function renderRootAgentDoc(agentName: string, commandName: string): string {
+  return `## Holistic — cross-agent session tracking
+
+**At the start of every session, before doing anything else:**
+1. Read \`HOLISTIC.md\` in full.
+2. Read \`AGENTS.md\` — find the section for your agent and follow its setup steps.
+3. Summarise to the user: what was last worked on, what's planned next, and any known fixes to protect.
+4. Ask: "Continue as planned, tweak the plan, or do something different?"
+5. Run \`holistic resume --agent ${commandName}\` to register the session.
+
+**After significant work or on any git commit (hook fires automatically):**
+- Run \`holistic checkpoint --reason '<what you just did>'\`
+- To record a fix that must not regress: \`holistic checkpoint --fixed '<bug>' --fix-files '<file>' --fix-risk '<what reintroduces it>'\`
+
+**At the end of every session:**
+- Run \`holistic handoff\` — this opens a dialog to capture the summary.
+- Then commit: \`git add HOLISTIC.md AGENTS.md CLAUDE.md GEMINI.md HISTORY.md .holistic/ && git commit -m 'docs(holistic): handoff'\`
+
+**Never touch files listed in the KNOWN FIXES section of HOLISTIC.md without reading that section first.**
+`;
+}
+
+function renderRootHistoryMd(paths: RuntimePaths, state: HolisticState): string {
+  const sessions = state.activeSession
+    ? [state.activeSession, ...readArchivedSessions(paths)]
+    : readArchivedSessions(paths);
+
+  const header = `# History — ${state.projectName}
+
+_Append-only log of every Holistic session. Newest entries at the bottom._
+
+---
+`;
+
+  if (sessions.length === 0) {
+    return header + "_No sessions recorded yet._\n";
+  }
+
+  const entries = [...sessions].reverse().map((session) => {
+    const when = session.endedAt || session.updatedAt;
+    let entry = `## Session \`${session.id}\` | ${when} | ${session.agent}\n\n`;
+    entry += `**Branch:** \`${session.branch}\`  \n`;
+    entry += `**Status:** ${session.status}  \n`;
+    entry += `**Goal:** ${session.currentGoal || "_unset_"}  \n`;
+    entry += `**Checkpoints:** ${session.checkpointCount}\n`;
+
+    if (session.workDone.length > 0) {
+      entry += `\n**Work done:**\n${session.workDone.map((w) => `✅ ${w}`).join("\n")}\n`;
+    }
+
+    if (session.nextSteps.length > 0) {
+      entry += `\n**Recommended next steps:**\n${session.nextSteps.map((s) => `- ${s}`).join("\n")}\n`;
+    }
+
+    if (session.changedFiles.length > 0) {
+      entry += `\n**Files changed:**\n${session.changedFiles.map((f) => `- \`${f}\``).join("\n")}\n`;
+    }
+
+    return entry;
+  });
+
+  return header + entries.join("\n---\n\n") + "\n";
+}
+
 export function writeDerivedDocs(paths: RuntimePaths, state: HolisticState): void {
   fs.mkdirSync(paths.holisticDir, { recursive: true });
   fs.mkdirSync(paths.contextDir, { recursive: true });
@@ -499,6 +647,10 @@ export function writeDerivedDocs(paths: RuntimePaths, state: HolisticState): voi
   fs.writeFileSync(`${paths.adaptersDir}/codex.md`, renderAdapter("Codex", "codex"), "utf8");
   fs.writeFileSync(`${paths.adaptersDir}/claude-cowork.md`, renderAdapter("Claude/Cowork", "claude"), "utf8");
   fs.writeFileSync(`${paths.adaptersDir}/antigravity.md`, renderAdapter("Antigravity", "antigravity"), "utf8");
+  // Root-level files auto-read by specific agents
+  fs.writeFileSync(path.join(paths.rootDir, "CLAUDE.md"), renderRootAgentDoc("Claude/Cowork", "claude"), "utf8");
+  fs.writeFileSync(path.join(paths.rootDir, "GEMINI.md"), renderRootAgentDoc("Antigravity/Gemini", "antigravity"), "utf8");
+  fs.writeFileSync(path.join(paths.rootDir, "HISTORY.md"), renderRootHistoryMd(paths, state), "utf8");
 }
 
 
