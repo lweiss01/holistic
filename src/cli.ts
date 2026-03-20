@@ -1,18 +1,25 @@
+import { spawn } from "node:child_process";
+import path from "node:path";
 import { createInterface, type Interface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { captureRepoSnapshot, clearPendingCommit, getGitSnapshot, writePendingCommit } from './core/git.ts';
 import { writeDerivedDocs } from './core/docs.ts';
 import { initializeHolistic } from './core/setup.ts';
 import {
   applyHandoff,
   checkpointState,
+  computeSessionDiff,
   continueFromLatest,
   getResumePayload,
+  getRuntimePaths,
+  loadSessionById,
   loadState,
   saveState,
   startNewSession,
+  withStateLock,
 } from './core/state.ts';
-import type { AgentName, CheckpointInput, HandoffInput } from './core/types.ts';
+import type { AgentName, CheckpointInput, HandoffInput, HolisticState, RuntimePaths, SessionDiff, SessionRecord } from './core/types.ts';
 
 interface ParsedArgs {
   command: string;
@@ -63,11 +70,11 @@ function asAgent(value: string): AgentName {
     "goose",
     "gsd",
   ];
-  
+
   if (validAgents.includes(value as AgentName)) {
     return value as AgentName;
   }
-  
+
   return "unknown";
 }
 
@@ -79,20 +86,44 @@ function printHelp(): void {
   process.stdout.write(`Holistic CLI
 
 Usage:
-  holistic init [--install-daemon] [--platform win32|darwin|linux] [--interval 30] [--remote origin] [--state-branch holistic/state]
+  holistic init [--install-daemon] [--install-hooks] [--platform win32|darwin|linux] [--interval 30] [--remote origin] [--state-branch holistic/state]
   holistic resume [--agent codex|claude|antigravity|gemini|copilot|cursor|goose|gsd] [--continue] [--json]
   holistic checkpoint --reason "<reason>" [--goal "<goal>"] [--status "<status>"] [--plan "<step>"]...
   holistic handoff [--summary "<summary>"] [--next "<step>"]...
   holistic start-new --goal "<goal>" [--title "<title>"] [--plan "<step>"]...
+  holistic status
+  holistic diff --from "<session-id>" --to "<session-id>" [--format text|json]
+  holistic serve
   holistic watch [--agent codex|claude|antigravity|gemini|copilot|cursor|goose|gsd] [--interval 60]
 `);
 }
 
-function persist(rootDir: string, state: ReturnType<typeof loadState>["state"], paths: ReturnType<typeof loadState>["paths"]): ReturnType<typeof loadState>["state"] {
+function persistLocked(rootDir: string, state: HolisticState, paths: RuntimePaths): HolisticState {
   writeDerivedDocs(paths, state);
   state.repoSnapshot = captureRepoSnapshot(rootDir);
-  saveState(paths, state);
+  saveState(paths, state, { locked: true });
   return state;
+}
+
+function mutateState(rootDir: string, mutator: (state: HolisticState, paths: RuntimePaths) => HolisticState): HolisticState {
+  const paths = getRuntimePaths(rootDir);
+  return withStateLock(paths, () => {
+    const { state, paths: lockedPaths } = loadState(rootDir);
+    const nextState = mutator(state, lockedPaths);
+    return persistLocked(rootDir, nextState, lockedPaths);
+  });
+}
+
+function runtimeScript(name: "mcp-server"): { scriptPath: string; useStripTypes: boolean } {
+  const currentFile = fileURLToPath(import.meta.url);
+  const extension = path.extname(currentFile);
+  const runtimeDir = path.dirname(currentFile);
+  const useStripTypes = extension === ".ts";
+
+  return {
+    scriptPath: path.resolve(runtimeDir, `${name}${useStripTypes ? ".ts" : ".js"}`),
+    useStripTypes,
+  };
 }
 
 async function ask(question: string, fallback = "", rl?: Interface): Promise<string> {
@@ -115,12 +146,149 @@ async function promptList(question: string, fallback: string[], rl?: Interface):
     .filter(Boolean);
 }
 
+function formatDurationDays(durationMs: number): string {
+  return (durationMs / (1000 * 60 * 60 * 24)).toFixed(1);
+}
+
+export function renderDiff(fromSession: SessionRecord, toSession: SessionRecord, diff: SessionDiff): string {
+  const lines: string[] = [];
+  lines.push("Holistic Session Diff");
+  lines.push("");
+  lines.push(`FROM: ${fromSession.title} (${fromSession.id})`);
+  lines.push(`TO:   ${toSession.title} (${toSession.id})`);
+  lines.push(`Time span: ${diff.timeSpan.from} -> ${diff.timeSpan.to} (${formatDurationDays(diff.timeSpan.durationMs)} days)`);
+
+  if (diff.goalChanged) {
+    lines.push("");
+    lines.push("Goal Changed:");
+    lines.push(`  FROM: ${diff.fromGoal}`);
+    lines.push(`  TO:   ${diff.toGoal}`);
+  }
+
+  if (diff.newWork.length > 0) {
+    lines.push("");
+    lines.push("New Work:");
+    for (const item of diff.newWork) {
+      lines.push(`  + ${item}`);
+    }
+  }
+
+  if (diff.newRegressions.length > 0) {
+    lines.push("");
+    lines.push("New Regression Risks:");
+    for (const item of diff.newRegressions) {
+      lines.push(`  + ${item}`);
+    }
+  }
+
+  if (diff.clearedRegressions.length > 0) {
+    lines.push("");
+    lines.push("Cleared Regression Risks:");
+    for (const item of diff.clearedRegressions) {
+      lines.push(`  - ${item}`);
+    }
+  }
+
+  if (diff.newBlockers.length > 0) {
+    lines.push("");
+    lines.push("New Blockers:");
+    for (const item of diff.newBlockers) {
+      lines.push(`  + ${item}`);
+    }
+  }
+
+  if (diff.clearedBlockers.length > 0) {
+    lines.push("");
+    lines.push("Cleared Blockers:");
+    for (const item of diff.clearedBlockers) {
+      lines.push(`  - ${item}`);
+    }
+  }
+
+  lines.push("");
+  lines.push(`File changes: +${diff.fileChanges.new.length} new, -${diff.fileChanges.removed.length} removed`);
+  if (diff.fileChanges.new.length > 0) {
+    for (const file of diff.fileChanges.new) {
+      lines.push(`  + ${file}`);
+    }
+  }
+  if (diff.fileChanges.removed.length > 0) {
+    for (const file of diff.fileChanges.removed) {
+      lines.push(`  - ${file}`);
+    }
+  }
+  return lines.join("\n") + "\n";
+}
+
+export function renderStatus(state: HolisticState): string {
+  const lines: string[] = [];
+  lines.push("Holistic Status");
+  lines.push("");
+
+  if (!state.activeSession) {
+    lines.push("No active session.");
+
+    if (state.lastHandoff) {
+      lines.push("");
+      lines.push(`Last handoff: ${state.lastHandoff.summary}`);
+      lines.push(`Next action: ${state.lastHandoff.nextAction}`);
+    }
+
+    if (state.pendingWork.length > 0) {
+      lines.push("");
+      lines.push(`Pending work: ${state.pendingWork.length} item(s)`);
+      for (const item of state.pendingWork.slice(0, 3)) {
+        lines.push(`  - ${item.title}`);
+      }
+    }
+
+    return lines.join("\n") + "\n";
+  }
+
+  const session = state.activeSession;
+  lines.push(`Session: ${session.id}`);
+  lines.push(`Title: ${session.title}`);
+  lines.push(`Agent: ${session.agent}`);
+  lines.push(`Branch: ${session.branch}`);
+  lines.push(`Started: ${session.startedAt}`);
+  lines.push(`Checkpoints: ${session.checkpointCount}`);
+  lines.push("");
+  lines.push(`Goal: ${session.currentGoal}`);
+  lines.push(`Status: ${session.latestStatus}`);
+
+  if (session.nextSteps.length > 0) {
+    lines.push("");
+    lines.push("Next steps:");
+    for (const step of session.nextSteps) {
+      lines.push(`  - ${step}`);
+    }
+  }
+
+  if (session.blockers.length > 0) {
+    lines.push("");
+    lines.push("Blockers:");
+    for (const blocker of session.blockers) {
+      lines.push(`  - ${blocker}`);
+    }
+  }
+
+  if (session.regressionRisks.length > 0) {
+    lines.push("");
+    lines.push(`Regression watch: ${session.regressionRisks.length} item(s)`);
+  }
+
+  lines.push("");
+  lines.push(`Changed files: ${session.changedFiles.length}`);
+  return lines.join("\n") + "\n";
+}
+
 async function handleInit(rootDir: string, parsed: ParsedArgs): Promise<number> {
   const platformFlag = firstFlag(parsed.flags, "platform", process.platform);
   const platform = platformFlag === "windows" ? "win32" : platformFlag === "macos" ? "darwin" : platformFlag === "linux" ? "linux" : platformFlag;
   const intervalSeconds = Number.parseInt(firstFlag(parsed.flags, "interval", "30"), 10);
   const result = initializeHolistic(rootDir, {
     installDaemon: firstFlag(parsed.flags, "install-daemon") === "true",
+    installGitHooks: firstFlag(parsed.flags, "install-hooks") === "true",
     platform: platform as NodeJS.Platform,
     intervalSeconds,
     remote: firstFlag(parsed.flags, "remote", "origin"),
@@ -133,92 +301,94 @@ Config: ${result.configFile}
 Platform: ${result.platform}
 Daemon install: ${result.installed ? `enabled at ${result.startupTarget}` : "not installed"}
 `);
+
+  if (result.gitHooksInstalled) {
+    process.stdout.write(`Git hooks installed: ${result.gitHooks.join(", ")}\n`);
+  }
+
   return 0;
 }
 
 async function handleResume(rootDir: string, parsed: ParsedArgs): Promise<number> {
-  const { state, paths } = loadState(rootDir);
   const agent = asAgent(firstFlag(parsed.flags, "agent", "unknown"));
 
-  let nextState = state;
   if (firstFlag(parsed.flags, "continue") === "true") {
-    nextState = continueFromLatest(rootDir, state, agent);
+    const nextState = mutateState(rootDir, (state) => continueFromLatest(rootDir, state, agent));
+    const payload = getResumePayload(nextState, agent);
+    if (firstFlag(parsed.flags, "json") === "true") {
+      printJson(payload);
+      return 0;
+    }
+
+    process.stdout.write(`Holistic resume\n\n${payload.recap.map((line) => `- ${line}`).join("\n")}\n\nChoices: ${payload.choices.join(", ")}\nAdapter doc: ${payload.adapterDoc}\nRecommended command: ${payload.recommendedCommand}\nLong-term history: ${nextState.docIndex.historyDoc}\nRegression watch: ${nextState.docIndex.regressionDoc}\nZero-touch architecture: ${nextState.docIndex.zeroTouchDoc}\n`);
+    return 0;
   }
 
-  persist(rootDir, nextState, paths);
-
-  const payload = getResumePayload(nextState, agent);
+  const { state } = loadState(rootDir);
+  const payload = getResumePayload(state, agent);
   if (firstFlag(parsed.flags, "json") === "true") {
     printJson(payload);
     return 0;
   }
 
-  process.stdout.write(`Holistic resume\n\n${payload.recap.map((line) => `- ${line}`).join("\n")}\n\nChoices: ${payload.choices.join(", ")}\nAdapter doc: ${payload.adapterDoc}\nRecommended command: ${payload.recommendedCommand}\nLong-term history: ${nextState.docIndex.historyDoc}\nRegression watch: ${nextState.docIndex.regressionDoc}\nZero-touch architecture: ${nextState.docIndex.zeroTouchDoc}\n`);
+  process.stdout.write(`Holistic resume\n\n${payload.recap.map((line) => `- ${line}`).join("\n")}\n\nChoices: ${payload.choices.join(", ")}\nAdapter doc: ${payload.adapterDoc}\nRecommended command: ${payload.recommendedCommand}\nLong-term history: ${state.docIndex.historyDoc}\nRegression watch: ${state.docIndex.regressionDoc}\nZero-touch architecture: ${state.docIndex.zeroTouchDoc}\n`);
   return 0;
 }
 
 async function handleCheckpoint(rootDir: string, parsed: ParsedArgs): Promise<number> {
-  const { state, paths } = loadState(rootDir);
-  const input: CheckpointInput = {
-    agent: asAgent(firstFlag(parsed.flags, "agent", state.activeSession?.agent ?? "unknown")),
-    reason: firstFlag(parsed.flags, "reason", "manual"),
-    goal: firstFlag(parsed.flags, "goal"),
-    title: firstFlag(parsed.flags, "title"),
-    status: firstFlag(parsed.flags, "status"),
-    plan: listFlag(parsed.flags, "plan"),
-    done: listFlag(parsed.flags, "done"),
-    tried: listFlag(parsed.flags, "tried"),
-    next: listFlag(parsed.flags, "next"),
-    assumptions: listFlag(parsed.flags, "assumption"),
-    blockers: listFlag(parsed.flags, "blocker"),
-    references: listFlag(parsed.flags, "ref"),
-    impacts: listFlag(parsed.flags, "impact"),
-    regressions: listFlag(parsed.flags, "regression"),
-  };
+  const nextState = mutateState(rootDir, (state) => {
+    const input: CheckpointInput = {
+      agent: asAgent(firstFlag(parsed.flags, "agent", state.activeSession?.agent ?? "unknown")),
+      reason: firstFlag(parsed.flags, "reason", "manual"),
+      goal: firstFlag(parsed.flags, "goal"),
+      title: firstFlag(parsed.flags, "title"),
+      status: firstFlag(parsed.flags, "status"),
+      plan: listFlag(parsed.flags, "plan"),
+      done: listFlag(parsed.flags, "done"),
+      tried: listFlag(parsed.flags, "tried"),
+      next: listFlag(parsed.flags, "next"),
+      assumptions: listFlag(parsed.flags, "assumption"),
+      blockers: listFlag(parsed.flags, "blocker"),
+      references: listFlag(parsed.flags, "ref"),
+      impacts: listFlag(parsed.flags, "impact"),
+      regressions: listFlag(parsed.flags, "regression"),
+    };
+    return checkpointState(rootDir, state, input);
+  });
 
-  const nextState = checkpointState(rootDir, state, input);
-  persist(rootDir, nextState, paths);
-
-  process.stdout.write(`Checkpoint saved for ${nextState.activeSession?.id ?? "session"}.\nBranch: ${nextState.activeSession?.branch ?? "master"}\nChanged files: ${nextState.activeSession?.changedFiles.length ?? 0}\nHistory doc: ${nextState.docIndex.historyDoc}\nRegression watch: ${nextState.docIndex.regressionDoc}\n`);
+  process.stdout.write(`Checkpoint saved for ${nextState.activeSession?.id ?? "session"}.\nBranch: ${nextState.activeSession?.branch ?? "unknown"}\nChanged files: ${nextState.activeSession?.changedFiles.length ?? 0}\nHistory doc: ${nextState.docIndex.historyDoc}\nRegression watch: ${nextState.docIndex.regressionDoc}\n`);
   return 0;
 }
 
 async function handleStartNew(rootDir: string, parsed: ParsedArgs): Promise<number> {
-  const { state, paths } = loadState(rootDir);
   const agent = asAgent(firstFlag(parsed.flags, "agent", "unknown"));
-  
-  // Create readline interface once for all prompts
   const rl = createInterface({ input, output });
-  
+
   try {
     const goal = firstFlag(parsed.flags, "goal") || await ask("New session goal", "Capture the next task", rl);
     const title = firstFlag(parsed.flags, "title");
     const plan = listFlag(parsed.flags, "plan");
     const finalPlan = plan.length > 0 ? plan : await promptList("Initial plan steps", ["Read HOLISTIC.md", "Confirm the next concrete step"], rl);
 
-    const nextState = startNewSession(rootDir, state, agent, goal, finalPlan, title);
-    persist(rootDir, nextState, paths);
-
+    const nextState = mutateState(rootDir, (state) => startNewSession(rootDir, state, agent, goal, finalPlan, title));
     process.stdout.write(`Started ${nextState.activeSession?.id} for goal: ${nextState.activeSession?.currentGoal}\n`);
     return 0;
   } finally {
-    // Close interface once at the end
     rl.close();
   }
 }
 
 async function handleHandoff(rootDir: string, parsed: ParsedArgs): Promise<number> {
-  const { state, paths } = loadState(rootDir);
+  const { state } = loadState(rootDir);
   if (!state.activeSession) {
     process.stderr.write("No active session to hand off.\n");
     return 1;
   }
 
-  // Create readline interface once for all prompts
   const rl = createInterface({ input, output });
 
   try {
-    const input: HandoffInput = {
+    const handoffInput: HandoffInput = {
       summary: firstFlag(parsed.flags, "summary"),
       done: listFlag(parsed.flags, "done"),
       tried: listFlag(parsed.flags, "tried"),
@@ -231,87 +401,140 @@ async function handleHandoff(rootDir: string, parsed: ParsedArgs): Promise<numbe
       status: firstFlag(parsed.flags, "status"),
     };
 
-    if (!input.summary) {
-      input.summary = await ask("Handoff summary", state.activeSession.latestStatus || state.activeSession.currentGoal, rl);
+    if (!handoffInput.summary) {
+      handoffInput.summary = await ask("Handoff summary", state.activeSession.latestStatus || state.activeSession.currentGoal, rl);
     }
-    if (input.done?.length === 0) {
-      input.done = await promptList("Work completed", state.activeSession.workDone, rl);
+    if (handoffInput.done?.length === 0) {
+      handoffInput.done = await promptList("Work completed", state.activeSession.workDone, rl);
     }
-    if (input.tried?.length === 0) {
-      input.tried = await promptList("What was tried", state.activeSession.triedItems, rl);
+    if (handoffInput.tried?.length === 0) {
+      handoffInput.tried = await promptList("What was tried", state.activeSession.triedItems, rl);
     }
-    if (input.next?.length === 0) {
-      input.next = await promptList("What should happen next", state.activeSession.nextSteps, rl);
+    if (handoffInput.next?.length === 0) {
+      handoffInput.next = await promptList("What should happen next", state.activeSession.nextSteps, rl);
     }
-    if (input.impacts?.length === 0) {
-      input.impacts = await promptList("Overall impact on the project", state.activeSession.impactNotes, rl);
+    if (handoffInput.impacts?.length === 0) {
+      handoffInput.impacts = await promptList("Overall impact on the project", state.activeSession.impactNotes, rl);
     }
-    if (input.regressions?.length === 0) {
-      input.regressions = await promptList("Regression risks to guard", state.activeSession.regressionRisks, rl);
+    if (handoffInput.regressions?.length === 0) {
+      handoffInput.regressions = await promptList("Regression risks to guard", state.activeSession.regressionRisks, rl);
     }
-    if (input.assumptions?.length === 0) {
-      input.assumptions = await promptList("Important assumptions", state.activeSession.assumptions, rl);
+    if (handoffInput.assumptions?.length === 0) {
+      handoffInput.assumptions = await promptList("Important assumptions", state.activeSession.assumptions, rl);
     }
-    if (input.blockers?.length === 0) {
-      input.blockers = await promptList("Known blockers", state.activeSession.blockers, rl);
+    if (handoffInput.blockers?.length === 0) {
+      handoffInput.blockers = await promptList("Known blockers", state.activeSession.blockers, rl);
     }
-    if (input.references?.length === 0) {
-      input.references = await promptList("References and docs", state.activeSession.references, rl);
+    if (handoffInput.references?.length === 0) {
+      handoffInput.references = await promptList("References and docs", state.activeSession.references, rl);
     }
 
-    const nextState = applyHandoff(rootDir, state, input);
-    persist(rootDir, nextState, paths);
-
-    if (nextState.pendingCommit) {
-      writePendingCommit(paths, nextState.pendingCommit.message);
-    }
+    const nextState = mutateState(rootDir, (latestState, paths) => {
+      const result = applyHandoff(rootDir, latestState, handoffInput);
+      if (result.pendingCommit) {
+        writePendingCommit(paths, result.pendingCommit.message);
+      }
+      return result;
+    });
 
     process.stdout.write(`Handoff complete.\nSummary: ${nextState.lastHandoff?.summary ?? "n/a"}\nPending git commit: ${nextState.pendingCommit?.message ?? "none"}\nHistory doc: ${nextState.docIndex.historyDoc}\nRegression watch: ${nextState.docIndex.regressionDoc}\n`);
     return 0;
   } finally {
-    // Close interface once at the end
     rl.close();
   }
 }
 
-async function handleMarkCommit(rootDir: string, parsed: ParsedArgs): Promise<number> {
-  const { state, paths } = loadState(rootDir);
-  if (state.lastHandoff) {
-    state.lastHandoff.committedAt = new Date().toISOString();
+async function handleStatus(rootDir: string): Promise<number> {
+  const { state } = loadState(rootDir);
+  process.stdout.write(renderStatus(state));
+  return 0;
+}
+
+async function handleDiff(rootDir: string, parsed: ParsedArgs): Promise<number> {
+  const from = firstFlag(parsed.flags, "from");
+  const to = firstFlag(parsed.flags, "to");
+  const format = firstFlag(parsed.flags, "format", "text");
+
+  if (!from || !to) {
+    process.stderr.write("Error: --from and --to session IDs are required.\n");
+    return 1;
   }
-  state.pendingCommit = null;
-  clearPendingCommit(paths);
-  persist(rootDir, state, paths);
-  process.stdout.write(`Marked handoff commit complete: ${firstFlag(parsed.flags, "message", "docs(holistic): handoff")}\n`);
+
+  const { state, paths } = loadState(rootDir);
+  const fromSession = loadSessionById(state, paths, from);
+  const toSession = loadSessionById(state, paths, to);
+  if (!fromSession || !toSession) {
+    process.stderr.write("Error: One or both sessions could not be found.\n");
+    return 1;
+  }
+
+  const diff = computeSessionDiff(fromSession, toSession);
+  if (format === "json") {
+    printJson({
+      from: fromSession,
+      to: toSession,
+      diff,
+    });
+    return 0;
+  }
+
+  process.stdout.write(renderDiff(fromSession, toSession, diff));
+  return 0;
+}
+
+async function handleServe(rootDir: string): Promise<number> {
+  const runtime = runtimeScript("mcp-server");
+  const moduleUrl = pathToFileURL(runtime.scriptPath).href;
+  const mcpModule = await import(moduleUrl) as { runMcpServer?: (repoRoot: string) => Promise<void> };
+  if (typeof mcpModule.runMcpServer !== "function") {
+    process.stderr.write("Unable to start Holistic MCP server.\n");
+    return 1;
+  }
+
+  await mcpModule.runMcpServer(process.env.HOLISTIC_REPO ?? rootDir);
+  return 0;
+}
+
+async function handleMarkCommit(rootDir: string, parsed: ParsedArgs): Promise<number> {
+  const message = firstFlag(parsed.flags, "message", "docs(holistic): handoff");
+  const nextState = mutateState(rootDir, (state, paths) => {
+    if (state.lastHandoff) {
+      state.lastHandoff.committedAt = new Date().toISOString();
+    }
+    state.pendingCommit = null;
+    clearPendingCommit(paths);
+    return state;
+  });
+  process.stdout.write(`Marked handoff commit complete: ${message || nextState.lastHandoff?.summary || "docs(holistic): handoff"}\n`);
   return 0;
 }
 
 async function handleWatch(rootDir: string, parsed: ParsedArgs): Promise<number> {
   const intervalSeconds = Number.parseInt(firstFlag(parsed.flags, "interval", "60"), 10);
   const agent = asAgent(firstFlag(parsed.flags, "agent", "unknown"));
-  const { state, paths } = loadState(rootDir);
+  const { state } = loadState(rootDir);
 
-  let currentState = state.activeSession ? state : continueFromLatest(rootDir, state, agent);
-  persist(rootDir, currentState, paths);
-
-  let lastFingerprint = JSON.stringify(getGitSnapshot(rootDir, currentState.repoSnapshot ?? {}).snapshot);
+  let lastFingerprint = JSON.stringify(getGitSnapshot(rootDir, state.repoSnapshot ?? {}).snapshot);
   process.stdout.write(`Watching repo every ${intervalSeconds}s for checkpoint-worthy changes.\n`);
 
   const timer = setInterval(() => {
-    const snapshot = getGitSnapshot(rootDir, currentState.repoSnapshot ?? {});
+    const current = loadState(rootDir).state;
+    const snapshot = getGitSnapshot(rootDir, current.repoSnapshot ?? {});
     const fingerprint = JSON.stringify(snapshot.snapshot);
     if (fingerprint === lastFingerprint) {
       return;
     }
 
     lastFingerprint = fingerprint;
-    currentState = checkpointState(rootDir, currentState, {
-      agent,
-      reason: "watch",
-      status: `Auto-checkpoint after repo changes on ${snapshot.branch}.`,
-      next: currentState.activeSession?.nextSteps ?? [],
+    mutateState(rootDir, (latestState) => {
+      const baseState = latestState.activeSession ? latestState : continueFromLatest(rootDir, latestState, agent);
+      return checkpointState(rootDir, baseState, {
+        agent,
+        reason: "watch",
+        status: `Auto-checkpoint after repo changes on ${snapshot.branch}.`,
+        next: baseState.activeSession?.nextSteps ?? [],
+      });
     });
-    persist(rootDir, currentState, paths);
     process.stdout.write(`Auto-checkpoint saved at ${new Date().toISOString()}.\n`);
   }, intervalSeconds * 1000);
 
@@ -341,6 +564,12 @@ async function main(): Promise<number> {
       return handleHandoff(rootDir, parsed);
     case "start-new":
       return handleStartNew(rootDir, parsed);
+    case "status":
+      return handleStatus(rootDir);
+    case "diff":
+      return handleDiff(rootDir, parsed);
+    case "serve":
+      return handleServe(rootDir);
     case "watch":
       return handleWatch(rootDir, parsed);
     case "internal-mark-commit":
@@ -351,12 +580,14 @@ async function main(): Promise<number> {
   }
 }
 
-main().then((code) => {
-  process.exit(code);
-}).catch((error: unknown) => {
-  const message = error instanceof Error ? error.stack || error.message : String(error);
-  process.stderr.write(`${message}\n`);
-  process.exit(1);
-});
+const isEntrypoint = process.argv[1] ? pathToFileURL(process.argv[1]).href === import.meta.url : false;
 
-
+if (isEntrypoint) {
+  main().then((code) => {
+    process.exit(code);
+  }).catch((error: unknown) => {
+    const message = error instanceof Error ? error.stack || error.message : String(error);
+    process.stderr.write(`${message}\n`);
+    process.exit(1);
+  });
+}

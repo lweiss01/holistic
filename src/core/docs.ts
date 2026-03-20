@@ -1,5 +1,6 @@
 ﻿import fs from "node:fs";
 import path from "node:path";
+import { readArchivedSessions } from './state.ts';
 import type { HolisticState, ImpactNote, RegressionRisk, RuntimePaths, SessionRecord, ValidationItem } from './types.ts';
 
 function renderList(items: string[], emptyText: string): string {
@@ -60,17 +61,6 @@ function renderStructuredRegressions(regressions: RegressionRisk[]): string {
     }
     return line;
   }).join("\n");
-}
-
-function readArchivedSessions(paths: RuntimePaths): SessionRecord[] {
-  if (!fs.existsSync(paths.sessionsDir)) {
-    return [];
-  }
-
-  return fs.readdirSync(paths.sessionsDir)
-    .filter((file) => file.endsWith(".json"))
-    .map((file) => JSON.parse(fs.readFileSync(path.join(paths.sessionsDir, file), "utf8")) as SessionRecord)
-    .sort((left, right) => (right.endedAt || right.updatedAt).localeCompare(left.endedAt || left.updatedAt));
 }
 
 function currentSnapshot(state: HolisticState): {
@@ -136,6 +126,12 @@ function renderHolisticMd(state: HolisticState): string {
 ## Start Here
 
 This repo uses Holistic for cross-agent handoffs. The source of truth is the repo itself: handoff docs, history, and regression memory should be committed and synced so any device can continue. Read this file first, then review the long-term history docs and zero-touch architecture note, then use the adapter doc for your app. The Holistic daemon is optional and only improves passive capture on devices where it is installed.
+
+## Product North Star
+
+Open repo, start working, Holistic quietly keeps continuity alive.
+
+That is the intended end state for this project. Prefer changes that reduce ceremony, keep continuity durable, and make Holistic fade further into the background of normal work.
 
 ## Current Objective
 
@@ -212,6 +208,12 @@ function renderAgentsMd(state: HolisticState): string {
 
 ## Holistic Protocol
 
+### Product North Star
+
+Open repo, start working, Holistic quietly keeps continuity alive.
+
+Agents should treat that as the ultimate UX target. Prefer decisions that reduce manual ceremony while making checkpoint, resume, handoff, and regression-awareness more automatic and more reliable.
+
 Every agent working in this repo should:
 
 1. Read [HOLISTIC.md](./HOLISTIC.md) first.
@@ -219,7 +221,7 @@ Every agent working in this repo should:
 3. Read the app-specific adapter in \
 \`${state.docIndex.contextDir}/adapters/\`.
 4. If the Holistic daemon is installed, assume passive capture is already running in the background.
-5. Run \`holistic resume --agent <codex|claude|antigravity>\` only when you need an explicit recap or recovery flow.
+5. Run \`holistic resume --agent <codex|claude|antigravity|gemini|copilot|cursor|goose|gsd>\` only when you need an explicit recap or recovery flow.
 6. Recap the current state for the user and ask whether to continue, tweak the plan, or start something new.
 7. Record a checkpoint when focus changes, before likely context compaction, and before handoff.
 
@@ -280,6 +282,12 @@ ${renderList(snapshot.refs, "No linked references yet.")}
 function renderProtocol(): string {
   return `# Session Protocol
 
+## Product North Star
+
+Open repo, start working, Holistic quietly keeps continuity alive.
+
+The protocol below is the current operating model, not the final ideal. When improving Holistic, prefer changes that make more of this protocol happen automatically without weakening durable continuity.
+
 ## Startup
 
 1. Read \`HOLISTIC.md\`.
@@ -311,6 +319,12 @@ Use \`holistic watch\` if you want foreground background checkpoints while worki
 
 function renderAdapter(appName: string, commandName: string): string {
   return `# ${appName} Adapter
+
+## Product North Star
+
+Open repo, start working, Holistic quietly keeps continuity alive.
+
+Use this adapter to move toward that outcome: less manual setup, less re-briefing, and more continuity preserved by default.
 
 ## Startup Contract
 
@@ -432,6 +446,12 @@ function renderZeroTouchDoc(state: HolisticState): string {
 
 Holistic cannot force every app or agent to execute startup logic just because a repo exists. Zero-touch behavior therefore has two layers.
 
+## Product North Star
+
+Open repo, start working, Holistic quietly keeps continuity alive.
+
+Zero-touch architecture exists to close the gap between the current protocol and that goal.
+
 ## Repo Layer
 
 - \`HOLISTIC.md\`, \`AGENTS.md\`, project history, and regression watch stay inside the repo so any agent that reads repo instructions can recover context.
@@ -456,6 +476,7 @@ Holistic cannot force every app or agent to execute startup logic just because a
 - Treat the dedicated Holistic state branch as the clean cross-device distribution channel for that memory.
 - Add the Holistic daemon as the passive capture layer on devices where you want unattended local capture.
 - Add app-specific integrations when a tool exposes startup hooks or slash-command automation.
+- Prefer workflow-disappearance improvements over adding more visible user ceremony.
 
 Project: ${state.projectName}
 Updated: ${state.updatedAt}

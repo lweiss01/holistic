@@ -2,7 +2,7 @@
 import path from "node:path";
 import type { GitSnapshot, RuntimePaths } from './types.ts';
 
-function resolveGitDir(rootDir: string): string | null {
+export function resolveGitDir(rootDir: string): string | null {
   const dotGitPath = path.join(rootDir, ".git");
   if (!fs.existsSync(dotGitPath)) {
     return null;

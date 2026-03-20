@@ -1,6 +1,7 @@
 ﻿import fs from "node:fs";
 import path from "node:path";
 import { getGitSnapshot } from './git.ts';
+import { withLockSync } from './lock.ts';
 import { sanitizeList, sanitizeText } from './redact.ts';
 import type {
   AgentName,
@@ -11,6 +12,7 @@ import type {
   PendingWorkItem,
   ResumePayload,
   RuntimePaths,
+  SessionDiff,
   SessionRecord,
 } from './types.ts';
 
@@ -89,6 +91,10 @@ function ensureDirs(paths: RuntimePaths): void {
   fs.mkdirSync(paths.adaptersDir, { recursive: true });
 }
 
+export function stateLockFile(paths: RuntimePaths): string {
+  return `${paths.stateFile}.lock`;
+}
+
 const CURRENT_STATE_VERSION = 1;
 
 function migrateState(state: HolisticState, fromVersion: number, toVersion: number): HolisticState {
@@ -120,23 +126,11 @@ function migrateState(state: HolisticState, fromVersion: number, toVersion: numb
 //   };
 // }
 
-export function loadState(rootDir: string): { state: HolisticState; paths: RuntimePaths; created: boolean } {
-  const paths = getRuntimePaths(rootDir);
-  ensureDirs(paths);
-
-  if (!fs.existsSync(paths.stateFile)) {
-    return { state: createInitialState(rootDir), paths, created: true };
-  }
-
-  const raw = fs.readFileSync(paths.stateFile, "utf8");
-  let state = JSON.parse(raw) as HolisticState;
-  
-  // Migrate if needed
+function hydrateState(state: HolisticState): HolisticState {
   if (state.version < CURRENT_STATE_VERSION) {
     state = migrateState(state, state.version, CURRENT_STATE_VERSION);
   }
-  
-  // Apply defaults
+
   const defaults = defaultDocIndex();
   state.docIndex = {
     ...defaults,
@@ -149,12 +143,46 @@ export function loadState(rootDir: string): { state: HolisticState; paths: Runti
   state.pendingWork = state.pendingWork ?? [];
   state.repoSnapshot = state.repoSnapshot ?? {};
   state.pendingCommit = state.pendingCommit ?? null;
-  return { state, paths, created: false };
+  return state;
 }
 
-export function saveState(paths: RuntimePaths, state: HolisticState): void {
-  state.updatedAt = now();
-  fs.writeFileSync(paths.stateFile, JSON.stringify(state, null, 2) + "\n", "utf8");
+function loadStateFromDisk(rootDir: string, paths: RuntimePaths): { state: HolisticState; created: boolean } {
+  if (!fs.existsSync(paths.stateFile)) {
+    return { state: createInitialState(rootDir), created: true };
+  }
+
+  const raw = fs.readFileSync(paths.stateFile, "utf8");
+  return {
+    state: hydrateState(JSON.parse(raw) as HolisticState),
+    created: false,
+  };
+}
+
+export function withStateLock<T>(paths: RuntimePaths, fn: () => T): T {
+  return withLockSync(stateLockFile(paths), fn);
+}
+
+export function loadState(rootDir: string): { state: HolisticState; paths: RuntimePaths; created: boolean } {
+  const paths = getRuntimePaths(rootDir);
+  ensureDirs(paths);
+  const { state, created } = loadStateFromDisk(rootDir, paths);
+  return { state, paths, created };
+}
+
+export function saveState(paths: RuntimePaths, state: HolisticState, options?: { locked?: boolean }): void {
+  const write = () => {
+    state.updatedAt = now();
+    const tempFile = `${paths.stateFile}.${process.pid}.tmp`;
+    fs.writeFileSync(tempFile, JSON.stringify(state, null, 2) + "\n", "utf8");
+    fs.renameSync(tempFile, paths.stateFile);
+  };
+
+  if (options?.locked) {
+    write();
+    return;
+  }
+
+  withStateLock(paths, write);
 }
 
 function createSession(agent: AgentName, goal: string, title?: string, plan?: string[]): SessionRecord {
@@ -194,6 +222,17 @@ function uniqueMerge(current: string[], incoming: string[]): string[] {
     }
   }
   return merged;
+}
+
+export function readArchivedSessions(paths: RuntimePaths): SessionRecord[] {
+  if (!fs.existsSync(paths.sessionsDir)) {
+    return [];
+  }
+
+  return fs.readdirSync(paths.sessionsDir)
+    .filter((file) => file.endsWith(".json"))
+    .map((file) => JSON.parse(fs.readFileSync(path.join(paths.sessionsDir, file), "utf8")) as SessionRecord)
+    .sort((left, right) => (right.endedAt || right.updatedAt).localeCompare(left.endedAt || left.updatedAt));
 }
 
 function buildResumeRecap(state: HolisticState): string[] {
@@ -259,6 +298,42 @@ export function getResumePayload(state: HolisticState, agent: AgentName): Resume
     activeSession: state.activeSession,
     pendingWork: state.pendingWork,
     lastHandoff: state.lastHandoff,
+  };
+}
+
+export function loadSessionById(state: HolisticState, paths: RuntimePaths, sessionId: string): SessionRecord | null {
+  if (state.activeSession?.id === sessionId) {
+    return state.activeSession;
+  }
+
+  for (const session of readArchivedSessions(paths)) {
+    if (session.id === sessionId) {
+      return session;
+    }
+  }
+
+  return null;
+}
+
+export function computeSessionDiff(fromSession: SessionRecord, toSession: SessionRecord): SessionDiff {
+  return {
+    timeSpan: {
+      from: fromSession.startedAt,
+      to: toSession.startedAt,
+      durationMs: new Date(toSession.startedAt).getTime() - new Date(fromSession.startedAt).getTime(),
+    },
+    goalChanged: fromSession.currentGoal !== toSession.currentGoal,
+    fromGoal: fromSession.currentGoal,
+    toGoal: toSession.currentGoal,
+    newWork: toSession.workDone.filter((item) => !fromSession.workDone.includes(item)),
+    newRegressions: toSession.regressionRisks.filter((item) => !fromSession.regressionRisks.includes(item)),
+    clearedRegressions: fromSession.regressionRisks.filter((item) => !toSession.regressionRisks.includes(item)),
+    newBlockers: toSession.blockers.filter((item) => !fromSession.blockers.includes(item)),
+    clearedBlockers: fromSession.blockers.filter((item) => !toSession.blockers.includes(item)),
+    fileChanges: {
+      new: toSession.changedFiles.filter((item) => !fromSession.changedFiles.includes(item)),
+      removed: fromSession.changedFiles.filter((item) => !toSession.changedFiles.includes(item)),
+    },
   };
 }
 

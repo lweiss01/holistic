@@ -21,7 +21,7 @@ function swapExtensions(from, to) {
   walkDir('src', filepath => {
     if (extname(filepath) === '.ts') {
       const content = readFileSync(filepath, 'utf8');
-      const regex = new RegExp(`from ['"](.+)\\.${from}['"]`, 'g');
+      const regex = new RegExp(`from ['"]((?:\\.{1,2}/).+)\\.${from}['"]`, 'g');
       const updated = content.replace(regex, `from '$1.${to}'`);
       if (content !== updated) {
         writeFileSync(filepath, updated, 'utf8');

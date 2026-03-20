@@ -1,8 +1,8 @@
-﻿import { pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 import { captureRepoSnapshot, getGitSnapshot } from './core/git.ts';
 import { writeDerivedDocs } from './core/docs.ts';
-import { checkpointState, loadState, saveState, startNewSession } from './core/state.ts';
-import type { AgentName } from './core/types.ts';
+import { checkpointState, getRuntimePaths, loadState, saveState, startNewSession, withStateLock } from './core/state.ts';
+import type { AgentName, HolisticState, RuntimePaths } from './core/types.ts';
 
 interface ParsedArgs {
   flags: Record<string, string[]>;
@@ -33,48 +33,58 @@ function firstFlag(flags: Record<string, string[]>, name: string, fallback = "")
 }
 
 function asAgent(value: string): AgentName {
-  if (value === "codex" || value === "claude" || value === "antigravity") {
+  if (value === "codex" || value === "claude" || value === "antigravity" || value === "gemini" || value === "copilot" || value === "cursor" || value === "goose" || value === "gsd") {
     return value;
   }
   return "unknown";
 }
 
-function persist(rootDir: string, state: ReturnType<typeof loadState>["state"], paths: ReturnType<typeof loadState>["paths"]): ReturnType<typeof loadState>["state"] {
+function persistLocked(rootDir: string, state: HolisticState, paths: RuntimePaths): HolisticState {
   writeDerivedDocs(paths, state);
   state.repoSnapshot = captureRepoSnapshot(rootDir);
-  saveState(paths, state);
+  saveState(paths, state, { locked: true });
   return state;
 }
 
+function mutateState(rootDir: string, mutator: (state: HolisticState, paths: RuntimePaths) => HolisticState): HolisticState {
+  const paths = getRuntimePaths(rootDir);
+  return withStateLock(paths, () => {
+    const { state, paths: lockedPaths } = loadState(rootDir);
+    const nextState = mutator(state, lockedPaths);
+    return persistLocked(rootDir, nextState, lockedPaths);
+  });
+}
+
 export function runDaemonTick(rootDir: string, agent: AgentName = "unknown"): { changed: boolean; summary: string } {
-  const { state, paths } = loadState(rootDir);
+  const { state } = loadState(rootDir);
   const snapshot = getGitSnapshot(rootDir, state.repoSnapshot ?? {});
 
   if (snapshot.changedFiles.length === 0) {
     return { changed: false, summary: "No repo changes detected." };
   }
 
-  let nextState = state;
-  if (!nextState.activeSession) {
-    nextState = startNewSession(rootDir, nextState, agent, "Passively capture repo activity for the next agent handoff", [
-      "Read HOLISTIC.md",
-      "Review the detected file changes",
-      "Confirm whether to continue planned work or start something new",
-    ], "Passive session capture");
-  }
+  mutateState(rootDir, (currentState) => {
+    let nextState = currentState;
+    if (!nextState.activeSession) {
+      nextState = startNewSession(rootDir, nextState, agent, "Passively capture repo activity for the next agent handoff", [
+        "Read HOLISTIC.md",
+        "Review the detected file changes",
+        "Confirm whether to continue planned work or start something new",
+      ], "Passive session capture");
+    }
 
-  nextState = checkpointState(rootDir, nextState, {
-    agent,
-    reason: "daemon-auto",
-    status: `Detected repo activity on ${snapshot.branch}; Holistic captured it automatically in the background.`,
-    next: nextState.activeSession?.nextSteps.length
-      ? nextState.activeSession.nextSteps
-      : ["Review the recent file changes and confirm the intended task."],
-    impacts: ["Background capture is preserving repo activity without requiring a manual session-start command."],
-    regressions: ["Background capture reduces the chance that work is forgotten when agents switch tools or contexts."],
+    return checkpointState(rootDir, nextState, {
+      agent,
+      reason: "daemon-auto",
+      status: `Detected repo activity on ${snapshot.branch}; Holistic captured it automatically in the background.`,
+      next: nextState.activeSession?.nextSteps.length
+        ? nextState.activeSession.nextSteps
+        : ["Review the recent file changes and confirm the intended task."],
+      impacts: ["Background capture is preserving repo activity without requiring a manual session-start command."],
+      regressions: ["Background capture reduces the chance that work is forgotten when agents switch tools or contexts."],
+    });
   });
 
-  persist(rootDir, nextState, paths);
   return {
     changed: true,
     summary: `Captured ${snapshot.changedFiles.length} changed file(s) on ${snapshot.branch}.`,

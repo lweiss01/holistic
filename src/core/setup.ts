@@ -1,13 +1,16 @@
 ﻿import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { writeDerivedDocs } from './docs.ts';
-import { captureRepoSnapshot } from './git.ts';
+import { captureRepoSnapshot, resolveGitDir } from './git.ts';
+import { installGitHooks, type HookCommand } from './git-hooks.ts';
 import { loadState, saveState } from './state.ts';
 import type { AgentName, HolisticState, RuntimePaths } from './types.ts';
 
 export interface InitOptions {
   installDaemon?: boolean;
+  installGitHooks?: boolean;
   platform?: NodeJS.Platform;
   homeDir?: string;
   intervalSeconds?: number;
@@ -18,6 +21,8 @@ export interface InitOptions {
 
 export interface InitResult {
   installed: boolean;
+  gitHooksInstalled: boolean;
+  gitHooks: string[];
   platform: string;
   startupTarget: string | null;
   systemDir: string;
@@ -42,6 +47,17 @@ function systemDir(paths: RuntimePaths): string {
 
 function configFile(paths: RuntimePaths): string {
   return path.join(paths.holisticDir, "config.json");
+}
+
+function runtimeEntryScript(name: "cli" | "daemon"): { scriptPath: string; useStripTypes: boolean } {
+  const currentFile = fileURLToPath(import.meta.url);
+  const extension = path.extname(currentFile);
+  const runtimeDir = path.dirname(currentFile);
+  const useStripTypes = extension === ".ts";
+  return {
+    scriptPath: path.resolve(runtimeDir, `../${name}${useStripTypes ? ".ts" : ".js"}`),
+    useStripTypes,
+  };
 }
 
 function quotePowerShell(value: string): string {
@@ -76,7 +92,8 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
   const sysDir = systemDir(paths);
   fs.mkdirSync(sysDir, { recursive: true });
   const nodePath = process.execPath;
-  const daemonPath = path.join(rootDir, "src", "daemon.ts");
+  const daemonRuntime = runtimeEntryScript("daemon");
+  const daemonPath = daemonRuntime.scriptPath;
   const restorePs1Path = path.join(sysDir, "restore-state.ps1");
   const syncPs1Path = path.join(sysDir, "sync-state.ps1");
   const restoreShPath = path.join(sysDir, "restore-state.sh");
@@ -172,14 +189,14 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     `$daemon = '${quotePowerShell(daemonPath)}'`,
     `$working = '${quotePowerShell(rootDir)}'`,
     `& '${quotePowerShell(restorePs1Path)}'`,
-    `& $node --experimental-strip-types $daemon --interval ${intervalSeconds} --agent unknown`,
+    `& $node ${daemonRuntime.useStripTypes ? "--experimental-strip-types " : ""}$daemon --interval ${intervalSeconds} --agent unknown`,
   ].join("\n");
 
   const runSh = [
     "#!/usr/bin/env sh",
     `cd '${shellQuote(rootDir)}' || exit 1`,
     `'${shellQuote(restoreShPath)}' || true`,
-    `'${shellQuote(nodePath)}' --experimental-strip-types '${shellQuote(daemonPath)}' --interval ${intervalSeconds} --agent unknown`,
+    `'${shellQuote(nodePath)}' ${daemonRuntime.useStripTypes ? "--experimental-strip-types " : ""}'${shellQuote(daemonPath)}' --interval ${intervalSeconds} --agent unknown`,
   ].join("\n");
 
   const readme = `# Holistic System Setup
@@ -307,13 +324,29 @@ export function initializeHolistic(rootDir: string, options: InitOptions = {}): 
   const platform = options.platform ?? process.platform;
   const homeDir = options.homeDir ?? os.homedir();
   let startupTarget: string | null = null;
+  let gitHooksInstalled = false;
+  let gitHooks: string[] = [];
 
   if (options.installDaemon) {
     startupTarget = installDaemon(rootDir, platform, homeDir);
   }
 
+  if (options.installGitHooks) {
+    const cliRuntime = runtimeEntryScript("cli");
+    const hookCommand: HookCommand = {
+      nodePath: process.execPath,
+      scriptPath: cliRuntime.scriptPath,
+      useStripTypes: cliRuntime.useStripTypes,
+    };
+    const hookResult = installGitHooks(rootDir, resolveGitDir(rootDir), hookCommand);
+    gitHooksInstalled = hookResult.installed;
+    gitHooks = hookResult.hooks;
+  }
+
   return {
     installed: Boolean(startupTarget),
+    gitHooksInstalled,
+    gitHooks,
     platform,
     startupTarget,
     systemDir: systemDir(paths),

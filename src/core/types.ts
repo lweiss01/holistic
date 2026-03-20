@@ -208,3 +208,23 @@ export interface ResumePayload {
   pendingWork: PendingWorkItem[];
   lastHandoff: LastHandoff | null;
 }
+
+export interface SessionDiff {
+  timeSpan: {
+    from: string;
+    to: string;
+    durationMs: number;
+  };
+  goalChanged: boolean;
+  fromGoal: string;
+  toGoal: string;
+  newWork: string[];
+  newRegressions: string[];
+  clearedRegressions: string[];
+  newBlockers: string[];
+  clearedBlockers: string[];
+  fileChanges: {
+    new: string[];
+    removed: string[];
+  };
+}
