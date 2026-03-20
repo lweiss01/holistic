@@ -2,7 +2,7 @@
   "version": 1,
   "projectName": "holistic",
   "createdAt": "2026-03-19T19:23:41.405Z",
-  "updatedAt": "2026-03-20T00:08:05.344Z",
+  "updatedAt": "2026-03-20T00:08:22.579Z",
   "activeSession": null,
   "pendingWork": [
     {
@@ -22,7 +22,7 @@
       "No blockers recorded."
     ],
     "nextAction": "Review the generated history/regression docs and decide whether to add more structured fields like severity, affected areas, or validation notes.",
-    "committedAt": null,
+    "committedAt": "2026-03-20T00:08:22.549Z",
     "createdAt": "2026-03-20T00:08:05.322Z"
   },
   "docIndex": {
@@ -50,7 +50,7 @@
     ".beads/beads.db-wal": "428512:1773965196115",
     ".beads/config.yaml": "2509:1773961751986",
     ".beads/daemon.lock": "186:1773962048174",
-    ".beads/daemon.log": "43740:1773965262090",
+    ".beads/daemon.log": "44425:1773965299250",
     ".beads/daemon.pid": "6:1773962048179",
     ".beads/export-state/263571a4cc647266.json": "301:1773963268336",
     ".beads/interactions.jsonl": "0:1773961716041",
@@ -61,20 +61,20 @@
     ".gitattributes": "70:1773961719501",
     ".gitignore": "185:1773964555152",
     ".holistic/config.json": "343:1773955764428",
-    ".holistic/context/adapters/antigravity.md": "954:1773965285341",
-    ".holistic/context/adapters/claude-cowork.md": "951:1773965285340",
-    ".holistic/context/adapters/codex.md": "942:1773965285340",
-    ".holistic/context/current-plan.md": "626:1773965285324",
-    ".holistic/context/project-history.md": "7937:1773965285338",
-    ".holistic/context/README.md": "494:1773965285340",
-    ".holistic/context/regression-watch.md": "6474:1773965285339",
-    ".holistic/context/session-protocol.md": "1222:1773965285325",
-    ".holistic/context/zero-touch.md": "1750:1773965285340",
+    ".holistic/context/adapters/antigravity.md": "954:1773965302570",
+    ".holistic/context/adapters/claude-cowork.md": "951:1773965302569",
+    ".holistic/context/adapters/codex.md": "942:1773965302569",
+    ".holistic/context/current-plan.md": "626:1773965302553",
+    ".holistic/context/project-history.md": "7937:1773965302565",
+    ".holistic/context/README.md": "494:1773965302568",
+    ".holistic/context/regression-watch.md": "6474:1773965302567",
+    ".holistic/context/session-protocol.md": "1222:1773965302553",
+    ".holistic/context/zero-touch.md": "1750:1773965302568",
     ".holistic/sessions/session-2026-03-19T19-30-32-935Z.json": "10592:1773955889921",
     ".holistic/sessions/session-2026-03-19T23-33-42-124Z.json": "4921:1773963306519",
     ".holistic/sessions/session-2026-03-20T00-04-53-218Z.json": "4012:1773965125839",
     ".holistic/sessions/session-2026-03-20T00-07-50-104Z.json": "4122:1773965285322",
-    ".holistic/state.json": "8125:1773965277929",
+    ".holistic/state.json": "5477:1773965285344",
     ".holistic/system/README.md": "505:1773955764431",
     ".holistic/system/restore-state.ps1": "657:1773955764430",
     ".holistic/system/restore-state.sh": "527:1773955764431",
@@ -82,13 +82,13 @@
     ".holistic/system/run-daemon.sh": "287:1773955764430",
     ".holistic/system/sync-state.ps1": "1283:1773955764430",
     ".holistic/system/sync-state.sh": "928:1773955764431",
-    "AGENTS.md": "1003:1773965285324",
+    "AGENTS.md": "1003:1773965302552",
     "bin/holistic": "734:1773955556324",
     "bin/holistic.cmd": "815:1773955556324",
     "bin/holistic.js": "2190:1773955556325",
     "CONTRIBUTING.md": "3377:1773955750673",
     "docs/handoff-walkthrough.md": "3373:1773958062116",
-    "HOLISTIC.md": "3026:1773965285324",
+    "HOLISTIC.md": "3026:1773965302552",
     "LICENSE": "1062:1773955750645",
     "package.json": "476:1773955556325",
     "README.md": "9258:1773957891628",
@@ -104,12 +104,5 @@
     "tests/run-tests.ts": "10547:1773955556332",
     "tsconfig.json": "304:1773955556332"
   },
-  "pendingCommit": {
-    "message": "docs(holistic): handoff session session-2026-03-20T00-07-50-104Z",
-    "files": [
-      "HOLISTIC.md",
-      "AGENTS.md",
-      ".holistic"
-    ]
-  }
+  "pendingCommit": null
 }
