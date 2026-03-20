@@ -1,4 +1,13 @@
-﻿export type AgentName = "codex" | "claude" | "antigravity" | "unknown";
+﻿export type AgentName = 
+  | "codex" 
+  | "claude" 
+  | "antigravity" 
+  | "gemini"
+  | "copilot"
+  | "cursor"
+  | "goose"
+  | "gsd"
+  | "unknown";
 
 export type SessionStatus = "active" | "handed_off" | "superseded";
 

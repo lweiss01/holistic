@@ -53,9 +53,21 @@ function listFlag(flags: Record<string, string[]>, name: string): string[] {
 }
 
 function asAgent(value: string): AgentName {
-  if (value === "codex" || value === "claude" || value === "antigravity") {
-    return value;
+  const validAgents: AgentName[] = [
+    "codex",
+    "claude",
+    "antigravity",
+    "gemini",
+    "copilot",
+    "cursor",
+    "goose",
+    "gsd",
+  ];
+  
+  if (validAgents.includes(value as AgentName)) {
+    return value as AgentName;
   }
+  
   return "unknown";
 }
 
@@ -68,11 +80,11 @@ function printHelp(): void {
 
 Usage:
   holistic init [--install-daemon] [--platform win32|darwin|linux] [--interval 30] [--remote origin] [--state-branch holistic/state]
-  holistic resume [--agent codex|claude|antigravity] [--continue] [--json]
+  holistic resume [--agent codex|claude|antigravity|gemini|copilot|cursor|goose|gsd] [--continue] [--json]
   holistic checkpoint --reason "<reason>" [--goal "<goal>"] [--status "<status>"] [--plan "<step>"]...
   holistic handoff [--summary "<summary>"] [--next "<step>"]...
   holistic start-new --goal "<goal>" [--title "<title>"] [--plan "<step>"]...
-  holistic watch [--agent codex|claude|antigravity] [--interval 60]
+  holistic watch [--agent codex|claude|antigravity|gemini|copilot|cursor|goose|gsd] [--interval 60]
 `);
 }
 

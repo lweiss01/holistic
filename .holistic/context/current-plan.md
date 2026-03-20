@@ -6,7 +6,7 @@ Test branch fallback fix
 
 ## Latest Status
 
-Session started.
+Fixed silent branch detection failure, moving to Task 1b (expand AgentName)
 
 ## Planned Next Steps
 
@@ -15,7 +15,7 @@ Session started.
 
 ## Project Impact
 
-- No impact notes captured yet.
+- Failed git reads now visibly different from actual 'master' branch
 
 ## References
 

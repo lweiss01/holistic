@@ -2,6 +2,21 @@
 
 Use this before changing existing behavior. It is the short list of fixes and outcomes that future agents should preserve.
 
+## Test branch fallback fix
+
+- Goal: Test branch fallback fix
+- Durable changes:
+- Changed getBranchName() fallback from 'master' to 'unknown'
+- Changed createSession() branch init from 'master' to empty string
+- All tests passing
+- Created 22 beads issues from roadmap
+- Closed holistic-imq after successful fix
+- Why this matters:
+- Failed git reads now visibly different from actual 'master' branch
+- Do not regress:
+- Do not use 'master' as a fallback value anywhere - use 'unknown' for failures
+- Source session: session-2026-03-20T02-39-52-257Z
+
 ## Structured metadata and roadmap planning
 
 - Goal: Enhance history/regression docs with structured metadata and create implementation plans for daemon, sync, integrations, and visualization features

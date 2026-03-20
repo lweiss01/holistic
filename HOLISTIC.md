@@ -12,7 +12,7 @@ Test branch fallback fix
 
 ## Latest Work Status
 
-Session started.
+Fixed silent branch detection failure, moving to Task 1b (expand AgentName)
 
 ## What Was Tried
 
@@ -20,7 +20,7 @@ Session started.
 
 ## What To Try Next
 
-- Run `holistic start-new --goal "Describe the task"` to begin capturing work.
+- Expand AgentName union to include Gemini, Copilot, Cursor, Goose, GSD
 
 ## Active Plan
 
@@ -29,11 +29,11 @@ Session started.
 
 ## Overall Impact So Far
 
-- No durable impact notes recorded yet.
+- Failed git reads now visibly different from actual 'master' branch
 
 ## Regression Watch
 
-- Review the regression watch document before changing related behavior.
+- Do not use 'master' as a fallback value anywhere - use 'unknown' for failures
 
 ## Key Assumptions
 
@@ -45,7 +45,10 @@ Session started.
 
 ## Changed Files In Current Session
 
-- .holistic/sessions/session-2026-03-20T01-56-30-503Z.json
+- .beads/beads.db-wal
+- .beads/daemon.log
+- .bg-shell/manifest.json
+- .holistic/state.json
 
 ## Pending Work Queue
 
@@ -69,9 +72,14 @@ Session started.
 - codex: [.holistic/context/adapters/codex.md](.holistic/context/adapters/codex.md)
 - claude: [.holistic/context/adapters/claude-cowork.md](.holistic/context/adapters/claude-cowork.md)
 - antigravity: [.holistic/context/adapters/antigravity.md](.holistic/context/adapters/antigravity.md)
+- gemini: [.holistic/context/adapters/gemini.md](.holistic/context/adapters/gemini.md)
+- copilot: [.holistic/context/adapters/copilot.md](.holistic/context/adapters/copilot.md)
+- cursor: [.holistic/context/adapters/cursor.md](.holistic/context/adapters/cursor.md)
+- goose: [.holistic/context/adapters/goose.md](.holistic/context/adapters/goose.md)
+- gsd: [.holistic/context/adapters/gsd.md](.holistic/context/adapters/gsd.md)
 
 ## Historical Memory
 
-- Last updated: 2026-03-20T02:21:08.229Z
+- Last updated: 2026-03-20T02:41:38.352Z
 - Last handoff: No explicit handoff captured yet.
 - Pending sessions remembered: 2

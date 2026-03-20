@@ -7,15 +7,19 @@ This archive is the durable memory of what agents changed, why they changed it, 
 - Session: session-2026-03-20T02-39-52-257Z
 - Agent: claude
 - Status: active
-- When: 2026-03-20T02:39:52.261Z
+- When: 2026-03-20T02:40:17.739Z
 - Goal: Test branch fallback fix
-- Summary: Session started.
+- Summary: Fixed silent branch detection failure, moving to Task 1b (expand AgentName)
 - Work done:
-- No completed work recorded.
+- Changed getBranchName() fallback from 'master' to 'unknown'
+- Changed createSession() branch init from 'master' to empty string
+- All tests passing
+- Created 22 beads issues from roadmap
+- Closed holistic-imq after successful fix
 - Why it mattered:
-- No impact notes recorded.
+- Failed git reads now visibly different from actual 'master' branch
 - Regression risks:
-- No specific regression risks recorded.
+- Do not use 'master' as a fallback value anywhere - use 'unknown' for failures
 - References:
 - No references recorded.
 
