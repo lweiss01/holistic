@@ -2,17 +2,47 @@
 
 This directory contains detailed implementation plans for Holistic features organized into phases. Each roadmap document includes tasks, validation steps, testing strategy, and success criteria.
 
-## ⚠️ CRITICAL: Implementation Order
+## Product Focus Guardrail
 
-**Do NOT skip Phase 0.** Building features on a shaky foundation wastes time and creates embarrassing bugs when new users arrive.
+Holistic should stay focused on one job: durable cross-agent context continuity anchored in the repo.
 
-The roadmap is organized as: **Foundation → Growth → Extension**
+## Product North Star
 
-1. **Phase 0: Code Hardening** - Fix foundational issues (MUST DO FIRST)
-2. **Phase 1: Feature Expansion** - Add high-value features
-3. **Phase 2: Team/Org Mode** - Enable collaborative workflows  
-4. **Phase 3: Audience Growth** - Marketing and community building
-5. **Phase 4: IDE Extensions** - Deep integrations (VS Code, etc.)
+The real north star for Holistic is:
+
+**Open repo, start working, Holistic quietly keeps continuity alive.**
+
+That means the ideal user experience is not "run more commands." It is:
+
+- repo context is already available when work starts
+- recent work is resumed or inferred automatically when possible
+- checkpoints happen in the background when useful
+- handoffs are drafted with little or no ceremony
+- cross-device continuity survives without constant user babysitting
+
+Future roadmap work should therefore prefer **workflow disappearance** over surface-area growth. A feature only belongs if it reduces user effort while strengthening durable continuity.
+
+Future roadmap work should only be prioritized when it directly improves one or more of:
+
+- preserving project memory across agent, app, or device switches
+- reducing re-briefing and regression caused by missing context
+- making checkpoint, resume, handoff, or review flows tighter and more reliable
+- integrating with tools in thin ways that strengthen the core memory workflow
+
+Avoid roadmap drift into broad marketing, community, analytics, or full-IDE-platform work unless it clearly reinforces that core niche and the low-touch north star above.
+
+## Critical: Implementation Order
+
+Do NOT skip Phase 0. Building features on a shaky foundation wastes time and creates embarrassing bugs when new users arrive.
+
+The roadmap is organized as: Foundation -> Utility -> Workflow Disappearance -> Collaboration -> Focus -> Thin Integration
+
+1. **Phase 0: Code Hardening** - Fix foundational issues first
+2. **Phase 1: Feature Expansion** - Add high-value capabilities to the core workflow
+3. **Phase 1.5: Workflow Disappearance** - Make Holistic fade into the background during normal work
+4. **Phase 2: Team/Org Mode** - Enable collaborative continuity in shared repos
+5. **Phase 3: Core Workflow Tightening** - Keep the product sharp, low-noise, and niche-faithful
+6. **Phase 4: Focused Integrations** - Add selective thin integrations that strengthen the core workflow
 
 ---
 
@@ -20,13 +50,14 @@ The roadmap is organized as: **Foundation → Growth → Extension**
 
 | Phase | Focus | Priority | Status | Docs |
 |-------|-------|----------|--------|------|
-| **Phase 0** | **Code Hardening** | 🔴 **CRITICAL** | 📋 **START HERE** | [00-code-hardening.md](./00-code-hardening.md) |
-| **Phase 1** | **Feature Expansion** | 🟠 High | 📋 After Phase 0 | [01-feature-expansion.md](./01-feature-expansion.md) |
-| **Phase 2** | **Team/Org Mode** | 🟡 Medium-High | 📋 After Phase 1 | *Coming soon* |
-| **Phase 3** | **Audience Growth** | 🟢 Medium | 📋 After Phase 2 | *Coming soon* |
-| **Phase 4** | **IDE Extensions** | 🔵 Medium | 📋 After Phase 3 | *Coming soon* |
+| **Phase 0** | **Code Hardening** | Critical | Start here | [00-code-hardening.md](./00-code-hardening.md) |
+| **Phase 1** | **Feature Expansion** | High | After Phase 0 | [01-feature-expansion.md](./01-feature-expansion.md) |
+| **Phase 1.5** | **Workflow Disappearance** | High | Next planning target after Phase 1 | *Coming soon* |
+| **Phase 2** | **Team/Org Mode** | Medium-High | After Phase 1 | *Coming soon* |
+| **Phase 3** | **Core Workflow Tightening** | Medium | After Phase 2 | *Coming soon* |
+| **Phase 4** | **Focused Integrations** | Medium | After Phase 3 | *Coming soon* |
 
-### ✅ Completed
+### Completed
 
 | Feature | Completed | Docs |
 |---------|-----------|------|
@@ -34,35 +65,35 @@ The roadmap is organized as: **Foundation → Growth → Extension**
 
 ---
 
-## Phase 0: Code Hardening 🔴 CRITICAL
+## Phase 0: Code Hardening
 
-**Goal:** Fix foundational code issues before any marketing or new features.
+**Goal:** Fix foundational code issues before any new features or broader adoption work.
 
 **Why This Can't Wait:**
 - Silent failures confuse users
-- No migration path = breaking changes for existing users
-- Unprofessional rough edges when new users arrive
+- No migration path means breaking changes for existing users
+- Rough edges show up immediately when new users arrive
 - Technical debt compounds with every new feature
 
 **Tasks:**
-1. Fix branch fallback ambiguity (`"master"` → `"unknown"`)
+1. Fix branch fallback ambiguity (`"master"` -> `"unknown"`)
 2. Expand `AgentName` union (add Gemini, Copilot, Cursor, Goose, GSD)
 3. Add state migration pattern
-4. Consolidate readline usage (prevent interface leaks)
+4. Consolidate readline usage
 5. Publish to npm (`private: false`)
 
-**Effort:** 1-2 sessions  
+**Effort:** 1-2 sessions
 **Dependencies:** None
 
-👉 **[Full Plan](./00-code-hardening.md)**
+-> **[Full Plan](./00-code-hardening.md)**
 
 ---
 
 ## Phase 1: Feature Expansion
 
-**Goal:** Add features that make Holistic clearly better than doing nothing.
+**Goal:** Add features that make Holistic clearly better than doing nothing while staying inside the core continuity workflow.
 
-**⚠️ Prerequisites:** Phase 0 MUST be complete first
+**Prerequisites:** Phase 0 must be complete first
 
 **Tasks:**
 1. MCP server mode (`holistic serve`)
@@ -71,18 +102,18 @@ The roadmap is organized as: **Foundation → Growth → Extension**
 4. Git hook installer (auto-checkpoint on commit)
 5. State file concurrency protection
 
-**Effort:** 3-4 sessions  
+**Effort:** 3-4 sessions
 **Dependencies:** Phase 0
 
-👉 **[Full Plan](./01-feature-expansion.md)**
+-> **[Full Plan](./01-feature-expansion.md)**
 
 ---
 
 ## Phase 2: Team/Org Mode
 
-**Goal:** Enable collaborative workflows with contributor tracking and team-level features.
+**Goal:** Enable collaborative workflows with contributor tracking and team-level continuity features.
 
-**⚠️ Prerequisites:** Phase 1 MUST be complete first
+**Prerequisites:** Phase 1 must be complete first
 
 **Tasks:**
 1. Contributor identity in `SessionRecord`
@@ -91,54 +122,77 @@ The roadmap is organized as: **Foundation → Growth → Extension**
 4. `holistic export` for PR descriptions
 5. Team handoff visualization
 
-**Effort:** 2-3 sessions  
+**Effort:** 2-3 sessions
 **Dependencies:** Phase 1
 
-👉 **Full plan coming soon**
+-> **Full plan coming soon**
 
 ---
 
-## Phase 3: Audience Growth
+## Phase 1.5: Workflow Disappearance
 
-**Goal:** Build community and grow the user base before investing in IDE extensions.
+**Goal:** Make Holistic feel increasingly automatic so the user can open a repo and work while continuity stays alive in the background.
 
-**⚠️ Prerequisites:** Phase 1-2 complete, features are solid
+**North Star:** Open repo, start working, Holistic quietly keeps continuity alive.
+
+**Prerequisites:** Phase 1 complete and stable enough to harden the low-touch workflow.
 
 **Tasks:**
-1. Website (`holistic.dev` or similar)
-2. "The Context Tax" blog post
-3. Discord / GitHub Discussions
-4. Community outreach (Reddit, Discord, etc.)
-5. GitHub topic tag and discoverability SEO
+1. Implicit resume or context recovery when MCP clients connect
+2. Auto-session inference from recent work, pending work, or last handoff
+3. Smarter passive checkpoints based on meaningful repo activity instead of noisy polling alone
+4. Auto-drafted handoffs on idle, disconnect, or likely session end
+5. Automatic portable Holistic state sync with conservative conflict handling
+6. One-command per-machine bootstrap for daemon, hooks, and supported integrations
 
-**Effort:** 2-3 sessions  
-**Dependencies:** Solid features (Phase 1-2)
+**Effort:** 2-4 sessions
+**Dependencies:** Phase 1
 
-👉 **Full plan coming soon**
+-> **Full plan coming soon**
 
 ---
 
-## Phase 4: IDE Extensions
+## Phase 3: Core Workflow Tightening
 
-**Goal:** Deep integrations with IDEs - build this AFTER you have a real community with real feedback.
+**Goal:** Tighten Holistic around its niche so the tool stays sharp, low-noise, and clearly about durable cross-agent context continuity after the low-touch workflow exists.
 
-**⚠️ Prerequisites:** Phase 3 complete (real users providing feedback)
+**Prerequisites:** Phase 1.5-2 complete and there is enough real usage to reveal where context is still noisy, shallow, or easy to lose.
 
 **Tasks:**
-1. VS Code extension (session status bar, sidebar panel, inline checkpoint)
-2. Cursor integration (leverage MCP server from Phase 1)
-3. JetBrains plugin (IntelliJ, PyCharm, WebStorm)
-4. Neovim/Vim plugin
-5. Cross-IDE sync and handoff
+1. Improve resume and handoff signal quality so important context surfaces faster
+2. Add memory hygiene tools to keep history useful instead of bloated
+3. Improve regression and blocker surfacing so repeated mistakes stay visible
+4. Tighten onboarding and examples around the core repo-memory workflow
+5. Add workflow health checks that warn when Holistic memory is stale, incomplete, or noisy
 
-**Effort:** 4-5 sessions  
-**Dependencies:** Phase 3 (community feedback)
+**Effort:** 2-3 sessions
+**Dependencies:** Solid Phase 1.5-2 workflows
 
-👉 **Full plan coming soon**
+-> **Full plan coming soon**
 
 ---
 
-## 📋 Suggested Issue Order
+## Phase 4: Focused Integrations
+
+**Goal:** Add selective, thin integrations only when they directly strengthen the repo-memory workflow instead of turning Holistic into a broad IDE platform.
+
+**Prerequisites:** Phase 3 complete and there is clear evidence that a specific integration will reduce context loss or manual handoff friction.
+
+**Tasks:**
+1. Ship lightweight integration patterns for MCP-capable tools first
+2. Add thin editor commands or launchers only where they materially reduce context loss
+3. Standardize setup snippets for high-value tools instead of building full plugin surfaces by default
+4. Add compatibility tests for the supported integration paths
+5. Reject or defer integrations that do not clearly improve checkpoint, resume, handoff, or regression-awareness flows
+
+**Effort:** 2-4 sessions
+**Dependencies:** Phase 3 plus validated workflow gaps
+
+-> **Full plan coming soon**
+
+---
+
+## Suggested Issue Order
 
 If you want to turn this into a GitHub issue backlog right now:
 
@@ -156,44 +210,49 @@ If you want to turn this into a GitHub issue backlog right now:
 9. State lock file for concurrency
 10. `holistic diff` command
 
+### Phase 1.5 Issues (Workflow Disappearance)
+11. Implicit resume on MCP connect
+12. Auto-session inference
+13. Smarter passive checkpoint triggers
+14. Auto-drafted handoffs
+15. Automatic Holistic state sync
+16. One-command machine bootstrap
+
 ### Phase 2 Issues (Team Mode)
-11. Contributor identity + team session tracking
-12. `holistic export` for PR descriptions
-13. Per-contributor filtering
-14. Team regression ownership
+17. Contributor identity + team session tracking
+18. `holistic export` for PR descriptions
+19. Per-contributor filtering
+20. Team regression ownership
 
-### Phase 3 Issues (Audience Growth)
-15. Landing page (`holistic.dev`)
-16. "The Context Tax" blog post
-17. Community setup (Discord/Discussions)
-18. Community outreach plan
+### Phase 3 Issues (Core Workflow Tightening)
+21. Improve resume/handoff signal quality
+22. Add memory hygiene and pruning workflow
+23. Improve regression/blocker surfacing
+24. Add workflow health checks
 
-### Phase 4 Issues (IDE Extensions)
-19. VS Code extension scaffold
-20. Cursor integration
-21. JetBrains plugin
-22. Neovim/Vim plugin
+### Phase 4 Issues (Focused Integrations)
+25. MCP-first integration templates and validation
+26. Thin Cursor/Claude integration setup
+27. Editor launcher or command experiments with strict scope
+28. Integration compatibility matrix
 
 ---
 
 ## Original Feature Roadmaps (Reference)
 
-**Note:** The following roadmaps (02-05) were created before incorporating the phase-based approach. They contain valuable implementation details and code examples, but should be considered **reference material** rather than the active roadmap. The phase-based approach above (Phases 0-4) supersedes these.
+The following roadmaps (02-05) were created before the phase-based approach. They contain useful implementation detail and code examples, but they are reference material rather than the active roadmap.
 
-### For Reference Only:
+### For Reference Only
 
-- **[02-daemon-passive-capture.md](./02-daemon-passive-capture.md)** - Technical details for background file watching and auto-checkpointing. Relevant parts will be incorporated into Phase 2 and 4.
+- **[02-daemon-passive-capture.md](./02-daemon-passive-capture.md)** - Technical details for background file watching and auto-checkpointing. Reuse only where they clearly strengthen the core continuity workflow.
+- **[03-cross-device-sync.md](./03-cross-device-sync.md)** - State branch sync implementation. Reuse where it improves portable memory and team continuity.
+- **[04-agent-integrations.md](./04-agent-integrations.md)** - Git hooks, shell helpers, and integration ideas. Reuse selectively in Phase 1 and Phase 4.
+- **[05-visualization-search.md](./05-visualization-search.md)** - Search, timeline, diff, and stats commands. Reuse where they directly improve context continuity rather than general analytics.
 
-- **[03-cross-device-sync.md](./03-cross-device-sync.md)** - State branch sync implementation. Relevant parts will be incorporated into Phase 2 (Team Mode).
-
-- **[04-agent-integrations.md](./04-agent-integrations.md)** - GitHub Actions, git hooks, shell helpers, VS Code extension. Parts incorporated into Phase 1 (git hooks) and Phase 4 (IDE extensions).
-
-- **[05-visualization-search.md](./05-visualization-search.md)** - Search, timeline, diff, and stats commands. Parts incorporated into Phase 1 (`holistic diff`) and Phase 2 (`holistic export`).
-
-These documents contain implementation code examples that may be useful when building the features described in Phases 1-4.
+These documents should inform the active roadmap, not expand it beyond Holistic's core niche.
 
 ---
 
-**Last updated:** March 20, 2026  
-**Roadmap version:** 2.0 (Phase-based)  
-**Next review:** After Phase 0 completion
+**Last updated:** March 20, 2026
+**Roadmap version:** 2.2 (phase-based, focus-constrained, workflow-disappearance north star)
+**Next review:** Before Phase 1.5 planning

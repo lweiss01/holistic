@@ -2,6 +2,12 @@
 
 Holistic cannot force every app or agent to execute startup logic just because a repo exists. Zero-touch behavior therefore has two layers.
 
+## Product North Star
+
+Open repo, start working, Holistic quietly keeps continuity alive.
+
+Zero-touch architecture exists to close the gap between the current protocol and that goal.
+
 ## Repo Layer
 
 - `HOLISTIC.md`, `AGENTS.md`, project history, and regression watch stay inside the repo so any agent that reads repo instructions can recover context.
@@ -26,6 +32,7 @@ Holistic cannot force every app or agent to execute startup logic just because a
 - Treat the dedicated Holistic state branch as the clean cross-device distribution channel for that memory.
 - Add the Holistic daemon as the passive capture layer on devices where you want unattended local capture.
 - Add app-specific integrations when a tool exposes startup hooks or slash-command automation.
+- Prefer workflow-disappearance improvements over adding more visible user ceremony.
 
 Project: holistic
-Updated: 2026-03-20T03:17:51.386Z
+Updated: 2026-03-20T22:24:49.716Z

@@ -2,6 +2,41 @@
 
 Use this before changing existing behavior. It is the short list of fixes and outcomes that future agents should preserve.
 
+## Start using Holistic in this repo
+
+- Goal: Phase 1 rollout and real repo usage
+- Durable changes:
+- Refocused the roadmap around workflow disappearance instead of extra ceremony
+- Why this matters:
+- The roadmap now prioritizes low-touch continuity over surface-area growth
+- Future work should make resume, checkpoint, handoff, and sync fade further into the background
+- Do not regress:
+- Do not add workflow steps that increase startup ceremony unless they clearly improve durable continuity
+- Avoid roadmap drift into broad platform features that do not help Holistic quietly preserve continuity
+- Source session: session-2026-03-20T22-19-30-578Z
+
+## Session Two
+
+- Goal: Session two goal
+- Durable changes:
+- Added beta
+- Why this matters:
+- No impact notes recorded.
+- Do not regress:
+- Keep beta behavior
+- Source session: session-2026-03-20T22-07-23-761Z
+
+## Session One
+
+- Goal: Session one goal
+- Durable changes:
+- Added alpha
+- Why this matters:
+- No impact notes recorded.
+- Do not regress:
+- Keep alpha behavior
+- Source session: session-2026-03-20T22-07-22-579Z
+
 ## Test branch fallback fix
 
 - Goal: Test branch fallback fix
@@ -24,6 +59,14 @@ Use this before changing existing behavior. It is the short list of fixes and ou
 - Created 22 beads issues for Phases 0-4
 - Added Windows-compatible build script
 - Added resume reminder to Claude adapter
+- Replaced Unix-only clean script with a Node-based clean script
+- Replaced shell-based smoke test with a cross-platform Node smoke test
+- Verified npm pack contents with a workspace-local npm cache
+- Verified global install from holistic-0.1.0.tgz and smoke-tested the installed CLI
+- Updated README install instructions to match the validated packaged flow
+- Added a product focus guardrail to the roadmap
+- Reframed Phase 3 as core workflow tightening
+- Reframed Phase 4 as focused integrations with strict scope
 - Why this matters:
 - Failed git reads now visibly different from actual 'master' branch
 - Phase 0 foundation fixes prevent embarrassing bugs when users arrive
@@ -32,11 +75,18 @@ Use this before changing existing behavior. It is the short list of fixes and ou
 - All 8 agent types now supported with adapters
 - Schema changes have safe migration path
 - Windows users can now build successfully
+- Phase 0 packaging and install validation now succeeds on Windows
+- prepublishOnly now runs a real smoke test before publish
+- The roadmap now protects Holistic's niche instead of drifting toward an everything tool
+- Later-phase planning is now constrained to features that improve durable context continuity
 - Do not regress:
 - Do not use 'master' as a fallback value anywhere - use 'unknown' for failures
 - Node.js --experimental-strip-types doesn't work in node_modules, must build to JS
 - Always test npm install -g locally before publishing
 - Never skip Phase 0 on future projects - foundation matters
+- Keep package scripts cross-platform; do not reintroduce Unix-only rm or shell redirection
+- Keep README install instructions aligned with the packaged tarball flow
+- Do not add late-phase roadmap work that broadens Holistic beyond durable cross-agent context continuity without a clear continuity payoff
 - Source session: session-2026-03-20T02-39-52-257Z
 
 ## Structured metadata and roadmap planning

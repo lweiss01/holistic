@@ -2,14 +2,84 @@
 
 This archive is the durable memory of what agents changed, why they changed it, and what the project impact was. Review it before revisiting a feature area.
 
+## Start using Holistic in this repo
+
+- Session: session-2026-03-20T22-19-30-578Z
+- Agent: unknown
+- Status: active
+- When: 2026-03-20T22:27:53.508Z
+- Goal: Phase 1 rollout and real repo usage
+- Summary: Committed: feat: add phase 1 workflow tools and MCP support
+- Work done:
+- Refocused the roadmap around workflow disappearance instead of extra ceremony
+- Why it mattered:
+- The roadmap now prioritizes low-touch continuity over surface-area growth
+- Future work should make resume, checkpoint, handoff, and sync fade further into the background
+- Regression risks:
+- Do not add workflow steps that increase startup ceremony unless they clearly improve durable continuity
+- Avoid roadmap drift into broad platform features that do not help Holistic quietly preserve continuity
+- References:
+- No references recorded.
+
+## Session Three
+
+- Session: session-2026-03-20T22-07-24-946Z
+- Agent: unknown
+- Status: superseded
+- When: 2026-03-20T22:19:30.577Z
+- Goal: Session three goal
+- Summary: Session started.
+- Work done:
+- No completed work recorded.
+- Why it mattered:
+- No impact notes recorded.
+- Regression risks:
+- No specific regression risks recorded.
+- References:
+- No references recorded.
+
+## Session Two
+
+- Session: session-2026-03-20T22-07-23-761Z
+- Agent: unknown
+- Status: superseded
+- When: 2026-03-20T22:07:24.945Z
+- Goal: Session two goal
+- Summary: Completed session two
+- Work done:
+- Added beta
+- Why it mattered:
+- No impact notes recorded.
+- Regression risks:
+- Keep beta behavior
+- References:
+- No references recorded.
+
+## Session One
+
+- Session: session-2026-03-20T22-07-22-579Z
+- Agent: unknown
+- Status: superseded
+- When: 2026-03-20T22:07:23.760Z
+- Goal: Session one goal
+- Summary: Completed session one
+- Work done:
+- Added alpha
+- Why it mattered:
+- No impact notes recorded.
+- Regression risks:
+- Keep alpha behavior
+- References:
+- No references recorded.
+
 ## Test branch fallback fix
 
 - Session: session-2026-03-20T02-39-52-257Z
-- Agent: claude
-- Status: active
-- When: 2026-03-20T03:33:20.148Z
+- Agent: codex
+- Status: superseded
+- When: 2026-03-20T22:07:22.578Z
 - Goal: Test branch fallback fix
-- Summary: Phase 0 (Code Hardening) complete - 5/5 tasks done, npm package ready
+- Summary: Refocused Phases 3 and 4 around durable cross-agent context continuity instead of broad growth or platform expansion
 - Work done:
 - Changed getBranchName() fallback from 'master' to 'unknown'
 - Changed createSession() branch init from 'master' to empty string
@@ -29,6 +99,14 @@ This archive is the durable memory of what agents changed, why they changed it, 
 - Created 22 beads issues for Phases 0-4
 - Added Windows-compatible build script
 - Added resume reminder to Claude adapter
+- Replaced Unix-only clean script with a Node-based clean script
+- Replaced shell-based smoke test with a cross-platform Node smoke test
+- Verified npm pack contents with a workspace-local npm cache
+- Verified global install from holistic-0.1.0.tgz and smoke-tested the installed CLI
+- Updated README install instructions to match the validated packaged flow
+- Added a product focus guardrail to the roadmap
+- Reframed Phase 3 as core workflow tightening
+- Reframed Phase 4 as focused integrations with strict scope
 - Why it mattered:
 - Failed git reads now visibly different from actual 'master' branch
 - Phase 0 foundation fixes prevent embarrassing bugs when users arrive
@@ -37,11 +115,18 @@ This archive is the durable memory of what agents changed, why they changed it, 
 - All 8 agent types now supported with adapters
 - Schema changes have safe migration path
 - Windows users can now build successfully
+- Phase 0 packaging and install validation now succeeds on Windows
+- prepublishOnly now runs a real smoke test before publish
+- The roadmap now protects Holistic's niche instead of drifting toward an everything tool
+- Later-phase planning is now constrained to features that improve durable context continuity
 - Regression risks:
 - Do not use 'master' as a fallback value anywhere - use 'unknown' for failures
 - Node.js --experimental-strip-types doesn't work in node_modules, must build to JS
 - Always test npm install -g locally before publishing
 - Never skip Phase 0 on future projects - foundation matters
+- Keep package scripts cross-platform; do not reintroduce Unix-only rm or shell redirection
+- Keep README install instructions aligned with the packaged tarball flow
+- Do not add late-phase roadmap work that broadens Holistic beyond durable cross-agent context continuity without a clear continuity payoff
 - References:
 - holistic-yn3
 - holistic-imq

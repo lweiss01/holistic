@@ -23,20 +23,28 @@ Holistic turns your repo into a shared memory layer for project work so every ne
 
 If you use Claude, Codex, Gemini, Antigravity, desktop apps, IDEs, mobile sessions, or a mix of all of them, Holistic is designed for that reality.
 
+## Product north star
+
+Open repo, start working, Holistic quietly keeps continuity alive.
+
+That is the real target for the project. Holistic should move toward less ceremony, less manual re-briefing, and more durable continuity happening automatically in the background.
+
 ## Try Holistic today
 
-Today, Holistic is source-first. To try it in your own repo, you will want Node.js 24+ and a quick local CLI install:
+Holistic now supports a package-style install flow. To try it in your own repo, you will want Node.js 24+ and a local install of the packaged CLI:
 
 ```bash
 git clone https://github.com/lweiss01/holistic.git
 cd holistic
-npm link
+npm run build
+npm pack
+npm install -g ./holistic-0.1.0.tgz
 
 cd /path/to/your/project
-holistic init --remote origin --state-branch holistic/state
+holistic init --remote origin --state-branch holistic/state --install-hooks
 ```
 
-If you just want to explore the project locally first, clone this repo and run the CLI directly from source.
+If you just want to explore the project locally first, clone this repo and run the CLI directly from source with `npm run holistic -- --help`.
 
 Drop one command in your repo and give it durable cross-agent memory across agents, apps, IDEs, and devices.
 
@@ -119,6 +127,19 @@ That is what makes it:
 - cross-device
 - repo-native
 
+## Direction
+
+Holistic is not trying to become an everything tool.
+
+The product stays focused when new work directly improves one or more of:
+
+- durable cross-agent context continuity
+- lower-friction resume, checkpoint, handoff, and review flows
+- safer background capture and sync
+- thin integrations that reduce context loss without turning Holistic into a full platform
+
+The next step after Phase 1 is to make Holistic fade further into the background so "open repo and work" becomes the normal experience.
+
 ## Core idea
 
 ```mermaid
@@ -174,6 +195,7 @@ That setup creates:
 - `.holistic/` for structured state and memory docs
 - adapter docs for supported agent environments
 - optional system artifacts for passive capture and sync
+- optional git hooks for lightweight post-commit checkpoints and pre-push status reminders
 
 ### 2. During a work session
 
@@ -247,7 +269,62 @@ That long-term memory helps stop the cycle of:
 | `holistic checkpoint` | Save durable mid-session state |
 | `holistic handoff` | Finalize the session handoff |
 | `holistic start-new` | Start a fresh tracked session while preserving unfinished work |
+| `holistic status` | Show a read-only summary of the active session, last handoff, and queued work |
+| `holistic diff` | Compare two sessions in text or JSON form |
+| `holistic serve` | Run Holistic as a thin stdio MCP server |
 | `holistic watch` | Foreground watch mode for automatic checkpoints |
+
+## MCP server mode
+
+Holistic can also run as a thin MCP server for agent-native workflows:
+
+```bash
+holistic serve
+```
+
+Phase 1 keeps the MCP surface intentionally small. The first release exposes:
+
+- `holistic_resume`
+- `holistic_checkpoint`
+- `holistic_handoff`
+
+If your MCP host starts Holistic outside the repo root, set `HOLISTIC_REPO` to the target repository path.
+
+### Claude Desktop example
+
+Add an MCP server entry that launches the packaged CLI:
+
+```json
+{
+  "mcpServers": {
+    "holistic": {
+      "command": "holistic",
+      "args": ["serve"],
+      "env": {
+        "HOLISTIC_REPO": "/path/to/your/project"
+      }
+    }
+  }
+}
+```
+
+### Editor MCP example
+
+For editors that read an `mcp.json`-style config, the same thin server works:
+
+```json
+{
+  "servers": {
+    "holistic": {
+      "command": "holistic",
+      "args": ["serve"],
+      "env": {
+        "HOLISTIC_REPO": "/path/to/your/project"
+      }
+    }
+  }
+}
+```
 
 ## Example workflow
 
