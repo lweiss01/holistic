@@ -2,22 +2,19 @@
 
 ## Goal
 
-Phase 1 rollout and real repo usage
+Plan Phase 1.5 around implicit resume, auto-session inference, smarter passive checkpoints, auto-drafted handoffs, automatic sync, and machine bootstrap
 
 ## Latest Status
 
-Committed: docs: record the latest holistic checkpoint
+Merged holistic2 UX improvements into holistic: root-level CLAUDE.md/GEMINI.md/HISTORY.md, --fixed regression flags, holistic start alias, AGENTS.md auto-start comment, README overhaul. Deleted holistic2.
 
 ## Planned Next Steps
 
-- Check current Holistic state
-- Use checkpoints during real work
-- Create a clean handoff when pausing
+- Plan Phase 1.5 around implicit resume, auto-session inference, smarter passive checkpoints, auto-drafted handoffs, automatic sync, and machine bootstrap
 
 ## Project Impact
 
-- The roadmap now prioritizes low-touch continuity over surface-area growth
-- Future work should make resume, checkpoint, handoff, and sync fade further into the background
+- No impact notes captured yet.
 
 ## References
 
