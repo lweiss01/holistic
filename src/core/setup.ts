@@ -77,7 +77,7 @@ function writeConfig(paths: RuntimePaths, remote: string, stateBranch: string, i
       stateBranch,
       postHandoffPush: true,
       restoreOnStartup: true,
-      trackedPaths: ["HOLISTIC.md", "AGENTS.md", ".holistic"],
+      trackedPaths: ["HOLISTIC.md", "AGENTS.md", "CLAUDE.md", "GEMINI.md", "HISTORY.md", ".holistic"],
     },
     daemon: {
       intervalSeconds,
@@ -104,13 +104,13 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     `$root = '${quotePowerShell(rootDir)}'`,
     `$remote = '${quotePowerShell(remote)}'`,
     `$stateBranch = '${quotePowerShell(stateBranch)}'`,
-    "$tracked = @('HOLISTIC.md','AGENTS.md','.holistic')",
-    "$status = git -C $root status --porcelain -- HOLISTIC.md AGENTS.md .holistic 2>$null",
+    "$tracked = @('HOLISTIC.md','AGENTS.md','CLAUDE.md','GEMINI.md','HISTORY.md','.holistic')",
+    "$status = git -C $root status --porcelain -- HOLISTIC.md AGENTS.md CLAUDE.md GEMINI.md HISTORY.md .holistic 2>$null",
     "if ($LASTEXITCODE -ne 0) { exit 0 }",
     "if ($status) { Write-Host 'Holistic restore skipped because local Holistic files are dirty.'; exit 0 }",
     "git -C $root fetch $remote $stateBranch 2>$null",
     "if ($LASTEXITCODE -ne 0) { Write-Host 'Holistic restore skipped because remote state branch is unavailable.'; exit 0 }",
-    "git -C $root checkout FETCH_HEAD -- HOLISTIC.md AGENTS.md .holistic 2>$null | Out-Null",
+    "git -C $root checkout FETCH_HEAD -- HOLISTIC.md AGENTS.md CLAUDE.md GEMINI.md HISTORY.md .holistic 2>$null | Out-Null",
   ].join("\n");
 
   const syncPs1 = [
@@ -132,8 +132,11 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     "  Get-ChildItem -Force | Where-Object { $_.Name -ne '.git' } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue",
     `  Copy-Item -Path (Join-Path $root 'HOLISTIC.md') -Destination (Join-Path $tmp 'HOLISTIC.md') -Force`,
     `  Copy-Item -Path (Join-Path $root 'AGENTS.md') -Destination (Join-Path $tmp 'AGENTS.md') -Force`,
+    `  Copy-Item -Path (Join-Path $root 'CLAUDE.md') -Destination (Join-Path $tmp 'CLAUDE.md') -Force`,
+    `  Copy-Item -Path (Join-Path $root 'GEMINI.md') -Destination (Join-Path $tmp 'GEMINI.md') -Force`,
+    `  Copy-Item -Path (Join-Path $root 'HISTORY.md') -Destination (Join-Path $tmp 'HISTORY.md') -Force`,
     `  Copy-Item -Path (Join-Path $root '.holistic') -Destination (Join-Path $tmp '.holistic') -Recurse -Force`,
-    "  git add HOLISTIC.md AGENTS.md .holistic",
+    "  git add HOLISTIC.md AGENTS.md CLAUDE.md GEMINI.md HISTORY.md .holistic",
     "  git diff --cached --quiet",
     "  if ($LASTEXITCODE -ne 0) {",
     "    git commit -m 'chore(holistic): sync portable state' | Out-Null",
@@ -150,7 +153,7 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     `ROOT='${shellQuote(rootDir)}'`,
     `REMOTE='${shellQuote(remote)}'`,
     `STATE_BRANCH='${shellQuote(stateBranch)}'`,
-    "if ! git -C \"$ROOT\" diff --quiet -- HOLISTIC.md AGENTS.md .holistic 2>/dev/null; then",
+    "if ! git -C \"$ROOT\" diff --quiet -- HOLISTIC.md AGENTS.md CLAUDE.md GEMINI.md HISTORY.md .holistic 2>/dev/null; then",
     "  echo 'Holistic restore skipped because local Holistic files are dirty.'",
     "  exit 0",
     "fi",
@@ -158,7 +161,7 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     "  echo 'Holistic restore skipped because remote state branch is unavailable.'",
     "  exit 0",
     "fi",
-    "git -C \"$ROOT\" checkout FETCH_HEAD -- HOLISTIC.md AGENTS.md .holistic 2>/dev/null || true",
+    "git -C \"$ROOT\" checkout FETCH_HEAD -- HOLISTIC.md AGENTS.md CLAUDE.md GEMINI.md HISTORY.md .holistic 2>/dev/null || true",
   ].join("\n");
 
   const syncSh = [
@@ -177,8 +180,11 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     "find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +",
     "cp \"$ROOT/HOLISTIC.md\" ./HOLISTIC.md",
     "cp \"$ROOT/AGENTS.md\" ./AGENTS.md",
+    "cp \"$ROOT/CLAUDE.md\" ./CLAUDE.md",
+    "cp \"$ROOT/GEMINI.md\" ./GEMINI.md",
+    "cp \"$ROOT/HISTORY.md\" ./HISTORY.md",
     "cp -R \"$ROOT/.holistic\" ./.holistic",
-    "git add HOLISTIC.md AGENTS.md .holistic",
+    "git add HOLISTIC.md AGENTS.md CLAUDE.md GEMINI.md HISTORY.md .holistic",
     "git diff --cached --quiet || git commit -m 'chore(holistic): sync portable state' >/dev/null 2>&1",
     "git push \"$REMOTE\" HEAD:\"$STATE_BRANCH\"",
   ].join("\n");

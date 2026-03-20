@@ -87,14 +87,18 @@ function printHelp(): void {
 
 Usage:
   holistic init [--install-daemon] [--install-hooks] [--platform win32|darwin|linux] [--interval 30] [--remote origin] [--state-branch holistic/state]
+  holistic start [--agent codex|claude|antigravity|gemini|copilot|cursor|goose|gsd] [--continue] [--json]
   holistic resume [--agent codex|claude|antigravity|gemini|copilot|cursor|goose|gsd] [--continue] [--json]
   holistic checkpoint --reason "<reason>" [--goal "<goal>"] [--status "<status>"] [--plan "<step>"]...
+  holistic checkpoint --fixed "<bug>" [--fix-files "<file>"] [--fix-risk "<what reintroduces it>"]
   holistic handoff [--summary "<summary>"] [--next "<step>"]...
   holistic start-new --goal "<goal>" [--title "<title>"] [--plan "<step>"]...
   holistic status
   holistic diff --from "<session-id>" --to "<session-id>" [--format text|json]
   holistic serve
   holistic watch [--agent codex|claude|antigravity|gemini|copilot|cursor|goose|gsd] [--interval 60]
+
+  'holistic start' is an alias for 'holistic resume'.
 `);
 }
 
@@ -337,9 +341,26 @@ async function handleResume(rootDir: string, parsed: ParsedArgs): Promise<number
 
 async function handleCheckpoint(rootDir: string, parsed: ParsedArgs): Promise<number> {
   const nextState = mutateState(rootDir, (state) => {
+    const regressions = listFlag(parsed.flags, "regression");
+
+    // --fixed / --fix-files / --fix-risk sugar: compose a structured known-fix entry
+    const fixed = firstFlag(parsed.flags, "fixed");
+    if (fixed) {
+      const fixFiles = firstFlag(parsed.flags, "fix-files");
+      const fixRisk = firstFlag(parsed.flags, "fix-risk");
+      let fixEntry = `[FIX] ${fixed}`;
+      if (fixFiles) {
+        fixEntry += ` | files: ${fixFiles}`;
+      }
+      if (fixRisk) {
+        fixEntry += ` | risk: ${fixRisk}`;
+      }
+      regressions.push(fixEntry);
+    }
+
     const input: CheckpointInput = {
       agent: asAgent(firstFlag(parsed.flags, "agent", state.activeSession?.agent ?? "unknown")),
-      reason: firstFlag(parsed.flags, "reason", "manual"),
+      reason: firstFlag(parsed.flags, "reason", fixed ? `fix: ${fixed}` : "manual"),
       goal: firstFlag(parsed.flags, "goal"),
       title: firstFlag(parsed.flags, "title"),
       status: firstFlag(parsed.flags, "status"),
@@ -351,7 +372,7 @@ async function handleCheckpoint(rootDir: string, parsed: ParsedArgs): Promise<nu
       blockers: listFlag(parsed.flags, "blocker"),
       references: listFlag(parsed.flags, "ref"),
       impacts: listFlag(parsed.flags, "impact"),
-      regressions: listFlag(parsed.flags, "regression"),
+      regressions,
     };
     return checkpointState(rootDir, state, input);
   });
@@ -556,6 +577,7 @@ async function main(): Promise<number> {
   switch (parsed.command) {
     case "init":
       return handleInit(rootDir, parsed);
+    case "start":   // user-friendly alias for resume
     case "resume":
       return handleResume(rootDir, parsed);
     case "checkpoint":
