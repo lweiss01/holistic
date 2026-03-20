@@ -7,9 +7,9 @@ This archive is the durable memory of what agents changed, why they changed it, 
 - Session: session-2026-03-20T22-19-30-578Z
 - Agent: unknown
 - Status: active
-- When: 2026-03-20T22:28:14.826Z
+- When: 2026-03-20T22:28:39.744Z
 - Goal: Phase 1 rollout and real repo usage
-- Summary: Committed: docs: set the low-touch continuity north star
+- Summary: Committed: docs: record the latest holistic checkpoint
 - Work done:
 - Refocused the roadmap around workflow disappearance instead of extra ceremony
 - Why it mattered:

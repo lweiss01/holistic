@@ -6,7 +6,7 @@ Phase 1 rollout and real repo usage
 
 ## Latest Status
 
-Committed: docs: set the low-touch continuity north star
+Committed: docs: record the latest holistic checkpoint
 
 ## Planned Next Steps
 
