@@ -1,4 +1,4 @@
-import { createInterface } from "node:readline/promises";
+import { createInterface, type Interface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { captureRepoSnapshot, clearPendingCommit, getGitSnapshot, writePendingCommit } from "./core/git.ts";
 import { writeDerivedDocs } from "./core/docs.ts";
@@ -95,17 +95,20 @@ function persist(rootDir: string, state: ReturnType<typeof loadState>["state"], 
   return state;
 }
 
-async function ask(question: string, fallback = ""): Promise<string> {
-  const rl = createInterface({ input, output });
+async function ask(question: string, fallback = "", rl?: Interface): Promise<string> {
+  const shouldClose = !rl;
+  const readline = rl || createInterface({ input, output });
   const suffix = fallback ? ` [${fallback}]` : "";
-  const answer = await rl.question(`${question}${suffix}: `);
-  rl.close();
+  const answer = await readline.question(`${question}${suffix}: `);
+  if (shouldClose) {
+    readline.close();
+  }
   return answer.trim() || fallback;
 }
 
-async function promptList(question: string, fallback: string[]): Promise<string[]> {
+async function promptList(question: string, fallback: string[], rl?: Interface): Promise<string[]> {
   const joined = fallback.join(" | ");
-  const answer = await ask(`${question} (separate with |)`, joined);
+  const answer = await ask(`${question} (separate with |)`, joined, rl);
   return answer
     .split("|")
     .map((item) => item.trim())
@@ -183,16 +186,25 @@ async function handleCheckpoint(rootDir: string, parsed: ParsedArgs): Promise<nu
 async function handleStartNew(rootDir: string, parsed: ParsedArgs): Promise<number> {
   const { state, paths } = loadState(rootDir);
   const agent = asAgent(firstFlag(parsed.flags, "agent", "unknown"));
-  const goal = firstFlag(parsed.flags, "goal") || await ask("New session goal", "Capture the next task");
-  const title = firstFlag(parsed.flags, "title");
-  const plan = listFlag(parsed.flags, "plan");
-  const finalPlan = plan.length > 0 ? plan : await promptList("Initial plan steps", ["Read HOLISTIC.md", "Confirm the next concrete step"]);
+  
+  // Create readline interface once for all prompts
+  const rl = createInterface({ input, output });
+  
+  try {
+    const goal = firstFlag(parsed.flags, "goal") || await ask("New session goal", "Capture the next task", rl);
+    const title = firstFlag(parsed.flags, "title");
+    const plan = listFlag(parsed.flags, "plan");
+    const finalPlan = plan.length > 0 ? plan : await promptList("Initial plan steps", ["Read HOLISTIC.md", "Confirm the next concrete step"], rl);
 
-  const nextState = startNewSession(rootDir, state, agent, goal, finalPlan, title);
-  persist(rootDir, nextState, paths);
+    const nextState = startNewSession(rootDir, state, agent, goal, finalPlan, title);
+    persist(rootDir, nextState, paths);
 
-  process.stdout.write(`Started ${nextState.activeSession?.id} for goal: ${nextState.activeSession?.currentGoal}\n`);
-  return 0;
+    process.stdout.write(`Started ${nextState.activeSession?.id} for goal: ${nextState.activeSession?.currentGoal}\n`);
+    return 0;
+  } finally {
+    // Close interface once at the end
+    rl.close();
+  }
 }
 
 async function handleHandoff(rootDir: string, parsed: ParsedArgs): Promise<number> {
@@ -202,56 +214,64 @@ async function handleHandoff(rootDir: string, parsed: ParsedArgs): Promise<numbe
     return 1;
   }
 
-  const input: HandoffInput = {
-    summary: firstFlag(parsed.flags, "summary"),
-    done: listFlag(parsed.flags, "done"),
-    tried: listFlag(parsed.flags, "tried"),
-    next: listFlag(parsed.flags, "next"),
-    assumptions: listFlag(parsed.flags, "assumption"),
-    blockers: listFlag(parsed.flags, "blocker"),
-    references: listFlag(parsed.flags, "ref"),
-    impacts: listFlag(parsed.flags, "impact"),
-    regressions: listFlag(parsed.flags, "regression"),
-    status: firstFlag(parsed.flags, "status"),
-  };
+  // Create readline interface once for all prompts
+  const rl = createInterface({ input, output });
 
-  if (!input.summary) {
-    input.summary = await ask("Handoff summary", state.activeSession.latestStatus || state.activeSession.currentGoal);
-  }
-  if (input.done?.length === 0) {
-    input.done = await promptList("Work completed", state.activeSession.workDone);
-  }
-  if (input.tried?.length === 0) {
-    input.tried = await promptList("What was tried", state.activeSession.triedItems);
-  }
-  if (input.next?.length === 0) {
-    input.next = await promptList("What should happen next", state.activeSession.nextSteps);
-  }
-  if (input.impacts?.length === 0) {
-    input.impacts = await promptList("Overall impact on the project", state.activeSession.impactNotes);
-  }
-  if (input.regressions?.length === 0) {
-    input.regressions = await promptList("Regression risks to guard", state.activeSession.regressionRisks);
-  }
-  if (input.assumptions?.length === 0) {
-    input.assumptions = await promptList("Important assumptions", state.activeSession.assumptions);
-  }
-  if (input.blockers?.length === 0) {
-    input.blockers = await promptList("Known blockers", state.activeSession.blockers);
-  }
-  if (input.references?.length === 0) {
-    input.references = await promptList("References and docs", state.activeSession.references);
-  }
+  try {
+    const input: HandoffInput = {
+      summary: firstFlag(parsed.flags, "summary"),
+      done: listFlag(parsed.flags, "done"),
+      tried: listFlag(parsed.flags, "tried"),
+      next: listFlag(parsed.flags, "next"),
+      assumptions: listFlag(parsed.flags, "assumption"),
+      blockers: listFlag(parsed.flags, "blocker"),
+      references: listFlag(parsed.flags, "ref"),
+      impacts: listFlag(parsed.flags, "impact"),
+      regressions: listFlag(parsed.flags, "regression"),
+      status: firstFlag(parsed.flags, "status"),
+    };
 
-  const nextState = applyHandoff(rootDir, state, input);
-  persist(rootDir, nextState, paths);
+    if (!input.summary) {
+      input.summary = await ask("Handoff summary", state.activeSession.latestStatus || state.activeSession.currentGoal, rl);
+    }
+    if (input.done?.length === 0) {
+      input.done = await promptList("Work completed", state.activeSession.workDone, rl);
+    }
+    if (input.tried?.length === 0) {
+      input.tried = await promptList("What was tried", state.activeSession.triedItems, rl);
+    }
+    if (input.next?.length === 0) {
+      input.next = await promptList("What should happen next", state.activeSession.nextSteps, rl);
+    }
+    if (input.impacts?.length === 0) {
+      input.impacts = await promptList("Overall impact on the project", state.activeSession.impactNotes, rl);
+    }
+    if (input.regressions?.length === 0) {
+      input.regressions = await promptList("Regression risks to guard", state.activeSession.regressionRisks, rl);
+    }
+    if (input.assumptions?.length === 0) {
+      input.assumptions = await promptList("Important assumptions", state.activeSession.assumptions, rl);
+    }
+    if (input.blockers?.length === 0) {
+      input.blockers = await promptList("Known blockers", state.activeSession.blockers, rl);
+    }
+    if (input.references?.length === 0) {
+      input.references = await promptList("References and docs", state.activeSession.references, rl);
+    }
 
-  if (nextState.pendingCommit) {
-    writePendingCommit(paths, nextState.pendingCommit.message);
+    const nextState = applyHandoff(rootDir, state, input);
+    persist(rootDir, nextState, paths);
+
+    if (nextState.pendingCommit) {
+      writePendingCommit(paths, nextState.pendingCommit.message);
+    }
+
+    process.stdout.write(`Handoff complete.\nSummary: ${nextState.lastHandoff?.summary ?? "n/a"}\nPending git commit: ${nextState.pendingCommit?.message ?? "none"}\nHistory doc: ${nextState.docIndex.historyDoc}\nRegression watch: ${nextState.docIndex.regressionDoc}\n`);
+    return 0;
+  } finally {
+    // Close interface once at the end
+    rl.close();
   }
-
-  process.stdout.write(`Handoff complete.\nSummary: ${nextState.lastHandoff?.summary ?? "n/a"}\nPending git commit: ${nextState.pendingCommit?.message ?? "none"}\nHistory doc: ${nextState.docIndex.historyDoc}\nRegression watch: ${nextState.docIndex.regressionDoc}\n`);
-  return 0;
 }
 
 async function handleMarkCommit(rootDir: string, parsed: ParsedArgs): Promise<number> {
