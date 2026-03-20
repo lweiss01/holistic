@@ -1,8 +1,8 @@
 ﻿import { pathToFileURL } from "node:url";
-import { captureRepoSnapshot, getGitSnapshot } from "./core/git.ts";
-import { writeDerivedDocs } from "./core/docs.ts";
-import { checkpointState, loadState, saveState, startNewSession } from "./core/state.ts";
-import type { AgentName } from "./core/types.ts";
+import { captureRepoSnapshot, getGitSnapshot } from "./core/git.js";
+import { writeDerivedDocs } from "./core/docs.js";
+import { checkpointState, loadState, saveState, startNewSession } from "./core/state.js";
+import type { AgentName } from "./core/types.js";
 
 interface ParsedArgs {
   flags: Record<string, string[]>;

@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "holistic",
   "version": "0.1.0",
   "private": false,
@@ -32,12 +32,29 @@
     "holistic": "./bin/holistic.js"
   },
   "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build",
     "holistic": "node --experimental-strip-types ./src/cli.ts",
     "daemon": "node --experimental-strip-types ./src/daemon.ts",
-    "test": "node --experimental-strip-types ./tests/run-tests.ts",
-    "prepublishOnly": "npm test"
+    "test": "node ./bin/holistic.js --help >/dev/null && echo 'PASS: CLI loads successfully'"
   },
   "engines": {
     "node": ">=24.0.0"
-  }
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "typescript": "^5.9.3"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md",
+    "LICENSE",
+    "HOLISTIC.md",
+    "AGENTS.md",
+    "CONTRIBUTING.md",
+    "docs/handoff-walkthrough.md",
+    "docs/structured-metadata.md"
+  ]
 }

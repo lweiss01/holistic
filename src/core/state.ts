@@ -1,7 +1,7 @@
 ﻿import fs from "node:fs";
 import path from "node:path";
-import { getGitSnapshot } from "./git.ts";
-import { sanitizeList, sanitizeText } from "./redact.ts";
+import { getGitSnapshot } from "./git.js";
+import { sanitizeList, sanitizeText } from "./redact.js";
 import type {
   AgentName,
   CheckpointInput,
@@ -12,7 +12,7 @@ import type {
   ResumePayload,
   RuntimePaths,
   SessionRecord,
-} from "./types.ts";
+} from "./types.js";
 
 function now(): string {
   return new Date().toISOString();

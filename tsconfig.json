@@ -4,12 +4,23 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "strict": true,
-    "noEmit": true,
-    "allowImportingTsExtensions": true,
-    "resolveJsonModule": true
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "removeComments": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true
   },
   "include": [
-    "src/**/*.ts",
-    "tests/**/*.ts"
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "tests/**/*.ts",
+    "dist",
+    "node_modules"
   ]
 }

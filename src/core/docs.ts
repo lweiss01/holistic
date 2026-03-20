@@ -1,6 +1,6 @@
 ﻿import fs from "node:fs";
 import path from "node:path";
-import type { HolisticState, ImpactNote, RegressionRisk, RuntimePaths, SessionRecord, ValidationItem } from "./types.ts";
+import type { HolisticState, ImpactNote, RegressionRisk, RuntimePaths, SessionRecord, ValidationItem } from "./types.js";
 
 function renderList(items: string[], emptyText: string): string {
   if (items.length === 0) {

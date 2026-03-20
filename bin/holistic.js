@@ -6,9 +6,9 @@ import path from "node:path";
 
 const currentFile = fileURLToPath(import.meta.url);
 const repoRoot = path.resolve(path.dirname(currentFile), "..");
-const cliPath = path.resolve(repoRoot, "src/cli.ts");
+const cliPath = path.resolve(repoRoot, "dist/cli.js");
 const args = process.argv.slice(2);
-const result = spawnSync(process.execPath, ["--experimental-strip-types", cliPath, ...args], {
+const result = spawnSync(process.execPath, [cliPath, ...args], {
   stdio: "inherit",
   cwd: process.cwd(),
 });
@@ -46,7 +46,7 @@ if (args[0] === "handoff") {
               });
             }
           }
-          spawnSync(process.execPath, ["--experimental-strip-types", cliPath, "internal-mark-commit", "--message", message], {
+          spawnSync(process.execPath, [cliPath, "internal-mark-commit", "--message", message], {
             stdio: "inherit",
             cwd: process.cwd(),
           });

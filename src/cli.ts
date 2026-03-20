@@ -1,8 +1,8 @@
 import { createInterface, type Interface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import { captureRepoSnapshot, clearPendingCommit, getGitSnapshot, writePendingCommit } from "./core/git.ts";
-import { writeDerivedDocs } from "./core/docs.ts";
-import { initializeHolistic } from "./core/setup.ts";
+import { captureRepoSnapshot, clearPendingCommit, getGitSnapshot, writePendingCommit } from "./core/git.js";
+import { writeDerivedDocs } from "./core/docs.js";
+import { initializeHolistic } from "./core/setup.js";
 import {
   applyHandoff,
   checkpointState,
@@ -11,8 +11,8 @@ import {
   loadState,
   saveState,
   startNewSession,
-} from "./core/state.ts";
-import type { AgentName, CheckpointInput, HandoffInput } from "./core/types.ts";
+} from "./core/state.js";
+import type { AgentName, CheckpointInput, HandoffInput } from "./core/types.js";
 
 interface ParsedArgs {
   command: string;
