@@ -28,4 +28,4 @@ Holistic cannot force every app or agent to execute startup logic just because a
 - Add app-specific integrations when a tool exposes startup hooks or slash-command automation.
 
 Project: holistic
-Updated: 2026-03-20T01:58:46.397Z
+Updated: 2026-03-20T02:21:08.229Z

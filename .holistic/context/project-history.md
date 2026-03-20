@@ -2,14 +2,31 @@
 
 This archive is the durable memory of what agents changed, why they changed it, and what the project impact was. Review it before revisiting a feature area.
 
+## Test branch fallback fix
+
+- Session: session-2026-03-20T02-39-52-257Z
+- Agent: claude
+- Status: active
+- When: 2026-03-20T02:39:52.261Z
+- Goal: Test branch fallback fix
+- Summary: Session started.
+- Work done:
+- No completed work recorded.
+- Why it mattered:
+- No impact notes recorded.
+- Regression risks:
+- No specific regression risks recorded.
+- References:
+- No references recorded.
+
 ## Structured metadata and roadmap planning
 
 - Session: session-2026-03-20T01-56-30-503Z
 - Agent: claude
-- Status: active
-- When: 2026-03-20T02:07:07.484Z
+- Status: superseded
+- When: 2026-03-20T02:39:52.256Z
 - Goal: Enhance history/regression docs with structured metadata and create implementation plans for daemon, sync, integrations, and visualization features
-- Summary: All 5 recommended next steps documented with detailed implementation plans
+- Summary: Roadmap now phase-based: 0=Hardening→1=Features→2=Team→3=Growth→4=IDE
 - Work done:
 - Added Severity, OutcomeStatus, AreaTag types
 - Added ValidationItem, ImpactNote, RegressionRisk structured types
@@ -27,6 +44,11 @@ This archive is the durable memory of what agents changed, why they changed it, 
 - Created detailed roadmap for agent integrations (04)
 - Created detailed roadmap for visualization & search (05)
 - Created roadmap README with implementation order and dependencies
+- Created Phase 0: Code Hardening roadmap (CRITICAL - do first)
+- Created Phase 1: Feature Expansion roadmap (MCP, diff, status, hooks)
+- Identified 5 critical foundation bugs to fix before any marketing
+- Restructured roadmap with clear phase dependencies
+- Marked original roadmaps 02-05 as reference material
 - Why it mattered:
 - History and regression docs can now show severity, affected areas, outcome status, and validation checklists
 - Backward compatible - existing sessions continue working with plain text
@@ -34,10 +56,16 @@ This archive is the durable memory of what agents changed, why they changed it, 
 - Roadmaps provide 2-3 session implementation plans for each major feature
 - Clear path forward: daemon+sync (foundation), integrations (adoption), visualization (scale)
 - Backward compatible - existing sessions work unchanged, new sessions can use structured metadata
+- Phase 0 prevents embarrassing bugs when new users arrive
+- MCP server (Phase 1) enables invisible capture in agents - most powerful adoption unlock
+- Clear path: fix foundation → build features → enable teams → grow audience → IDE extensions
 - Regression risks:
 - Do not remove legacy impactNotes and regressionRisks string arrays - needed for backward compatibility
 - Do not remove legacy impactNotes/regressionRisks string arrays - backward compatibility
 - Rendering logic must check for structured metadata first, gracefully fall back to plain text
+- Do NOT skip Phase 0 - building on shaky foundation wastes time
+- Do NOT publish features before fixing branch fallback ambiguity
+- Do NOT add new agent names without expanding AgentName union first
 - References:
 - docs/structured-metadata.md
 - docs/roadmap/README.md
@@ -48,6 +76,8 @@ This archive is the durable memory of what agents changed, why they changed it, 
 - src/core/types.ts
 - src/core/docs.ts
 - src/core/state.ts
+- docs/roadmap/00-code-hardening.md
+- docs/roadmap/01-feature-expansion.md
 
 ## Finalize Holistic v1 implementation
 

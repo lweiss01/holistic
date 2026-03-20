@@ -25,17 +25,17 @@ function resolveGitDir(rootDir: string): string | null {
 function getBranchName(rootDir: string): string {
   const gitDir = resolveGitDir(rootDir);
   if (!gitDir) {
-    return "master";
+    return "unknown";  // Changed from "master" - makes failed reads visibly different
   }
 
   const headPath = path.join(gitDir, "HEAD");
   if (!fs.existsSync(headPath)) {
-    return "master";
+    return "unknown";  // Changed from "master" - failed read should not look like success
   }
 
   const head = fs.readFileSync(headPath, "utf8").trim();
   const refMatch = /^ref:\s+refs\/heads\/(.+)$/i.exec(head);
-  return refMatch?.[1] ?? "DETACHED";
+  return refMatch?.[1] ?? "detached";  // Changed from "DETACHED" for consistency
 }
 
 function walkRepoFiles(rootDir: string, currentDir: string, results: string[]): void {

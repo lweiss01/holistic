@@ -22,6 +22,11 @@ Use this before changing existing behavior. It is the short list of fixes and ou
 - Created detailed roadmap for agent integrations (04)
 - Created detailed roadmap for visualization & search (05)
 - Created roadmap README with implementation order and dependencies
+- Created Phase 0: Code Hardening roadmap (CRITICAL - do first)
+- Created Phase 1: Feature Expansion roadmap (MCP, diff, status, hooks)
+- Identified 5 critical foundation bugs to fix before any marketing
+- Restructured roadmap with clear phase dependencies
+- Marked original roadmaps 02-05 as reference material
 - Why this matters:
 - History and regression docs can now show severity, affected areas, outcome status, and validation checklists
 - Backward compatible - existing sessions continue working with plain text
@@ -29,10 +34,16 @@ Use this before changing existing behavior. It is the short list of fixes and ou
 - Roadmaps provide 2-3 session implementation plans for each major feature
 - Clear path forward: daemon+sync (foundation), integrations (adoption), visualization (scale)
 - Backward compatible - existing sessions work unchanged, new sessions can use structured metadata
+- Phase 0 prevents embarrassing bugs when new users arrive
+- MCP server (Phase 1) enables invisible capture in agents - most powerful adoption unlock
+- Clear path: fix foundation → build features → enable teams → grow audience → IDE extensions
 - Do not regress:
 - Do not remove legacy impactNotes and regressionRisks string arrays - needed for backward compatibility
 - Do not remove legacy impactNotes/regressionRisks string arrays - backward compatibility
 - Rendering logic must check for structured metadata first, gracefully fall back to plain text
+- Do NOT skip Phase 0 - building on shaky foundation wastes time
+- Do NOT publish features before fixing branch fallback ambiguity
+- Do NOT add new agent names without expanding AgentName union first
 - Source session: session-2026-03-20T01-56-30-503Z
 
 ## Finalize Holistic v1 implementation

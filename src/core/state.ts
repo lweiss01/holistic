@@ -119,7 +119,7 @@ function createSession(agent: AgentName, goal: string, title?: string, plan?: st
   return {
     id: `session-${timestamp.replaceAll(":", "-").replaceAll(".", "-")}`,
     agent,
-    branch: "master",
+    branch: "",  // Changed from "master" - will be set by refreshSessionFromRepo()
     startedAt: timestamp,
     updatedAt: timestamp,
     endedAt: null,
