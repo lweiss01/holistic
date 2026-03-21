@@ -6,7 +6,7 @@ Capture work and prepare a clean handoff.
 
 ## Latest Status
 
-Documented start/resume splash behavior and serve stderr startup banner
+Committed: feat(cli): show startup banner for resume and serve
 
 ## Planned Next Steps
 

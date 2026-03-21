@@ -7,9 +7,9 @@ This archive is the durable memory of what agents changed, why they changed it, 
 - Session: session-2026-03-21T19-14-45-428Z
 - Agent: unknown
 - Status: active
-- When: 2026-03-21T19:44:37.290Z
+- When: 2026-03-21T19:45:13.271Z
 - Goal: Capture work and prepare a clean handoff.
-- Summary: Documented start/resume splash behavior and serve stderr startup banner
+- Summary: Committed: feat(cli): show startup banner for resume and serve
 - Work done:
 - Added renderResumeOutput helper for CLI startup output
 - Showed splash banner for start and resume without changing MCP tool output

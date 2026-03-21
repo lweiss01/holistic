@@ -522,12 +522,12 @@ _Append-only log of every Holistic session. Newest entries at the bottom._
 
 ---
 
-## Session `session-2026-03-21T19-14-45-428Z` | 2026-03-21T19:44:37.290Z | unknown
+## Session `session-2026-03-21T19-14-45-428Z` | 2026-03-21T19:45:13.271Z | unknown
 
 **Branch:** `main`  
 **Status:** active  
 **Goal:** Capture work and prepare a clean handoff.  
-**Checkpoints:** 5
+**Checkpoints:** 6
 
 **Work done:**
 ✅ Added renderResumeOutput helper for CLI startup output
@@ -537,69 +537,5 @@ _Append-only log of every Holistic session. Newest entries at the bottom._
 ✅ Documented that serve prints its startup banner to stderr to keep MCP stdout clean
 
 **Files changed:**
-- `README.md`
-- `dist/__tests__/mcp-notification.test.d.ts`
-- `dist/__tests__/mcp-notification.test.d.ts.map`
-- `dist/__tests__/mcp-notification.test.js`
-- `dist/__tests__/mcp-notification.test.js.map`
-- `dist/cli.d.ts`
-- `dist/cli.d.ts.map`
-- `dist/cli.js`
-- `dist/cli.js.map`
-- `dist/core/docs.d.ts`
-- `dist/core/docs.d.ts.map`
-- `dist/core/docs.js`
-- `dist/core/docs.js.map`
-- `dist/core/git-hooks.d.ts`
-- `dist/core/git-hooks.d.ts.map`
-- `dist/core/git-hooks.js`
-- `dist/core/git-hooks.js.map`
-- `dist/core/git.d.ts`
-- `dist/core/git.d.ts.map`
-- `dist/core/git.js`
-- `dist/core/git.js.map`
-- `dist/core/lock.d.ts`
-- `dist/core/lock.d.ts.map`
-- `dist/core/lock.js`
-- `dist/core/lock.js.map`
-- `dist/core/redact.d.ts`
-- `dist/core/redact.d.ts.map`
-- `dist/core/redact.js`
-- `dist/core/redact.js.map`
-- `dist/core/setup.d.ts`
-- `dist/core/setup.d.ts.map`
-- `dist/core/setup.js`
-- `dist/core/setup.js.map`
-- `dist/core/splash.d.ts`
-- `dist/core/splash.d.ts.map`
-- `dist/core/splash.js`
-- `dist/core/splash.js.map`
-- `dist/core/state.d.ts`
-- `dist/core/state.d.ts.map`
-- `dist/core/state.js`
-- `dist/core/state.js.map`
-- `dist/core/sync.d.ts`
-- `dist/core/sync.d.ts.map`
-- `dist/core/sync.js`
-- `dist/core/sync.js.map`
-- `dist/core/types.d.ts`
-- `dist/core/types.d.ts.map`
-- `dist/core/types.js`
-- `dist/core/types.js.map`
-- `dist/daemon.d.ts`
-- `dist/daemon.d.ts.map`
-- `dist/daemon.js`
-- `dist/daemon.js.map`
-- `dist/mcp-server.d.ts`
-- `dist/mcp-server.d.ts.map`
-- `dist/mcp-server.js`
-- `dist/mcp-server.js.map`
-- `src/__tests__/mcp-notification.test.ts`
-- `src/cli.ts`
-- `src/core/docs.ts`
-- `src/core/git.ts`
-- `src/core/setup.ts`
-- `src/core/state.ts`
-- `src/daemon.ts`
-- `src/mcp-server.ts`
+- `.beads/daemon.log`
 
