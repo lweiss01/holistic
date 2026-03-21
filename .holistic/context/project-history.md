@@ -6,10 +6,10 @@ This archive is the durable memory of what agents changed, why they changed it, 
 
 - Session: session-2026-03-21T19-14-45-428Z
 - Agent: unknown
-- Status: active
-- When: 2026-03-21T20:02:08.765Z
+- Status: handed_off
+- When: 2026-03-21T20:04:39.882Z
 - Goal: Capture work and prepare a clean handoff.
-- Summary: Committed: fix(sync): point pre-push hint to helper scripts
+- Summary: Session wrapped after validating Windows state sync end-to-end
 - Work done:
 - Added renderResumeOutput helper for CLI startup output
 - Showed splash banner for start and resume without changing MCP tool output
@@ -20,19 +20,31 @@ This archive is the durable memory of what agents changed, why they changed it, 
 - Added regression coverage for first-run Windows state-branch sync script generation
 - Replaced raw git push holistic/state hint with generated sync helper guidance
 - Added regression coverage for helper-based pre-push sync messaging
+- Verified holistic/state sync works end-to-end on Windows
+- Fixed first-run state-branch creation and PowerShell fetch-output handling
+- Updated sync guidance to point to generated helper scripts
+- Verified holistic/state sync works on first-run and repeat-run Windows flows
+- Fixed Windows sync helper behavior for missing remote state branch and quiet fetch handling
+- Updated sync guidance to recommend generated helper scripts instead of raw branch push commands
 - Why it mattered:
 - CLI startup flow now shows Holistic branding more consistently in PowerShell
 - CLI startup docs now match observed PowerShell behavior
 - Fresh Holistic repos on Windows can create and push the dedicated holistic/state branch on first sync
 - Holistic now points users at the supported cross-platform sync path instead of a misleading raw branch push
+- Holistic dogfooding now covers successful Windows main-branch sync plus dedicated state-branch sync
+- Holistic now dogfoods successful main-branch sync plus dedicated portable state sync on Windows
 - Regression risks:
 - Do not print decorative output to stdout in MCP server mode
 - Keep resume/start banner changes out of MCP tool responses
 - Keep README startup command descriptions aligned with actual CLI output
 - Do not assume the remote holistic/state branch already exists when generating Windows sync helpers
 - Do not reintroduce raw git push origin holistic/state as the primary user hint for syncing Holistic state
+- Do not leave installed .git/hooks guidance stale after tracked hook templates change
+- Do not assume installed git hooks automatically update when tracked hook templates change
+- Do not reintroduce raw git push origin holistic/state as the primary user sync instruction
 - References:
-- No references recorded.
+- src/core/setup.ts
+- src/core/git-hooks.ts
 
 ## Capture work and prepare a clean handoff.
 

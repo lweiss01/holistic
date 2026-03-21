@@ -26,13 +26,13 @@ That is the intended end state for this project. Prefer changes that reduce cere
 
 ## Current Objective
 
-**Capture work and prepare a clean handoff.**
+**Resume from last handoff**
 
-Capture work and prepare a clean handoff.
+Regenerate or auto-refresh installed git hooks when tracked hook templates change so local .git/hooks stay aligned with the repo
 
 ## Latest Work Status
 
-Committed: fix(sync): point pre-push hint to helper scripts
+Completed Windows state-branch sync dogfooding and queued hook auto-refresh follow-up
 
 ## What Was Tried
 
@@ -40,27 +40,19 @@ Committed: fix(sync): point pre-push hint to helper scripts
 
 ## What To Try Next
 
-- Run `holistic start-new --goal "Describe the task"` to begin capturing work.
+- Regenerate or auto-refresh installed git hooks when tracked hook templates change so local .git/hooks stay aligned with the repo
 
 ## Active Plan
 
-- Read HOLISTIC.md
-- Confirm next step with the user
+- No active plan has been captured yet.
 
 ## Overall Impact So Far
 
-- CLI startup flow now shows Holistic branding more consistently in PowerShell
-- CLI startup docs now match observed PowerShell behavior
-- Fresh Holistic repos on Windows can create and push the dedicated holistic/state branch on first sync
-- Holistic now points users at the supported cross-platform sync path instead of a misleading raw branch push
+- No durable impact notes recorded yet.
 
 ## Regression Watch
 
-- Do not print decorative output to stdout in MCP server mode
-- Keep resume/start banner changes out of MCP tool responses
-- Keep README startup command descriptions aligned with actual CLI output
-- Do not assume the remote holistic/state branch already exists when generating Windows sync helpers
-- Do not reintroduce raw git push origin holistic/state as the primary user hint for syncing Holistic state
+- Review the regression watch document before changing related behavior.
 
 ## Key Assumptions
 
@@ -68,19 +60,19 @@ Committed: fix(sync): point pre-push hint to helper scripts
 
 ## Blockers
 
-- No blockers recorded.
+- No active blocker recorded
 
 ## Changed Files In Current Session
 
-- .beads/daemon.log
+- No repo changes detected for the active session.
 
 ## Pending Work Queue
 
+- Capture work and prepare a clean handoff.: Regenerate or auto-refresh installed git hooks when tracked hook templates change so local .git/hooks stay aligned with the repo
 - Remove first-class phase tracking from Holistic core state, docs, and commands: Review roadmap docs
 - Remove first-class phase tracking from Holistic core state, docs, and commands: Review roadmap docs
 - Capture work and prepare a clean handoff.: Remove first-class phase tracking from Holistic core state, docs, and commands
 - Plan Phase 2 Team/Org Mode: Start Phase 2 Team/Org Mode planning
-- Capture work and prepare a clean handoff.: This should be the active next step now
 
 ## Long-Term Memory
 
@@ -107,6 +99,6 @@ Committed: fix(sync): point pre-push hint to helper scripts
 
 ## Historical Memory
 
-- Last updated: 2026-03-21T20:01:51.341Z
-- Last handoff: S01 & S01.5 complete: automatic startup notifications + ASCII branding shipped to production
-- Pending sessions remembered: 12
+- Last updated: 2026-03-21T20:04:13.850Z
+- Last handoff: Completed Windows state-branch sync dogfooding and queued hook auto-refresh follow-up
+- Pending sessions remembered: 13

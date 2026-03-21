@@ -2,23 +2,19 @@
 
 ## Goal
 
-Capture work and prepare a clean handoff.
+Regenerate or auto-refresh installed git hooks when tracked hook templates change so local .git/hooks stay aligned with the repo
 
 ## Latest Status
 
-Committed: fix(sync): point pre-push hint to helper scripts
+Completed Windows state-branch sync dogfooding and queued hook auto-refresh follow-up
 
 ## Planned Next Steps
 
-- Read HOLISTIC.md
-- Confirm next step with the user
+- Regenerate or auto-refresh installed git hooks when tracked hook templates change so local .git/hooks stay aligned with the repo
 
 ## Project Impact
 
-- CLI startup flow now shows Holistic branding more consistently in PowerShell
-- CLI startup docs now match observed PowerShell behavior
-- Fresh Holistic repos on Windows can create and push the dedicated holistic/state branch on first sync
-- Holistic now points users at the supported cross-platform sync path instead of a misleading raw branch push
+- No impact notes captured yet.
 
 ## References
 

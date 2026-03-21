@@ -522,12 +522,12 @@ _Append-only log of every Holistic session. Newest entries at the bottom._
 
 ---
 
-## Session `session-2026-03-21T19-14-45-428Z` | 2026-03-21T20:02:08.765Z | unknown
+## Session `session-2026-03-21T19-14-45-428Z` | 2026-03-21T20:04:39.882Z | unknown
 
 **Branch:** `main`  
-**Status:** active  
+**Status:** handed_off  
 **Goal:** Capture work and prepare a clean handoff.  
-**Checkpoints:** 12
+**Checkpoints:** 13
 
 **Work done:**
 ✅ Added renderResumeOutput helper for CLI startup output
@@ -539,7 +539,14 @@ _Append-only log of every Holistic session. Newest entries at the bottom._
 ✅ Added regression coverage for first-run Windows state-branch sync script generation
 ✅ Replaced raw git push holistic/state hint with generated sync helper guidance
 ✅ Added regression coverage for helper-based pre-push sync messaging
+✅ Verified holistic/state sync works end-to-end on Windows
+✅ Fixed first-run state-branch creation and PowerShell fetch-output handling
+✅ Updated sync guidance to point to generated helper scripts
+✅ Verified holistic/state sync works on first-run and repeat-run Windows flows
+✅ Fixed Windows sync helper behavior for missing remote state branch and quiet fetch handling
+✅ Updated sync guidance to recommend generated helper scripts instead of raw branch push commands
 
-**Files changed:**
-- `.beads/daemon.log`
+**Recommended next steps:**
+- Regenerate or auto-refresh installed git hooks when tracked hook templates change so local .git/hooks stay aligned with the repo
+- Regenerate or auto-refresh installed git hooks when hook templates change so local hooks do not drift from tracked source
 
