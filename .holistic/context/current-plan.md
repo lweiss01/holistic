@@ -6,7 +6,7 @@ Capture work and prepare a clean handoff.
 
 ## Latest Status
 
-Fixed Windows first-run state-branch sync so holistic/state can be created cleanly
+Committed: fix(sync): handle first Windows state-branch push
 
 ## Planned Next Steps
 
