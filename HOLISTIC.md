@@ -26,13 +26,13 @@ That is the intended end state for this project. Prefer changes that reduce cere
 
 ## Current Objective
 
-**Resume from last handoff**
+**Capture work and prepare a clean handoff.**
 
-Design and implement a state-sync strategy that avoids GitHub Compare & pull request prompts for normal project repos
+Capture work and prepare a clean handoff.
 
 ## Latest Work Status
 
-Added GitHub banner/PR noise from same-repo state sync to the roadmap and queued it as the next product fix
+Committed: docs(holistic): handoff session session-2026-03-21T20-06-24-138Z
 
 ## What Was Tried
 
@@ -40,11 +40,12 @@ Added GitHub banner/PR noise from same-repo state sync to the roadmap and queued
 
 ## What To Try Next
 
-- Design and implement a state-sync strategy that avoids GitHub Compare & pull request prompts for normal project repos
+- Run `holistic start-new --goal "Describe the task"` to begin capturing work.
 
 ## Active Plan
 
-- No active plan has been captured yet.
+- Read HOLISTIC.md
+- Confirm next step with the user
 
 ## Overall Impact So Far
 
@@ -60,11 +61,11 @@ Added GitHub banner/PR noise from same-repo state sync to the roadmap and queued
 
 ## Blockers
 
-- No active blocker recorded
+- No blockers recorded.
 
 ## Changed Files In Current Session
 
-- No repo changes detected for the active session.
+- .beads/daemon.log
 
 ## Pending Work Queue
 
@@ -99,6 +100,6 @@ Added GitHub banner/PR noise from same-repo state sync to the roadmap and queued
 
 ## Historical Memory
 
-- Last updated: 2026-03-21T20:15:17.344Z
+- Last updated: 2026-03-21T20:15:52.096Z
 - Last handoff: Added GitHub banner/PR noise from same-repo state sync to the roadmap and queued it as the next product fix
 - Pending sessions remembered: 14
