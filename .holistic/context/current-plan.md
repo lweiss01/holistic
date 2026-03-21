@@ -6,7 +6,7 @@ Capture work and prepare a clean handoff.
 
 ## Latest Status
 
-Committed: feat(M001): S01 & S01.5 complete - automatic startup + ASCII branding
+Committed: fix(docs): correct .gitignore and README about .holistic/system/
 
 ## Planned Next Steps
 
@@ -35,6 +35,9 @@ Committed: feat(M001): S01 & S01.5 complete - automatic startup + ASCII branding
 - Holistic now has automatic startup notifications for MCP tools
 - Holistic has visual brand identity with ASCII splash screen
 - Value proposition clearly communicated in CLI and README
+- Holistic has automatic startup notifications for MCP and manual tools
+- Visual brand identity established with ASCII splash screen
+- Documentation now accurately reflects what gets committed vs ignored
 
 ## References
 

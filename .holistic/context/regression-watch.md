@@ -50,6 +50,10 @@ Use this before changing existing behavior. It is the short list of fixes and ou
 - S01 Automatic Startup Notifications complete and verified
 - S01.5 ASCII Splash Screen complete and verified
 - All 28 tests passing
+- S01 Automatic Startup Notifications: complete and shipped
+- S01.5 ASCII Splash Screen: complete and shipped
+- Fixed .gitignore and README documentation about .holistic/system/
+- All changes committed and pushed to GitHub
 - Why this matters:
 - MCP protocol has no 'initial context push' - must rely on tool discovery + agent cooperation
 - Both MCP and manual paths will use identical greeting format
@@ -71,6 +75,9 @@ Use this before changing existing behavior. It is the short list of fixes and ou
 - Holistic now has automatic startup notifications for MCP tools
 - Holistic has visual brand identity with ASCII splash screen
 - Value proposition clearly communicated in CLI and README
+- Holistic has automatic startup notifications for MCP and manual tools
+- Visual brand identity established with ASCII splash screen
+- Documentation now accurately reflects what gets committed vs ignored
 - Do not regress:
 - Do not use sendLoggingMessage as primary delivery - it's for diagnostics only
 - buildStartupGreeting must be exported from state.ts and imported in mcp-server.ts

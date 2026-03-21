@@ -447,12 +447,12 @@ _Append-only log of every Holistic session. Newest entries at the bottom._
 
 ---
 
-## Session `session-2026-03-21T18-32-48-379Z` | 2026-03-21T19:07:50.585Z | unknown
+## Session `session-2026-03-21T18-32-48-379Z` | 2026-03-21T19:12:14.816Z | unknown
 
 **Branch:** `main`  
 **Status:** active  
 **Goal:** Capture work and prepare a clean handoff.  
-**Checkpoints:** 12
+**Checkpoints:** 14
 
 **Work done:**
 ✅ Researched MCP SDK notification primitives
@@ -495,6 +495,10 @@ _Append-only log of every Holistic session. Newest entries at the bottom._
 ✅ Added splash to bootstrap command with status items
 ✅ Added splash to README.md header with tagline
 ✅ Tested in Windows terminal - renders correctly
+✅ Committed and pushed 19 files to main branch
+✅ S01 Automatic Startup Notifications complete and verified
+✅ S01.5 ASCII Splash Screen complete and verified
+✅ All 28 tests passing
 
 **Recommended next steps:**
 - User verification: T07 (MCP auto-greeting in Claude Desktop)
@@ -502,8 +506,11 @@ _Append-only log of every Holistic session. Newest entries at the bottom._
 - Update M001 roadmap to mark S01 complete
 - Consider adding ASCII splash screen slice
 - Execute S01.5/T01: Create splash screen module
+- Consider S02: Proactive Automatic Capture or other M001 slices
 
 **Files changed:**
 - `.beads/daemon.log`
 - `.bg-shell/manifest.json`
+- `.gitignore`
+- `README.md`
 

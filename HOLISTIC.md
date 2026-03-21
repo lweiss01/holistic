@@ -12,7 +12,7 @@ Capture work and prepare a clean handoff.
 
 ## Latest Work Status
 
-Committed: feat(M001): S01 & S01.5 complete - automatic startup + ASCII branding
+Committed: fix(docs): correct .gitignore and README about .holistic/system/
 
 ## What Was Tried
 
@@ -26,6 +26,8 @@ Committed: feat(M001): S01 & S01.5 complete - automatic startup + ASCII branding
 - Consider adding ASCII splash screen slice
 - Execute S01.5/T01: Create splash screen module
 - Consider S02: Proactive Automatic Capture or other M001 slices
+- Continue with M001/S02: Proactive Automatic Capture
+- Or work on M001/S03: Automatic Memory Hygiene
 
 ## Active Plan
 
@@ -54,6 +56,9 @@ Committed: feat(M001): S01 & S01.5 complete - automatic startup + ASCII branding
 - Holistic now has automatic startup notifications for MCP tools
 - Holistic has visual brand identity with ASCII splash screen
 - Value proposition clearly communicated in CLI and README
+- Holistic has automatic startup notifications for MCP and manual tools
+- Visual brand identity established with ASCII splash screen
+- Documentation now accurately reflects what gets committed vs ignored
 
 ## Regression Watch
 
@@ -112,6 +117,6 @@ Committed: feat(M001): S01 & S01.5 complete - automatic startup + ASCII branding
 
 ## Historical Memory
 
-- Last updated: 2026-03-21T19:07:50.822Z
+- Last updated: 2026-03-21T19:12:15.083Z
 - Last handoff: S01 slice planning complete
 - Pending sessions remembered: 12
