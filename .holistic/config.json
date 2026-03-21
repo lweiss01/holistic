@@ -1,15 +1,15 @@
 {
   "version": 1,
   "autoInferSessions": true,
-  "autoSync": true,
+  "autoSync": false,
   "sync": {
     "strategy": "state-branch",
     "remote": "origin",
     "stateBranch": "holistic/state",
     "syncOnCheckpoint": false,
-    "syncOnHandoff": true,
-    "postHandoffPush": true,
-    "restoreOnStartup": true,
+    "syncOnHandoff": false,
+    "postHandoffPush": false,
+    "restoreOnStartup": false,
     "trackedPaths": [
       "HOLISTIC.md",
       "AGENTS.md",

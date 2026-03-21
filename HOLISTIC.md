@@ -32,7 +32,7 @@ Capture work and prepare a clean handoff.
 
 ## Latest Work Status
 
-Disabled checkpoint-triggered sync in the Holistic repo to stop noisy holistic/state pushes and the resulting GitHub banner.
+Converted the Holistic repo itself to a main-only setup so the public repo does not use a separate holistic/state branch.
 
 ## What Was Tried
 
@@ -40,6 +40,7 @@ Disabled checkpoint-triggered sync in the Holistic repo to stop noisy holistic/s
 
 ## What To Try Next
 
+- Remove the local and remote holistic/state branches from this repo and keep future Holistic-repo work on main only
 - Decide separately whether Holistic should change the default sync-on-checkpoint behavior for newly initialized repos
 
 ## Active Plan
@@ -51,11 +52,15 @@ Disabled checkpoint-triggered sync in the Holistic repo to stop noisy holistic/s
 
 - Ordinary local checkpoints still work, but they no longer auto-push the portable-state branch in this repo
 - This keeps dogfooding quieter while preserving handoff-driven sync
+- Users can still create their own holistic/state branch in their project repos, but the public Holistic repo stays cleaner and only exposes main
+- The state-branch model remains valid for actual project repos; this change is only for dogfooding the Holistic repo itself
 
 ## Regression Watch
 
 - Do not turn checkpoint-triggered sync back on in this repo unless we explicitly want frequent holistic/state pushes again
 - Treat this as a repo-local quieting change, not yet a product-wide default change
+- Do not re-enable holistic/state syncing in the Holistic repo unless we intentionally want the public repo to expose portable-state branch activity again
+- Do not confuse this repo-only cleanup with the default behavior Holistic should use for user projects
 
 ## Key Assumptions
 
@@ -102,6 +107,6 @@ Disabled checkpoint-triggered sync in the Holistic repo to stop noisy holistic/s
 
 ## Historical Memory
 
-- Last updated: 2026-03-21T20:15:58.889Z
+- Last updated: 2026-03-21T20:25:53.776Z
 - Last handoff: Added GitHub banner/PR noise from same-repo state sync to the roadmap and queued it as the next product fix
 - Pending sessions remembered: 14

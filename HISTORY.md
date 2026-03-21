@@ -571,17 +571,20 @@ _Append-only log of every Holistic session. Newest entries at the bottom._
 
 ---
 
-## Session `session-2026-03-21T20-15-51-457Z` | 2026-03-21T20:25:53.452Z | unknown
+## Session `session-2026-03-21T20-15-51-457Z` | 2026-03-21T20:32:19.189Z | unknown
 
 **Branch:** `main`  
 **Status:** active  
 **Goal:** Capture work and prepare a clean handoff.  
-**Checkpoints:** 2
+**Checkpoints:** 3
 
 **Work done:**
 ✅ Set syncOnCheckpoint=false in this repo's .holistic/config.json
+✅ Disabled autoSync and all state-branch sync triggers in this repo's .holistic/config.json
+✅ Marked the Holistic repo as a repo-specific exception to the normal state-branch model
 
 **Recommended next steps:**
+- Remove the local and remote holistic/state branches from this repo and keep future Holistic-repo work on main only
 - Decide separately whether Holistic should change the default sync-on-checkpoint behavior for newly initialized repos
 
 **Files changed:**

@@ -7,17 +7,23 @@ This archive is the durable memory of what agents changed, why they changed it, 
 - Session: session-2026-03-21T20-15-51-457Z
 - Agent: unknown
 - Status: active
-- When: 2026-03-21T20:25:53.452Z
+- When: 2026-03-21T20:32:19.189Z
 - Goal: Capture work and prepare a clean handoff.
-- Summary: Disabled checkpoint-triggered sync in the Holistic repo to stop noisy holistic/state pushes and the resulting GitHub banner.
+- Summary: Converted the Holistic repo itself to a main-only setup so the public repo does not use a separate holistic/state branch.
 - Work done:
 - Set syncOnCheckpoint=false in this repo's .holistic/config.json
+- Disabled autoSync and all state-branch sync triggers in this repo's .holistic/config.json
+- Marked the Holistic repo as a repo-specific exception to the normal state-branch model
 - Why it mattered:
 - Ordinary local checkpoints still work, but they no longer auto-push the portable-state branch in this repo
 - This keeps dogfooding quieter while preserving handoff-driven sync
+- Users can still create their own holistic/state branch in their project repos, but the public Holistic repo stays cleaner and only exposes main
+- The state-branch model remains valid for actual project repos; this change is only for dogfooding the Holistic repo itself
 - Regression risks:
 - Do not turn checkpoint-triggered sync back on in this repo unless we explicitly want frequent holistic/state pushes again
 - Treat this as a repo-local quieting change, not yet a product-wide default change
+- Do not re-enable holistic/state syncing in the Holistic repo unless we intentionally want the public repo to expose portable-state branch activity again
+- Do not confuse this repo-only cleanup with the default behavior Holistic should use for user projects
 - References:
 - No references recorded.
 

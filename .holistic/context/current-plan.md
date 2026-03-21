@@ -6,7 +6,7 @@ Capture work and prepare a clean handoff.
 
 ## Latest Status
 
-Disabled checkpoint-triggered sync in the Holistic repo to stop noisy holistic/state pushes and the resulting GitHub banner.
+Converted the Holistic repo itself to a main-only setup so the public repo does not use a separate holistic/state branch.
 
 ## Planned Next Steps
 
@@ -17,6 +17,8 @@ Disabled checkpoint-triggered sync in the Holistic repo to stop noisy holistic/s
 
 - Ordinary local checkpoints still work, but they no longer auto-push the portable-state branch in this repo
 - This keeps dogfooding quieter while preserving handoff-driven sync
+- Users can still create their own holistic/state branch in their project repos, but the public Holistic repo stays cleaner and only exposes main
+- The state-branch model remains valid for actual project repos; this change is only for dogfooding the Holistic repo itself
 
 ## References
 

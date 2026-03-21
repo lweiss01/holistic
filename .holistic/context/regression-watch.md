@@ -7,12 +7,18 @@ Use this before changing existing behavior. It is the short list of fixes and ou
 - Goal: Capture work and prepare a clean handoff.
 - Durable changes:
 - Set syncOnCheckpoint=false in this repo's .holistic/config.json
+- Disabled autoSync and all state-branch sync triggers in this repo's .holistic/config.json
+- Marked the Holistic repo as a repo-specific exception to the normal state-branch model
 - Why this matters:
 - Ordinary local checkpoints still work, but they no longer auto-push the portable-state branch in this repo
 - This keeps dogfooding quieter while preserving handoff-driven sync
+- Users can still create their own holistic/state branch in their project repos, but the public Holistic repo stays cleaner and only exposes main
+- The state-branch model remains valid for actual project repos; this change is only for dogfooding the Holistic repo itself
 - Do not regress:
 - Do not turn checkpoint-triggered sync back on in this repo unless we explicitly want frequent holistic/state pushes again
 - Treat this as a repo-local quieting change, not yet a product-wide default change
+- Do not re-enable holistic/state syncing in the Holistic repo unless we intentionally want the public repo to expose portable-state branch activity again
+- Do not confuse this repo-only cleanup with the default behavior Holistic should use for user projects
 - Source session: session-2026-03-21T20-15-51-457Z
 
 ## Capture work and prepare a clean handoff.
