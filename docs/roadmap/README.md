@@ -31,6 +31,25 @@ The ideal Holistic experience is:
 
 **Agent-conversation-first, CLI-optional** — Surface important state and actions through the agent's natural interaction flow, not through commands the user must remember to run.
 
+## Capture Philosophy: Silent Partner
+
+**Holistic is a silent partner working in the background, remembering everything so you don't have to.**
+
+The system should be **proactive about automatic capture:**
+- Checkpoints happen automatically when meaningful work occurs (file changes, time elapsed, git commits, natural breakpoints)
+- Agents initiate checkpoints during conversation when they detect progress ("Fixed auth bug, checkpointing this")
+- Handoff drafts trigger on idle, session completion signals, or when work feels done
+- Memory hygiene (archiving) happens in the background based on relevance and time
+
+**Health warnings are edge-case diagnostics, not user nagging:**
+- Warnings should detect when the capture system failed, not remind users to checkpoint
+- "⚠️ Daemon hasn't checkpointed in 3 days - is it running?" (system health check)
+- "⚠️ 50+ file changes with no checkpoint - investigating..." (diagnostic anomaly)
+
+**If users see warnings frequently, the automatic capture system needs improvement, not the users.**
+
+The test: Can a user work for weeks without thinking about Holistic, yet still have perfect continuity when switching agents or devices? That's the goal.
+
 ## Product North Star
 
 The real north star for Holistic is:
