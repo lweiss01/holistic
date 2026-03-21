@@ -6,7 +6,7 @@
     "strategy": "state-branch",
     "remote": "origin",
     "stateBranch": "holistic/state",
-    "syncOnCheckpoint": true,
+    "syncOnCheckpoint": false,
     "syncOnHandoff": true,
     "postHandoffPush": true,
     "restoreOnStartup": true,

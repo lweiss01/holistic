@@ -6,7 +6,7 @@ Capture work and prepare a clean handoff.
 
 ## Latest Status
 
-Committed: docs(holistic): handoff session session-2026-03-21T20-06-24-138Z
+Disabled checkpoint-triggered sync in the Holistic repo to stop noisy holistic/state pushes and the resulting GitHub banner.
 
 ## Planned Next Steps
 
@@ -15,7 +15,8 @@ Committed: docs(holistic): handoff session session-2026-03-21T20-06-24-138Z
 
 ## Project Impact
 
-- No impact notes captured yet.
+- Ordinary local checkpoints still work, but they no longer auto-push the portable-state branch in this repo
+- This keeps dogfooding quieter while preserving handoff-driven sync
 
 ## References
 

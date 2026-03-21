@@ -6,6 +6,19 @@ Use this before changing existing behavior. It is the short list of fixes and ou
 
 - Goal: Capture work and prepare a clean handoff.
 - Durable changes:
+- Set syncOnCheckpoint=false in this repo's .holistic/config.json
+- Why this matters:
+- Ordinary local checkpoints still work, but they no longer auto-push the portable-state branch in this repo
+- This keeps dogfooding quieter while preserving handoff-driven sync
+- Do not regress:
+- Do not turn checkpoint-triggered sync back on in this repo unless we explicitly want frequent holistic/state pushes again
+- Treat this as a repo-local quieting change, not yet a product-wide default change
+- Source session: session-2026-03-21T20-15-51-457Z
+
+## Capture work and prepare a clean handoff.
+
+- Goal: Capture work and prepare a clean handoff.
+- Durable changes:
 - Updated project roadmap docs to track same-repo holistic/state GitHub PR prompts as a real product gap
 - Recorded that installed hook auto-refresh and GitHub banner removal are the next workflow-tightening follow-ups
 - Updated roadmap docs to treat same-repo holistic/state GitHub prompts as a real UX issue for normal project repos

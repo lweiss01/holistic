@@ -7,15 +7,17 @@ This archive is the durable memory of what agents changed, why they changed it, 
 - Session: session-2026-03-21T20-15-51-457Z
 - Agent: unknown
 - Status: active
-- When: 2026-03-21T20:15:51.784Z
+- When: 2026-03-21T20:25:53.452Z
 - Goal: Capture work and prepare a clean handoff.
-- Summary: Committed: docs(holistic): handoff session session-2026-03-21T20-06-24-138Z
+- Summary: Disabled checkpoint-triggered sync in the Holistic repo to stop noisy holistic/state pushes and the resulting GitHub banner.
 - Work done:
-- No completed work recorded.
+- Set syncOnCheckpoint=false in this repo's .holistic/config.json
 - Why it mattered:
-- No impact notes recorded.
+- Ordinary local checkpoints still work, but they no longer auto-push the portable-state branch in this repo
+- This keeps dogfooding quieter while preserving handoff-driven sync
 - Regression risks:
-- No specific regression risks recorded.
+- Do not turn checkpoint-triggered sync back on in this repo unless we explicitly want frequent holistic/state pushes again
+- Treat this as a repo-local quieting change, not yet a product-wide default change
 - References:
 - No references recorded.
 
