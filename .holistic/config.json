@@ -1,14 +1,21 @@
 {
   "version": 1,
+  "autoInferSessions": true,
+  "autoSync": true,
   "sync": {
     "strategy": "state-branch",
     "remote": "origin",
     "stateBranch": "holistic/state",
+    "syncOnCheckpoint": true,
+    "syncOnHandoff": true,
     "postHandoffPush": true,
     "restoreOnStartup": true,
     "trackedPaths": [
       "HOLISTIC.md",
       "AGENTS.md",
+      "CLAUDE.md",
+      "GEMINI.md",
+      "HISTORY.md",
       ".holistic"
     ]
   },

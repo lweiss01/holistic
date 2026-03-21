@@ -19,8 +19,9 @@ import {
 import type { AgentName, HolisticState, RuntimePaths } from './core/types.ts';
 
 type SupportedToolName = "holistic_resume" | "holistic_checkpoint" | "holistic_handoff";
+const DEFAULT_MCP_AGENT: AgentName = "claude";
 
-function asAgent(value: unknown): AgentName {
+function asAgent(value: unknown, fallback: AgentName = "unknown"): AgentName {
   const validAgents: AgentName[] = [
     "codex",
     "claude",
@@ -36,7 +37,7 @@ function asAgent(value: unknown): AgentName {
     return value as AgentName;
   }
 
-  return "unknown";
+  return fallback;
 }
 
 function textResult(text: string, isError = false): CallToolResult {
@@ -67,7 +68,7 @@ function mutateState(rootDir: string, mutator: (state: HolisticState, paths: Run
   });
 }
 
-function ensureMcpResumeState(rootDir: string, agent: AgentName = "unknown"): HolisticState {
+function ensureMcpResumeState(rootDir: string, agent: AgentName = DEFAULT_MCP_AGENT): HolisticState {
   const { state } = loadState(rootDir);
   if (state.activeSession) {
     return state;
@@ -80,7 +81,7 @@ function ensureMcpResumeState(rootDir: string, agent: AgentName = "unknown"): Ho
   return mutateState(rootDir, (currentState) => continueFromLatest(rootDir, currentState, agent));
 }
 
-export function buildResumeNotificationText(state: HolisticState, agent: AgentName = "unknown"): string | null {
+export function buildResumeNotificationText(state: HolisticState, agent: AgentName = DEFAULT_MCP_AGENT): string | null {
   const payload = getResumePayload(state, agent);
   if (payload.status === "empty") {
     return null;
@@ -101,7 +102,7 @@ export function buildResumeNotificationText(state: HolisticState, agent: AgentNa
   return lines.join("\n");
 }
 
-export async function sendResumeNotification(server: Server, rootDir: string, agent: AgentName = "unknown"): Promise<boolean> {
+export async function sendResumeNotification(server: Server, rootDir: string, agent: AgentName = DEFAULT_MCP_AGENT): Promise<boolean> {
   const state = ensureMcpResumeState(rootDir, agent);
   const text = buildResumeNotificationText(state, agent);
   if (!text) {
@@ -172,7 +173,7 @@ export function listHolisticTools(): ListToolsResult {
 export function callHolisticTool(rootDir: string, name: string, args?: Record<string, unknown>): CallToolResult {
   switch (name) {
     case "holistic_resume": {
-      const agent = asAgent(args?.agent);
+      const agent = asAgent(args?.agent, DEFAULT_MCP_AGENT);
       const shouldContinue = args?.continue === true;
       const state = shouldContinue
         ? mutateState(rootDir, (currentState) => continueFromLatest(rootDir, currentState, agent))
@@ -187,6 +188,7 @@ export function callHolisticTool(rootDir: string, name: string, args?: Record<st
       }
 
       const state = mutateState(rootDir, (currentState) => checkpointState(rootDir, currentState, {
+        agent: asAgent(args?.agent, DEFAULT_MCP_AGENT),
         reason,
         status: typeof args?.status === "string" ? args.status : undefined,
         done: Array.isArray(args?.done) ? args.done.filter((item): item is string => typeof item === "string") : undefined,
@@ -236,7 +238,7 @@ export function createHolisticMcpServer(rootDir: string): Server {
   );
 
   server.oninitialized = () => {
-    void sendResumeNotification(server, rootDir).catch((error: unknown) => {
+    void sendResumeNotification(server, rootDir, DEFAULT_MCP_AGENT).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`Failed to send Holistic resume notification: ${message}`);
     });
@@ -254,11 +256,21 @@ export function createHolisticMcpServer(rootDir: string): Server {
   return server;
 }
 
+export async function waitForStdioShutdown(stdin: Pick<NodeJS.ReadStream, "once" | "resume"> = process.stdin): Promise<void> {
+  stdin.resume();
+  await new Promise<void>((resolve) => {
+    const finish = () => resolve();
+    stdin.once("close", finish);
+    stdin.once("end", finish);
+  });
+}
+
 export async function runMcpServer(rootDir: string): Promise<void> {
   const transport = new StdioServerTransport();
   const server = createHolisticMcpServer(rootDir);
   await server.connect(transport);
   console.error("Holistic MCP server running on stdio");
+  await waitForStdioShutdown();
 }
 
 async function main(): Promise<void> {

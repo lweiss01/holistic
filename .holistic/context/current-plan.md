@@ -12,7 +12,7 @@ Capture work and prepare a clean handoff.
 
 ## Latest Status
 
-Implemented one-command machine bootstrap for hooks, daemon startup, and Claude Desktop MCP configuration.
+Cleaned temporary dogfood test artifacts and refreshed Phase 1.5 state after Claude Desktop MCP validation.
 
 ## Planned Next Steps
 
@@ -21,10 +21,7 @@ Implemented one-command machine bootstrap for hooks, daemon startup, and Claude 
 
 ## Project Impact
 
-- Phase 1.5 work is now beginning from an explicit tracked phase state
-- Phase 1.5 now covers implicit resume, auto-session inference, and smarter passive checkpoint triggers.
-- Phase 1.5 now covers implicit resume, auto-session inference, smarter passive checkpoints, auto-drafted handoffs, and conservative auto-sync triggers.
-- Phase 1.5 now includes an end-to-end bootstrap path so new machines can be prepared with much less ceremony.
+- Phase 1.5 is now implementation-complete and dogfooded in the Holistic repo.
 
 ## References
 

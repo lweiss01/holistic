@@ -4,12 +4,48 @@ This archive is the durable memory of what agents changed, why they changed it, 
 
 ## Capture work and prepare a clean handoff.
 
-- Session: session-2026-03-21T01-01-43-885Z
+- Session: session-2026-03-21T03-14-16-945Z
 - Agent: codex
 - Status: active
-- When: 2026-03-21T01:22:23.316Z
+- When: 2026-03-21T03:16:51.636Z
 - Goal: Capture work and prepare a clean handoff.
-- Summary: Implemented one-command machine bootstrap for hooks, daemon startup, and Claude Desktop MCP configuration.
+- Summary: Cleaned temporary dogfood test artifacts and refreshed Phase 1.5 state after Claude Desktop MCP validation.
+- Work done:
+- Validated Claude Desktop MCP resume, checkpoint, and handoff flows in the Holistic repo
+- Fixed MCP server lifetime, Claude default agent attribution, and latest-next-step precedence
+- Why it mattered:
+- Phase 1.5 is now implementation-complete and dogfooded in the Holistic repo.
+- Regression risks:
+- Do not let MCP servers exit immediately after stdio connect.
+- Do not let fresh handoff next steps lose priority behind stale older items.
+- References:
+- No references recorded.
+
+## Capture work and prepare a clean handoff.
+
+- Session: session-2026-03-21T03-11-40-952Z
+- Agent: claude
+- Status: handed_off
+- When: 2026-03-21T03:12:32.525Z
+- Goal: Implement implicit resume or context recovery when MCP clients connect
+- Summary: Testing claude default agent attribution
+- Work done:
+- No completed work recorded.
+- Why it mattered:
+- No impact notes recorded.
+- Regression risks:
+- No specific regression risks recorded.
+- References:
+- No references recorded.
+
+## Capture work and prepare a clean handoff.
+
+- Session: session-2026-03-21T01-01-43-885Z
+- Agent: unknown
+- Status: handed_off
+- When: 2026-03-21T03:06:36.952Z
+- Goal: Capture work and prepare a clean handoff.
+- Summary: Testing Claude Desktop MCP in the Holistic repo
 - Work done:
 - Marked Phase 1 complete and Phase 1.5 active with explicit phase tracking
 - Sent visible Holistic resume notifications when MCP clients connect

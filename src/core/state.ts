@@ -397,6 +397,16 @@ function uniqueMerge(current: string[], incoming: string[]): string[] {
   return merged;
 }
 
+function recentFirstMerge(current: string[], incoming: string[]): string[] {
+  const incomingUnique = sanitizeList(incoming);
+  if (incomingUnique.length === 0) {
+    return [...current];
+  }
+
+  const remaining = current.filter((item) => !incomingUnique.includes(item));
+  return [...incomingUnique, ...remaining];
+}
+
 export function readArchivedSessions(paths: RuntimePaths): SessionRecord[] {
   if (!fs.existsSync(paths.sessionsDir)) {
     return [];
@@ -698,7 +708,7 @@ export function checkpointState(rootDir: string, state: HolisticState, input: Ch
 
   session.workDone = uniqueMerge(session.workDone, sanitizeList(input.done));
   session.triedItems = uniqueMerge(session.triedItems, sanitizeList(input.tried));
-  session.nextSteps = uniqueMerge(session.nextSteps, sanitizeList(input.next));
+  session.nextSteps = recentFirstMerge(session.nextSteps, input.next ?? []);
   session.assumptions = uniqueMerge(session.assumptions, sanitizeList(input.assumptions));
   session.blockers = uniqueMerge(session.blockers, sanitizeList(input.blockers));
   session.references = uniqueMerge(session.references, sanitizeList(input.references));
@@ -868,7 +878,7 @@ export function applyHandoff(rootDir: string, state: HolisticState, input: Hando
   session.latestStatus = sanitizeText(input.status || session.latestStatus);
   session.workDone = uniqueMerge(session.workDone, sanitizeList(input.done));
   session.triedItems = uniqueMerge(session.triedItems, sanitizeList(input.tried));
-  session.nextSteps = uniqueMerge(session.nextSteps, sanitizeList(input.next));
+  session.nextSteps = recentFirstMerge(session.nextSteps, input.next ?? []);
   session.assumptions = uniqueMerge(session.assumptions, sanitizeList(input.assumptions));
   session.blockers = uniqueMerge(session.blockers, sanitizeList(input.blockers));
   session.references = uniqueMerge(session.references, sanitizeList(input.references));

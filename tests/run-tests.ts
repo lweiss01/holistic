@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,7 +26,7 @@ import {
   startNewSession,
 } from "../src/core/state.ts";
 import { runDaemonTick } from "../src/daemon.ts";
-import { buildResumeNotificationText, callHolisticTool, createHolisticMcpServer, listHolisticTools } from "../src/mcp-server.ts";
+import { buildResumeNotificationText, callHolisticTool, createHolisticMcpServer, listHolisticTools, waitForStdioShutdown } from "../src/mcp-server.ts";
 import type { HolisticState } from "../src/core/types.ts";
 
 const workspaceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -407,12 +408,15 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       });
       assert.equal(checkpoint.isError, false);
       assert.match(checkpoint.content[0]?.type === "text" ? checkpoint.content[0].text : "", /Checkpoint created/);
+      let nextState = readState(rootDir);
+      assert.equal(nextState.activeSession?.agent, "claude");
 
       const resumed = callHolisticTool(rootDir, "holistic_resume", { agent: "codex", continue: true });
       const resumedPayload = JSON.parse(resumed.content[0]?.type === "text" ? resumed.content[0].text : "{}") as {
-        activeSession: { latestStatus: string } | null;
+        activeSession: { latestStatus: string; agent: string } | null;
       };
       assert.equal(resumedPayload.activeSession?.latestStatus, "Created from MCP");
+      assert.equal(resumedPayload.activeSession?.agent, "codex");
 
       const handoff = callHolisticTool(rootDir, "holistic_handoff", {
         summary: "MCP handoff ready",
@@ -423,10 +427,35 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(handoff.isError, false);
       assert.match(handoff.content[0]?.type === "text" ? handoff.content[0].text : "", /Handoff complete/);
 
-      const nextState = readState(rootDir);
+      nextState = readState(rootDir);
       assert.equal(nextState.activeSession, null);
       assert.equal(nextState.lastHandoff?.summary, "MCP handoff ready");
       assert.ok(fs.existsSync(path.join(rootDir, "HOLISTIC.md")));
+    },
+  },
+  {
+    name: "new next steps take precedence in handoffs and current plan rendering",
+    run: () => {
+      const { rootDir } = makeRepo();
+      let state = createInitialState(rootDir);
+      state = startNewSession(rootDir, state, "codex", "Polish handoff behavior", ["Review current behavior"]);
+      state = checkpointState(rootDir, state, {
+        agent: "codex",
+        reason: "milestone",
+        status: "Earlier next step captured",
+        next: ["Old next step"],
+      });
+      state = persist(rootDir, state);
+      state = applyHandoff(rootDir, state, {
+        summary: "Fresh handoff",
+        next: ["Newest next step"],
+      });
+      state = persist(rootDir, state);
+
+      assert.equal(state.lastHandoff?.nextAction, "Newest next step");
+      const currentPlan = fs.readFileSync(path.join(rootDir, ".holistic", "context", "current-plan.md"), "utf8");
+      assert.match(currentPlan, /## Goal\r?\n\r?\nNewest next step/);
+      assert.match(currentPlan, /## Planned Next Steps\r?\n\r?\n- Newest next step/);
     },
   },
   {
@@ -492,6 +521,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
       nextState = readState(rootDir);
       assert.equal(nextState.activeSession?.title, "Continue recent repo work");
+      assert.equal(nextState.activeSession?.agent, "claude");
       assert.equal(sent.length, 1);
       assert.match(String(sent[0]?.data ?? ""), /Continue work around src\/mcp\.ts/);
     },
@@ -503,6 +533,34 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       persist(rootDir, state);
       const text = buildResumeNotificationText(state, "codex");
       assert.equal(text, null);
+    },
+  },
+  {
+    name: "mcp server waits for stdio shutdown instead of exiting immediately",
+    run: async () => {
+      class FakeStdin extends EventEmitter {
+        resumeCalled = false;
+
+        resume(): void {
+          this.resumeCalled = true;
+        }
+      }
+
+      const stdin = new FakeStdin();
+      const waiting = waitForStdioShutdown(stdin);
+      assert.equal(stdin.resumeCalled, true);
+
+      let resolved = false;
+      waiting.then(() => {
+        resolved = true;
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      assert.equal(resolved, false);
+
+      stdin.emit("close");
+      await waiting;
+      assert.equal(resolved, true);
     },
   },
   {

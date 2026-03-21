@@ -6,6 +6,19 @@ Use this before changing existing behavior. It is the short list of fixes and ou
 
 - Goal: Capture work and prepare a clean handoff.
 - Durable changes:
+- Validated Claude Desktop MCP resume, checkpoint, and handoff flows in the Holistic repo
+- Fixed MCP server lifetime, Claude default agent attribution, and latest-next-step precedence
+- Why this matters:
+- Phase 1.5 is now implementation-complete and dogfooded in the Holistic repo.
+- Do not regress:
+- Do not let MCP servers exit immediately after stdio connect.
+- Do not let fresh handoff next steps lose priority behind stale older items.
+- Source session: session-2026-03-21T03-14-16-945Z
+
+## Capture work and prepare a clean handoff.
+
+- Goal: Capture work and prepare a clean handoff.
+- Durable changes:
 - Marked Phase 1 complete and Phase 1.5 active with explicit phase tracking
 - Sent visible Holistic resume notifications when MCP clients connect
 - Auto-inferred sessions from pending work, handoffs, recent files, or recent commits
