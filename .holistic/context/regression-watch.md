@@ -2,14 +2,19 @@
 
 Use this before changing existing behavior. It is the short list of fixes and outcomes that future agents should preserve.
 
-## Capture work and prepare a clean handoff.
+## Plan Phase 2 Team/Org Mode
 
-- Goal: Capture work and prepare a clean handoff.
+- Goal: Enable collaborative workflows with contributor tracking and team-level continuity features.
 - Durable changes:
 - Validated Claude Desktop MCP resume, checkpoint, and handoff flows in the Holistic repo
 - Fixed MCP server lifetime, Claude default agent attribution, and latest-next-step precedence
+- Validated Phase 1.5 through Claude Desktop MCP and Codex Desktop repo-first dogfooding
+- Marked Phase 1.5 complete in Holistic state and roadmap docs
+- Activated Phase 2 Team/Org Mode as the next phase
 - Why this matters:
 - Phase 1.5 is now implementation-complete and dogfooded in the Holistic repo.
+- Phase 2 can now begin from a validated low-ceremony workflow baseline.
+- The repo now records a validated low-ceremony workflow baseline and is ready to begin Phase 2.
 - Do not regress:
 - Do not let MCP servers exit immediately after stdio connect.
 - Do not let fresh handoff next steps lose priority behind stale older items.

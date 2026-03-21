@@ -2,24 +2,30 @@
 
 This archive is the durable memory of what agents changed, why they changed it, and what the project impact was. Review it before revisiting a feature area.
 
-## Capture work and prepare a clean handoff.
+## Plan Phase 2 Team/Org Mode
 
 - Session: session-2026-03-21T03-14-16-945Z
 - Agent: codex
-- Status: active
-- When: 2026-03-21T03:16:51.636Z
-- Goal: Capture work and prepare a clean handoff.
-- Summary: Cleaned temporary dogfood test artifacts and refreshed Phase 1.5 state after Claude Desktop MCP validation.
+- Status: handed_off
+- When: 2026-03-21T03:38:28.607Z
+- Goal: Enable collaborative workflows with contributor tracking and team-level continuity features.
+- Summary: Phase 1.5 is complete in repo and this session is handing off into Phase 2 plus remote-sync hardening follow-up.
 - Work done:
 - Validated Claude Desktop MCP resume, checkpoint, and handoff flows in the Holistic repo
 - Fixed MCP server lifetime, Claude default agent attribution, and latest-next-step precedence
+- Validated Phase 1.5 through Claude Desktop MCP and Codex Desktop repo-first dogfooding
+- Marked Phase 1.5 complete in Holistic state and roadmap docs
+- Activated Phase 2 Team/Org Mode as the next phase
 - Why it mattered:
 - Phase 1.5 is now implementation-complete and dogfooded in the Holistic repo.
+- Phase 2 can now begin from a validated low-ceremony workflow baseline.
+- The repo now records a validated low-ceremony workflow baseline and is ready to begin Phase 2.
 - Regression risks:
 - Do not let MCP servers exit immediately after stdio connect.
 - Do not let fresh handoff next steps lose priority behind stale older items.
 - References:
-- No references recorded.
+- docs/roadmap/README.md
+- docs/roadmap/01.5-workflow-disappearance.md
 
 ## Capture work and prepare a clean handoff.
 

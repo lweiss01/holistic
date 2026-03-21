@@ -52,8 +52,8 @@ The roadmap is organized as: Foundation -> Utility -> Workflow Disappearance -> 
 |-------|-------|----------|--------|------|
 | **Phase 0** | **Code Hardening** | Critical | Complete | [00-code-hardening.md](./00-code-hardening.md) |
 | **Phase 1** | **Feature Expansion** | High | Complete in repo | [01-feature-expansion.md](./01-feature-expansion.md) |
-| **Phase 1.5** | **Workflow Disappearance** | High | Active next phase | [01.5-workflow-disappearance.md](./01.5-workflow-disappearance.md) |
-| **Phase 2** | **Team/Org Mode** | Medium-High | After Phase 1 | *Coming soon* |
+| **Phase 1.5** | **Workflow Disappearance** | High | Complete in repo | [01.5-workflow-disappearance.md](./01.5-workflow-disappearance.md) |
+| **Phase 2** | **Team/Org Mode** | Medium-High | Active next phase | *Coming soon* |
 | **Phase 3** | **Core Workflow Tightening** | Medium | After Phase 2 | *Coming soon* |
 | **Phase 4** | **Focused Integrations** | Medium | After Phase 3 | *Coming soon* |
 
@@ -141,7 +141,7 @@ The roadmap is organized as: Foundation -> Utility -> Workflow Disappearance -> 
 
 **Prerequisites:** Phase 1 complete and stable enough to harden the low-touch workflow.
 
-**Status:** Ready to implement now that Phase 1 is complete in repo.
+**Status:** Complete in repo. The low-ceremony workflow is implemented and validated in the Holistic repo through Claude Desktop MCP and Codex Desktop dogfooding. Live remote-sync validation against `origin/holistic/state` remains release-hardening follow-up work rather than a blocker for Phase 2.
 
 **Tasks:**
 1. Implicit resume or context recovery when MCP clients connect
