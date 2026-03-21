@@ -12,7 +12,6 @@ import {
   applyHandoff,
   clearDraftHandoff,
   checkpointState,
-  completePhase,
   computeSessionDiff,
   continueFromLatest,
   createInitialState,
@@ -21,7 +20,6 @@ import {
   loadSessionById,
   readDraftHandoff,
   saveState,
-  setActivePhase,
   shouldAutoDraftHandoff,
   startNewSession,
 } from "../src/core/state.ts";
@@ -203,6 +201,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.deepEqual(second.checks, ["git-hooks", "mcp-config", "daemon"]);
     },
   },
+  /* Phase tracking was removed - test commented out for reference
   {
     name: "phase tracking persists explicit transitions and appears in docs",
     run: () => {
@@ -244,6 +243,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.match(statusOutput, /Last completed phase: 1 - Feature Expansion/);
     },
   },
+  */
   {
     name: "status shows active session details without mutating state",
     run: () => {
@@ -458,6 +458,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.match(currentPlan, /## Planned Next Steps\r?\n\r?\n- Newest next step/);
     },
   },
+  /* Phase tracking was removed - test commented out for reference
   {
     name: "mcp connect sends visible resume notification when carryover exists",
     run: async () => {
@@ -500,6 +501,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.match(String(sent[0]?.data ?? ""), /Holistic resume/);
     },
   },
+  */
   {
     name: "mcp connect auto-starts an inferred session before sending resume notification",
     run: async () => {

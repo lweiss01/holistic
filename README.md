@@ -202,8 +202,6 @@ The portable repo memory is meant to be committed and synced. Machine-local help
 | `holistic diff --from <id> --to <id>` | Compares two sessions |
 | `holistic serve` | Runs the thin MCP server |
 | `holistic watch` | Foreground daemon mode for automatic checkpoints |
-| `holistic set-phase` | Sets the active roadmap phase explicitly |
-| `holistic complete-phase` | Marks a phase complete and activates the next one |
 
 ### Non-interactive handoff
 

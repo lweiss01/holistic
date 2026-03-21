@@ -2,6 +2,48 @@
 
 Use this before changing existing behavior. It is the short list of fixes and outcomes that future agents should preserve.
 
+## Remove first-class phase tracking from Holistic core state, docs, and commands
+
+- Goal: Review project README for accuracy and current direction
+- Durable changes:
+- Removed all phase-related types, functions, commands, and documentation
+- Updated tests - 20/20 passing
+- Verified status, resume, and help commands work correctly
+- Confirmed HOLISTIC.md and generated docs are clean
+- Reviewed entire README.md content
+- Confirmed overall direction and messaging is accurate
+- Removed set-phase and complete-phase from commands table
+- Removed all phase types, functions, commands, and documentation
+- All 20 tests passing
+- Why this matters:
+- Holistic is workflow-neutral and doesn't impose planning methodologies
+- Simpler codebase with clearer focus on session continuity
+- README now accurately reflects the workflow-neutral approach
+- No references to removed phase tracking features remain in user-facing docs
+- Holistic is workflow-neutral
+- Do not regress:
+- Do not reintroduce first-class workflow structures into core state
+- Do not reintroduce workflow structures
+- Source session: session-2026-03-21T17-09-10-181Z
+
+## Remove first-class phase tracking from Holistic core state, docs, and commands
+
+- Goal: Remove first-class phase tracking from Holistic core state, docs, and commands
+- Durable changes:
+- Removed PhaseRecord and PhaseTracker types
+- Removed phase commands and functions
+- All 20 tests passing
+- Why this matters:
+- Holistic is now workflow-neutral and doesn't hard-code planning methodologies
+- Phase tracking commands (set-phase, complete-phase) removed from CLI
+- Phase types removed from type system
+- Holistic is now workflow-neutral
+- Do not regress:
+- Do not reintroduce workflow-specific planning structures into core state
+- Keep Holistic focused on durable session continuity, not project planning
+- Do not reintroduce workflow structures
+- Source session: session-2026-03-21T17-02-53-195Z
+
 ## Capture work and prepare a clean handoff.
 
 - Goal: Capture work and prepare a clean handoff.

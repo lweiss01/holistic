@@ -16,7 +16,6 @@ export type Priority = "high" | "medium" | "low";
 export type Severity = "critical" | "high" | "medium" | "low" | "info";
 
 export type OutcomeStatus = "success" | "partial" | "failed" | "ongoing" | "unknown";
-export type PhaseStatus = "active" | "completed";
 
 export type AreaTag = 
   | "cli"
@@ -68,21 +67,6 @@ export interface LastHandoff {
   nextAction: string;
   committedAt: string | null;
   createdAt: string;
-}
-
-export interface PhaseRecord {
-  id: string;
-  name: string;
-  goal: string;
-  status: PhaseStatus;
-  startedAt: string;
-  completedAt: string | null;
-  notes: string[];
-}
-
-export interface PhaseTracker {
-  current: PhaseRecord | null;
-  completed: PhaseRecord[];
 }
 
 export interface PassiveCaptureState {
@@ -146,7 +130,6 @@ export interface HolisticState {
   projectName: string;
   createdAt: string;
   updatedAt: string;
-  phaseTracker: PhaseTracker;
   activeSession: SessionRecord | null;
   pendingWork: PendingWorkItem[];
   lastHandoff: LastHandoff | null;
@@ -202,30 +185,6 @@ export interface CheckpointInput {
   relatedSessions?: string[];
   outcomeStatus?: OutcomeStatus;
   severity?: Severity;
-}
-
-export interface SetPhaseInput {
-  phase: string;
-  name: string;
-  goal: string;
-  notes?: string[];
-  status?: string;
-  title?: string;
-  plan?: string[];
-}
-
-export interface CompletePhaseInput {
-  phase?: string;
-  name?: string;
-  goal?: string;
-  notes?: string[];
-  nextPhase?: string;
-  nextName?: string;
-  nextGoal?: string;
-  nextNotes?: string[];
-  status?: string;
-  title?: string;
-  plan?: string[];
 }
 
 export interface HandoffInput {

@@ -361,3 +361,53 @@ _Append-only log of every Holistic session. Newest entries at the bottom._
 - Add a guiding principle that Holistic should recognize workflow systems, not become one
 - Design an optional workContext model and detector strategy for external workflow systems
 
+---
+
+## Session `session-2026-03-21T17-02-53-195Z` | 2026-03-21T17:03:52.005Z | unknown
+
+**Branch:** `main`  
+**Status:** handed_off  
+**Goal:** Remove first-class phase tracking from Holistic core state, docs, and commands  
+**Checkpoints:** 1
+
+**Work done:**
+✅ Removed PhaseRecord and PhaseTracker types
+✅ Removed phase commands and functions
+✅ All 20 tests passing
+
+**Recommended next steps:**
+- Review roadmap docs
+- Test the changes thoroughly
+- Update any remaining documentation references
+
+**Files changed:**
+- `.bg-shell/manifest.json`
+
+---
+
+## Session `session-2026-03-21T17-09-10-181Z` | 2026-03-21T17:12:53.984Z | unknown
+
+**Branch:** `main`  
+**Status:** handed_off  
+**Goal:** Review project README for accuracy and current direction  
+**Checkpoints:** 2
+
+**Work done:**
+✅ Removed all phase-related types, functions, commands, and documentation
+✅ Updated tests - 20/20 passing
+✅ Verified status, resume, and help commands work correctly
+✅ Confirmed HOLISTIC.md and generated docs are clean
+✅ Reviewed entire README.md content
+✅ Confirmed overall direction and messaging is accurate
+✅ Removed set-phase and complete-phase from commands table
+✅ Removed all phase types, functions, commands, and documentation
+✅ All 20 tests passing
+
+**Recommended next steps:**
+- Review roadmap docs
+- Phase tracking removal work is complete
+- Review project README for accuracy and current direction
+
+**Files changed:**
+- `.bg-shell/manifest.json`
+

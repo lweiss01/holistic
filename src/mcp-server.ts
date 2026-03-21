@@ -89,11 +89,6 @@ export function buildResumeNotificationText(state: HolisticState, agent: AgentNa
 
   const lines: string[] = [];
   lines.push("Holistic resume");
-
-  if (state.phaseTracker.current) {
-    lines.push(`Phase: ${state.phaseTracker.current.id} - ${state.phaseTracker.current.name}`);
-  }
-
   lines.push("");
   lines.push(...payload.recap.map((line) => `- ${line}`));
   lines.push("");

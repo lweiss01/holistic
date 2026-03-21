@@ -24,22 +24,15 @@ Open repo, start working, Holistic quietly keeps continuity alive.
 
 That is the intended end state for this project. Prefer changes that reduce ceremony, keep continuity durable, and make Holistic fade further into the background of normal work.
 
-## Phase Tracking
-
-- Current phase: Phase 2 - Team/Org Mode
-- Phase goal: Enable collaborative workflows with contributor tracking and team-level continuity features.
-- Phase started: 2026-03-21T03:35:13.631Z
-- Most recently completed phase: Phase 1.5 - Workflow Disappearance (2026-03-21T03:35:13.631Z)
-
 ## Current Objective
 
 **Resume from last handoff**
 
-Remove first-class phase tracking from Holistic core state, docs, and commands
+Review roadmap docs
 
 ## Latest Work Status
 
-Captured the workflow-neutral direction for Holistic, updated the guiding principles, and queued the phase-tracking cleanup work.
+Phase tracking removal complete - codebase is now workflow-neutral
 
 ## What Was Tried
 
@@ -47,7 +40,7 @@ Captured the workflow-neutral direction for Holistic, updated the guiding princi
 
 ## What To Try Next
 
-- Remove first-class phase tracking from Holistic core state, docs, and commands
+- Review roadmap docs
 
 ## Active Plan
 
@@ -67,7 +60,7 @@ Captured the workflow-neutral direction for Holistic, updated the guiding princi
 
 ## Blockers
 
-- The phase-tracking commands and state still exist in the codebase and need follow-up cleanup.
+- None
 
 ## Changed Files In Current Session
 
@@ -75,11 +68,11 @@ Captured the workflow-neutral direction for Holistic, updated the guiding princi
 
 ## Pending Work Queue
 
+- Remove first-class phase tracking from Holistic core state, docs, and commands: Review roadmap docs
+- Remove first-class phase tracking from Holistic core state, docs, and commands: Review roadmap docs
 - Capture work and prepare a clean handoff.: Remove first-class phase tracking from Holistic core state, docs, and commands
 - Plan Phase 2 Team/Org Mode: Start Phase 2 Team/Org Mode planning
 - Capture work and prepare a clean handoff.: This should be the active next step now
-- Start using Holistic in this repo: Plan Phase 1.5 around implicit resume, auto-session inference, smarter passive checkpoints, auto-drafted handoffs, automatic sync, and machine bootstrap
-- Session Three: Review HOLISTIC.md and decide the next concrete step.
 
 ## Long-Term Memory
 
@@ -106,6 +99,6 @@ Captured the workflow-neutral direction for Holistic, updated the guiding princi
 
 ## Historical Memory
 
-- Last updated: 2026-03-21T04:07:01.374Z
-- Last handoff: Captured the workflow-neutral direction for Holistic, updated the guiding principles, and queued the phase-tracking cleanup work.
-- Pending sessions remembered: 10
+- Last updated: 2026-03-21T17:09:36.318Z
+- Last handoff: Phase tracking removal complete - codebase is now workflow-neutral
+- Pending sessions remembered: 12

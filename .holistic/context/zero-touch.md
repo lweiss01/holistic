@@ -37,4 +37,4 @@ Zero-touch architecture exists to close the gap between the current protocol and
 - Prefer workflow-disappearance improvements over adding more visible user ceremony.
 
 Project: holistic
-Updated: 2026-03-21T04:07:01.374Z
+Updated: 2026-03-21T17:09:36.318Z

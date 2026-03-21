@@ -7,20 +7,16 @@ import type {
   AgentName,
   AutoHandoffDecision,
   CheckpointInput,
-  CompletePhaseInput,
   DocIndex,
   DraftHandoff,
   HandoffInput,
   HolisticState,
   PendingWorkItem,
   PassiveCaptureState,
-  PhaseRecord,
-  PhaseTracker,
   ResumePayload,
   RuntimePaths,
   SessionDiff,
   SessionRecord,
-  SetPhaseInput,
 } from './types.ts';
 
 function now(): string {
@@ -72,13 +68,6 @@ function defaultDocIndex(): DocIndex {
     historyDoc: ".holistic/context/project-history.md",
     regressionDoc: ".holistic/context/regression-watch.md",
     zeroTouchDoc: ".holistic/context/zero-touch.md",
-  };
-}
-
-function defaultPhaseTracker(): PhaseTracker {
-  return {
-    current: null,
-    completed: [],
   };
 }
 
@@ -208,7 +197,6 @@ export function createInitialState(rootDir: string): HolisticState {
     projectName: projectNameFromRoot(rootDir),
     createdAt: timestamp,
     updatedAt: timestamp,
-    phaseTracker: defaultPhaseTracker(),
     activeSession: null,
     pendingWork: [],
     lastHandoff: null,
@@ -235,12 +223,8 @@ const CURRENT_STATE_VERSION = 2;
 function migrateState(state: HolisticState, fromVersion: number, toVersion: number): HolisticState {
   let migrated = { ...state };
 
-  if (fromVersion < 2) {
-    migrated = {
-      ...migrated,
-      phaseTracker: defaultPhaseTracker(),
-    };
-  }
+  // Phase tracking was removed in a cleanup refactor
+  // Old state files with phaseTracker will simply ignore those fields
   
   migrated.version = toVersion;
   migrated.updatedAt = now();
@@ -275,10 +259,6 @@ function hydrateState(state: HolisticState): HolisticState {
       ...defaults.adapterDocs,
       ...(state.docIndex?.adapterDocs ?? {}),
     },
-  };
-  state.phaseTracker = {
-    current: state.phaseTracker?.current ?? null,
-    completed: state.phaseTracker?.completed ?? [],
   };
   state.passiveCapture = {
     ...defaultPassiveCapture(),
@@ -420,13 +400,6 @@ export function readArchivedSessions(paths: RuntimePaths): SessionRecord[] {
 
 function buildResumeRecap(state: HolisticState): string[] {
   const lines: string[] = [];
-  if (state.phaseTracker.current) {
-    lines.push(`Current phase: Phase ${state.phaseTracker.current.id} - ${state.phaseTracker.current.name}`);
-    lines.push(`Phase goal: ${state.phaseTracker.current.goal}`);
-  } else if (state.phaseTracker.completed.length > 0) {
-    const latestCompleted = state.phaseTracker.completed[0];
-    lines.push(`Most recently completed phase: Phase ${latestCompleted.id} - ${latestCompleted.name}`);
-  }
 
   if (state.activeSession) {
     const session = state.activeSession;
@@ -545,32 +518,6 @@ function refreshSessionFromRepo(rootDir: string, state: HolisticState, session: 
   };
 }
 
-function normalizePhaseId(value: string): string {
-  return sanitizeText(value).replace(/^Phase\s+/i, "").trim();
-}
-
-function createPhaseRecord(
-  id: string,
-  name: string,
-  goal: string,
-  startedAt: string,
-  status: "active" | "completed",
-  notes: string[],
-  completedAt: string | null,
-): PhaseRecord {
-  const normalizedId = normalizePhaseId(id);
-  const normalizedName = sanitizeText(name || `Phase ${normalizedId}`);
-  return {
-    id: normalizedId,
-    name: normalizedName,
-    goal: sanitizeText(goal || normalizedName),
-    status,
-    startedAt,
-    completedAt,
-    notes: sanitizeList(notes),
-  };
-}
-
 function syncActiveSession(state: HolisticState, goal?: string, status?: string, title?: string, plan?: string[]): HolisticState {
   if (!state.activeSession) {
     return state;
@@ -603,83 +550,6 @@ function syncActiveSession(state: HolisticState, goal?: string, status?: string,
     ...state,
     activeSession: session,
   };
-}
-
-export function setActivePhase(state: HolisticState, input: SetPhaseInput): HolisticState {
-  const timestamp = now();
-  const normalizedId = normalizePhaseId(input.phase);
-  const existingCurrent = state.phaseTracker.current;
-  const phase = createPhaseRecord(
-    normalizedId,
-    input.name,
-    input.goal,
-    existingCurrent?.id === normalizedId ? existingCurrent.startedAt : timestamp,
-    "active",
-    uniqueMerge(existingCurrent?.id === normalizedId ? existingCurrent.notes : [], sanitizeList(input.notes)),
-    null,
-  );
-
-  const nextState: HolisticState = {
-    ...state,
-    phaseTracker: {
-      current: phase,
-      completed: state.phaseTracker.completed.filter((item) => item.id !== normalizedId),
-    },
-  };
-
-  return syncActiveSession(nextState, input.goal, input.status, input.title, input.plan);
-}
-
-export function completePhase(state: HolisticState, input: CompletePhaseInput): HolisticState {
-  const timestamp = now();
-  const currentPhase = state.phaseTracker.current;
-  const completedId = normalizePhaseId(input.phase || currentPhase?.id || "");
-  if (!completedId) {
-    throw new Error("Cannot complete a phase without a current phase or an explicit --phase value.");
-  }
-
-  const completed = createPhaseRecord(
-    completedId,
-    input.name || currentPhase?.name || `Phase ${completedId}`,
-    input.goal || currentPhase?.goal || input.name || `Phase ${completedId}`,
-    currentPhase?.id === completedId ? currentPhase.startedAt : timestamp,
-    "completed",
-    uniqueMerge(currentPhase?.id === completedId ? currentPhase.notes : [], sanitizeList(input.notes)),
-    timestamp,
-  );
-
-  const completedPhases = [
-    completed,
-    ...state.phaseTracker.completed.filter((phase) => phase.id !== completed.id),
-  ].sort((left, right) => (right.completedAt || "").localeCompare(left.completedAt || ""));
-
-  const nextPhase = input.nextPhase
-    ? createPhaseRecord(
-        input.nextPhase,
-        input.nextName || `Phase ${normalizePhaseId(input.nextPhase)}`,
-        input.nextGoal || input.nextName || `Advance Phase ${normalizePhaseId(input.nextPhase)}`,
-        timestamp,
-        "active",
-        sanitizeList(input.nextNotes),
-        null,
-      )
-    : null;
-
-  const nextState: HolisticState = {
-    ...state,
-    phaseTracker: {
-      current: nextPhase,
-      completed: completedPhases,
-    },
-  };
-
-  return syncActiveSession(
-    nextState,
-    input.nextGoal,
-    input.status || `Completed Phase ${completed.id} - ${completed.name}${nextPhase ? ` and started Phase ${nextPhase.id} - ${nextPhase.name}` : ""}.`,
-    input.title,
-    input.plan,
-  );
 }
 
 export function checkpointState(rootDir: string, state: HolisticState, input: CheckpointInput): HolisticState {
