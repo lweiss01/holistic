@@ -7,15 +7,22 @@ This archive is the durable memory of what agents changed, why they changed it, 
 - Session: session-2026-03-21T19-14-45-428Z
 - Agent: unknown
 - Status: active
-- When: 2026-03-21T19:20:21.635Z
+- When: 2026-03-21T19:44:37.290Z
 - Goal: Capture work and prepare a clean handoff.
-- Summary: Committed: docs(roadmap): add S06-S09 slices for launch preparation
+- Summary: Documented start/resume splash behavior and serve stderr startup banner
 - Work done:
-- No completed work recorded.
+- Added renderResumeOutput helper for CLI startup output
+- Showed splash banner for start and resume without changing MCP tool output
+- Printed serve banner to stderr so MCP stdio stays protocol-safe
+- Updated README command table for start and serve banner behavior
+- Documented that serve prints its startup banner to stderr to keep MCP stdout clean
 - Why it mattered:
-- No impact notes recorded.
+- CLI startup flow now shows Holistic branding more consistently in PowerShell
+- CLI startup docs now match observed PowerShell behavior
 - Regression risks:
-- No specific regression risks recorded.
+- Do not print decorative output to stdout in MCP server mode
+- Keep resume/start banner changes out of MCP tool responses
+- Keep README startup command descriptions aligned with actual CLI output
 - References:
 - No references recorded.
 

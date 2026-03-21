@@ -58,3 +58,10 @@ export function renderSplash(options: SplashOptions = {}): string {
 export function printSplash(options: SplashOptions = {}): void {
   process.stdout.write(renderSplash(options));
 }
+
+/**
+ * Print splash screen to stderr for protocol-sensitive commands like MCP serve.
+ */
+export function printSplashError(options: SplashOptions = {}): void {
+  process.stderr.write(renderSplash(options));
+}

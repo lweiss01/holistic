@@ -6,6 +6,24 @@ Use this before changing existing behavior. It is the short list of fixes and ou
 
 - Goal: Capture work and prepare a clean handoff.
 - Durable changes:
+- Added renderResumeOutput helper for CLI startup output
+- Showed splash banner for start and resume without changing MCP tool output
+- Printed serve banner to stderr so MCP stdio stays protocol-safe
+- Updated README command table for start and serve banner behavior
+- Documented that serve prints its startup banner to stderr to keep MCP stdout clean
+- Why this matters:
+- CLI startup flow now shows Holistic branding more consistently in PowerShell
+- CLI startup docs now match observed PowerShell behavior
+- Do not regress:
+- Do not print decorative output to stdout in MCP server mode
+- Keep resume/start banner changes out of MCP tool responses
+- Keep README startup command descriptions aligned with actual CLI output
+- Source session: session-2026-03-21T19-14-45-428Z
+
+## Capture work and prepare a clean handoff.
+
+- Goal: Capture work and prepare a clean handoff.
+- Durable changes:
 - Researched MCP SDK notification primitives
 - Documented findings in S01-RESEARCH.md
 - Identified hybrid approach: enhanced tool description + manual fallback

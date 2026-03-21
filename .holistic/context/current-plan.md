@@ -6,7 +6,7 @@ Capture work and prepare a clean handoff.
 
 ## Latest Status
 
-Committed: docs(roadmap): add S06-S09 slices for launch preparation
+Documented start/resume splash behavior and serve stderr startup banner
 
 ## Planned Next Steps
 
@@ -15,7 +15,8 @@ Committed: docs(roadmap): add S06-S09 slices for launch preparation
 
 ## Project Impact
 
-- No impact notes captured yet.
+- CLI startup flow now shows Holistic branding more consistently in PowerShell
+- CLI startup docs now match observed PowerShell behavior
 
 ## References
 

@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { finalizeDraftHandoffInput, renderDiff, renderStatus } from "../src/cli.ts";
+import { finalizeDraftHandoffInput, renderDiff, renderResumeOutput, renderStatus } from "../src/cli.ts";
 import { writeDerivedDocs } from "../src/core/docs.ts";
 import { captureRepoSnapshot } from "../src/core/git.ts";
 import { bootstrapHolistic, initializeHolistic } from "../src/core/setup.ts";
@@ -143,6 +143,18 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "project-history.md")));
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "regression-watch.md")));
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "zero-touch.md")));
+    },
+  },
+  {
+    name: "resume CLI output includes the ASCII splash banner",
+    run: () => {
+      const output = renderResumeOutput("Holistic resume\n\n- Current objective: Test banner rendering\n");
+
+      assert.match(output, /██╗  ██╗/);
+      assert.match(output, /loading project recap/);
+      assert.match(output, /Your repo remembers, so your next agent doesn't have to guess\./);
+      assert.match(output, /Holistic resume/);
+      assert.match(output, /Current objective: Test banner rendering/);
     },
   },
   {

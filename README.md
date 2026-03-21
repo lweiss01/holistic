@@ -216,12 +216,12 @@ The portable repo memory (config, state, context, sessions) is meant to be commi
 |---|---|
 | `holistic init` | Base repo setup and scaffolding |
 | `holistic bootstrap` | One-step machine setup for repo files, hooks, and by-default local daemon/MCP integration setup |
-| `holistic start --agent <name>` | Opens a session and prints the recap |
+| `holistic start --agent <name>` | Opens a session and prints the ASCII banner plus recap |
 | `holistic checkpoint --reason "..."` | Saves progress and context |
 | `holistic handoff` | Ends a session with a handoff |
 | `holistic status` | Shows the current state |
 | `holistic diff --from <id> --to <id>` | Compares two sessions |
-| `holistic serve` | Runs the thin MCP server |
+| `holistic serve` | Runs the thin MCP server and prints a startup banner to `stderr` |
 | `holistic watch` | Foreground daemon mode for automatic checkpoints |
 
 ### Non-interactive handoff
@@ -256,6 +256,8 @@ holistic serve
 ```
 
 In normal use, Claude Desktop can launch this automatically after `holistic bootstrap` configures the MCP entry. You usually only run it manually for debugging.
+
+When you do run `holistic serve` manually in a terminal, Holistic prints its ASCII startup banner to `stderr` so you get visible confirmation without corrupting the MCP `stdout` transport.
 
 ```json
 {

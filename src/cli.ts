@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { captureRepoSnapshot, clearPendingCommit, writePendingCommit } from './core/git.ts';
 import { writeDerivedDocs } from './core/docs.ts';
 import { bootstrapHolistic, initializeHolistic } from './core/setup.ts';
-import { printSplash } from './core/splash.ts';
+import { printSplash, printSplashError, renderSplash } from './core/splash.ts';
 import { requestAutoSync } from './core/sync.ts';
 import { runDaemonTick } from './daemon.ts';
 import {
@@ -107,6 +107,10 @@ Usage:
 
   'holistic start' is an alias for 'holistic resume'.
 `);
+}
+
+export function renderResumeOutput(body: string): string {
+  return `${renderSplash({ message: "loading project recap..." })}${body}`;
 }
 
 function persistLocked(rootDir: string, state: HolisticState, paths: RuntimePaths): HolisticState {
@@ -428,7 +432,7 @@ async function handleResume(rootDir: string, parsed: ParsedArgs): Promise<number
       return 0;
     }
 
-    process.stdout.write(`Holistic resume\n\n${payload.recap.map((line) => `- ${line}`).join("\n")}\n\nChoices: ${payload.choices.join(", ")}\nAdapter doc: ${payload.adapterDoc}\nRecommended command: ${payload.recommendedCommand}\nLong-term history: ${nextState.docIndex.historyDoc}\nRegression watch: ${nextState.docIndex.regressionDoc}\nZero-touch architecture: ${nextState.docIndex.zeroTouchDoc}\n`);
+    process.stdout.write(renderResumeOutput(`Holistic resume\n\n${payload.recap.map((line) => `- ${line}`).join("\n")}\n\nChoices: ${payload.choices.join(", ")}\nAdapter doc: ${payload.adapterDoc}\nRecommended command: ${payload.recommendedCommand}\nLong-term history: ${nextState.docIndex.historyDoc}\nRegression watch: ${nextState.docIndex.regressionDoc}\nZero-touch architecture: ${nextState.docIndex.zeroTouchDoc}\n`));
     return 0;
   }
 
@@ -439,7 +443,7 @@ async function handleResume(rootDir: string, parsed: ParsedArgs): Promise<number
     return 0;
   }
 
-  process.stdout.write(`Holistic resume\n\n${payload.recap.map((line) => `- ${line}`).join("\n")}\n\nChoices: ${payload.choices.join(", ")}\nAdapter doc: ${payload.adapterDoc}\nRecommended command: ${payload.recommendedCommand}\nLong-term history: ${state.docIndex.historyDoc}\nRegression watch: ${state.docIndex.regressionDoc}\nZero-touch architecture: ${state.docIndex.zeroTouchDoc}\n`);
+  process.stdout.write(renderResumeOutput(`Holistic resume\n\n${payload.recap.map((line) => `- ${line}`).join("\n")}\n\nChoices: ${payload.choices.join(", ")}\nAdapter doc: ${payload.adapterDoc}\nRecommended command: ${payload.recommendedCommand}\nLong-term history: ${state.docIndex.historyDoc}\nRegression watch: ${state.docIndex.regressionDoc}\nZero-touch architecture: ${state.docIndex.zeroTouchDoc}\n`));
   return 0;
 }
 
@@ -628,6 +632,10 @@ async function handleDiff(rootDir: string, parsed: ParsedArgs): Promise<number> 
 }
 
 async function handleServe(rootDir: string): Promise<number> {
+  printSplashError({
+    message: "starting MCP server on stdio...",
+  });
+
   const runtime = runtimeScript("mcp-server");
   const moduleUrl = pathToFileURL(runtime.scriptPath).href;
   const mcpModule = await import(moduleUrl) as { runMcpServer?: (repoRoot: string) => Promise<void> };
