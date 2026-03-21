@@ -1,0 +1,61 @@
+{
+  "id": "session-2026-03-20T00-04-53-218Z",
+  "agent": "codex",
+  "branch": "main",
+  "startedAt": "2026-03-20T00:04:53.218Z",
+  "updatedAt": "2026-03-20T00:05:25.831Z",
+  "endedAt": "2026-03-20T00:05:25.833Z",
+  "status": "handed_off",
+  "title": "Finalize Holistic v1 implementation",
+  "currentGoal": "Review the generated history/regression docs and decide whether to add more structured fields like severity, affected areas, or validation notes.",
+  "currentPlan": [
+    "Read HOLISTIC.md",
+    "Review the generated history/regression docs and decide whether to add more structured fields like severity, affected areas, or validation notes."
+  ],
+  "latestStatus": "Added a platform-agnostic startup prompt pattern the user can bind to a hotkey so future agents reliably read the Holistic instructions before working.",
+  "workDone": [
+    "Provided a reusable hotkey-safe startup prompt for repo resume across IDEs and agent tools.",
+    "Provided a reusable startup prompt the user can bind to a hotkey across IDEs and agent tools.",
+    "Updated the Holistic session state so the hotkey guidance is preserved in the handoff docs."
+  ],
+  "triedItems": [
+    "Drafted a stronger platform-agnostic first-message prompt that tells any agent to read AGENTS.md, HOLISTIC.md, the Holistic memory docs, and the tool adapter before doing work.",
+    "Drafted a strong cross-tool first-message prompt that directs agents to read AGENTS.md, HOLISTIC.md, the Holistic memory docs, and the tool adapter before acting."
+  ],
+  "nextSteps": [
+    "Review the generated history/regression docs and decide whether to add more structured fields like severity, affected areas, or validation notes.",
+    "When reopening work in any tool, send the hotkey prompt first so the agent reads the repo instructions and recaps current state before acting."
+  ],
+  "assumptions": [
+    "A first-message hotkey is the most reliable cross-tool mechanism available until product-specific startup integrations exist."
+  ],
+  "blockers": [
+    "No blockers recorded."
+  ],
+  "references": [
+    "HOLISTIC.md",
+    ".holistic/context/zero-touch.md",
+    ".holistic/context/adapters/antigravity.md"
+  ],
+  "impactNotes": [
+    "The next session can start with a consistent agent-agnostic startup prompt instead of relying on tool-specific behavior or memory."
+  ],
+  "regressionRisks": [
+    "Do not assume repo initialization alone will make every IDE agent read the Holistic docs automatically on open."
+  ],
+  "changedFiles": [
+    ".beads/daemon.log",
+    ".holistic/state.json"
+  ],
+  "checkpointCount": 1,
+  "lastCheckpointReason": "startup-guidance",
+  "resumeRecap": [
+    "Current objective: Review the generated history/regression docs and decide whether to add more structured fields like severity, affected areas, or validation notes.",
+    "Latest status: Added a platform-agnostic startup prompt pattern the user can bind to a hotkey so future agents reliably read the Holistic instructions before working.",
+    "Already tried: Drafted a stronger platform-agnostic first-message prompt that tells any agent to read AGENTS.md, HOLISTIC.md, the Holistic memory docs, and the tool adapter before doing work.; Drafted a strong cross-tool first-message prompt that directs agents to read AGENTS.md, HOLISTIC.md, the Holistic memory docs, and the tool adapter before acting.",
+    "Try next: Review the generated history/regression docs and decide whether to add more structured fields like severity, affected areas, or validation notes.; When reopening work in any tool, send the hotkey prompt first so the agent reads the repo instructions and recaps current state before acting.",
+    "Overall impact so far: The next session can start with a consistent agent-agnostic startup prompt instead of relying on tool-specific behavior or memory.",
+    "Regression watch: Do not assume repo initialization alone will make every IDE agent read the Holistic docs automatically on open.",
+    "Blockers: No blockers recorded."
+  ]
+}

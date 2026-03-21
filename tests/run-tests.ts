@@ -9,6 +9,7 @@ import { initializeHolistic } from "../src/core/setup.ts";
 import {
   applyHandoff,
   checkpointState,
+  completePhase,
   computeSessionDiff,
   continueFromLatest,
   createInitialState,
@@ -16,6 +17,7 @@ import {
   getRuntimePaths,
   loadSessionById,
   saveState,
+  setActivePhase,
   startNewSession,
 } from "../src/core/state.ts";
 import { runDaemonTick } from "../src/daemon.ts";
@@ -133,6 +135,47 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "project-history.md")));
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "regression-watch.md")));
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "zero-touch.md")));
+    },
+  },
+  {
+    name: "phase tracking persists explicit transitions and appears in docs",
+    run: () => {
+      const { rootDir } = makeRepo();
+      let state = createInitialState(rootDir);
+      state = startNewSession(rootDir, state, "codex", "Phase work", ["Read HOLISTIC.md", "Start phase work"]);
+      state = setActivePhase(state, {
+        phase: "1",
+        name: "Feature Expansion",
+        goal: "Finish the Phase 1 feature set",
+        status: "Phase 1 is underway",
+        title: "Implement Phase 1 feature expansion",
+        plan: ["Ship MCP mode", "Ship status and diff"],
+      });
+      state = persist(rootDir, state);
+      state = completePhase(state, {
+        phase: "1",
+        nextPhase: "1.5",
+        nextName: "Workflow Disappearance",
+        nextGoal: "Make Holistic fade into the background during normal work",
+        status: "Phase 1 complete; Phase 1.5 is now active",
+        title: "Implement Phase 1.5 workflow disappearance",
+        plan: ["Implement implicit resume", "Implement auto-session inference"],
+      });
+      state = persist(rootDir, state);
+
+      assert.equal(state.phaseTracker.completed[0]?.id, "1");
+      assert.equal(state.phaseTracker.current?.id, "1.5");
+      assert.equal(state.phaseTracker.current?.name, "Workflow Disappearance");
+      assert.equal(state.activeSession?.currentGoal, "Make Holistic fade into the background during normal work");
+      assert.match(state.activeSession?.latestStatus ?? "", /Phase 1 complete/);
+
+      const holisticDoc = fs.readFileSync(path.join(rootDir, "HOLISTIC.md"), "utf8");
+      const statusOutput = renderStatus(state);
+      assert.match(holisticDoc, /## Phase Tracking/);
+      assert.match(holisticDoc, /Current phase: Phase 1\.5 - Workflow Disappearance/);
+      assert.match(holisticDoc, /Most recently completed phase: Phase 1 - Feature Expansion/);
+      assert.match(statusOutput, /Phase: 1\.5 - Workflow Disappearance \(active\)/);
+      assert.match(statusOutput, /Last completed phase: 1 - Feature Expansion/);
     },
   },
   {

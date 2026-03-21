@@ -1,0 +1,42 @@
+{
+  "id": "session-2026-03-20T22-07-23-761Z",
+  "agent": "unknown",
+  "branch": "main",
+  "startedAt": "2026-03-20T22:07:23.761Z",
+  "updatedAt": "2026-03-20T22:07:24.944Z",
+  "endedAt": "2026-03-20T22:07:24.945Z",
+  "status": "superseded",
+  "title": "Session Two",
+  "currentGoal": "Session two goal",
+  "currentPlan": [
+    "Plan second"
+  ],
+  "latestStatus": "Completed session two",
+  "workDone": [
+    "Added beta"
+  ],
+  "triedItems": [],
+  "nextSteps": [
+    "Start third session"
+  ],
+  "assumptions": [],
+  "blockers": [],
+  "references": [],
+  "impactNotes": [],
+  "regressionRisks": [
+    "Keep beta behavior"
+  ],
+  "changedFiles": [
+    ".holistic/state.json",
+    ".holistic/state.json.lock"
+  ],
+  "checkpointCount": 1,
+  "lastCheckpointReason": "two",
+  "resumeRecap": [
+    "Current objective: Session two goal",
+    "Latest status: Completed session two",
+    "Try next: Start third session",
+    "Regression watch: Keep beta behavior",
+    "Pending work waiting in queue: 4"
+  ]
+}

@@ -9,6 +9,7 @@ import { initializeHolistic } from './core/setup.ts';
 import {
   applyHandoff,
   checkpointState,
+  completePhase,
   computeSessionDiff,
   continueFromLatest,
   getResumePayload,
@@ -16,6 +17,7 @@ import {
   loadSessionById,
   loadState,
   saveState,
+  setActivePhase,
   startNewSession,
   withStateLock,
 } from './core/state.ts';
@@ -93,6 +95,8 @@ Usage:
   holistic checkpoint --fixed "<bug>" [--fix-files "<file>"] [--fix-risk "<what reintroduces it>"]
   holistic handoff [--summary "<summary>"] [--next "<step>"]...
   holistic start-new --goal "<goal>" [--title "<title>"] [--plan "<step>"]...
+  holistic set-phase --phase "<id>" --name "<name>" --goal "<goal>" [--note "<note>"]... [--status "<status>"] [--title "<title>"] [--plan "<step>"]...
+  holistic complete-phase [--phase "<id>"] [--name "<name>"] [--goal "<goal>"] [--note "<note>"]... [--next-phase "<id>"] [--next-name "<name>"] [--next-goal "<goal>"] [--next-note "<note>"]... [--status "<status>"] [--title "<title>"] [--plan "<step>"]...
   holistic status
   holistic diff --from "<session-id>" --to "<session-id>" [--format text|json]
   holistic serve
@@ -228,6 +232,18 @@ export function renderStatus(state: HolisticState): string {
   const lines: string[] = [];
   lines.push("Holistic Status");
   lines.push("");
+
+  if (state.phaseTracker.current) {
+    lines.push(`Phase: ${state.phaseTracker.current.id} - ${state.phaseTracker.current.name} (active)`);
+    lines.push(`Phase goal: ${state.phaseTracker.current.goal}`);
+  } else {
+    lines.push("Phase: No active phase recorded.");
+  }
+
+  if (state.phaseTracker.completed.length > 0) {
+    const completed = state.phaseTracker.completed[0];
+    lines.push(`Last completed phase: ${completed.id} - ${completed.name}`);
+  }
 
   if (!state.activeSession) {
     lines.push("No active session.");
@@ -397,6 +413,50 @@ async function handleStartNew(rootDir: string, parsed: ParsedArgs): Promise<numb
   } finally {
     rl.close();
   }
+}
+
+async function handleSetPhase(rootDir: string, parsed: ParsedArgs): Promise<number> {
+  const phase = firstFlag(parsed.flags, "phase");
+  const name = firstFlag(parsed.flags, "name");
+  const goal = firstFlag(parsed.flags, "goal");
+  if (!phase || !name || !goal) {
+    process.stderr.write("Error: --phase, --name, and --goal are required.\n");
+    return 1;
+  }
+
+  const nextState = mutateState(rootDir, (state) => setActivePhase(state, {
+    phase,
+    name,
+    goal,
+    notes: listFlag(parsed.flags, "note"),
+    status: firstFlag(parsed.flags, "status"),
+    title: firstFlag(parsed.flags, "title"),
+    plan: listFlag(parsed.flags, "plan"),
+  }));
+
+  process.stdout.write(`Active phase set to ${nextState.phaseTracker.current?.id} - ${nextState.phaseTracker.current?.name}\n`);
+  return 0;
+}
+
+async function handleCompletePhase(rootDir: string, parsed: ParsedArgs): Promise<number> {
+  const nextState = mutateState(rootDir, (state) => completePhase(state, {
+    phase: firstFlag(parsed.flags, "phase"),
+    name: firstFlag(parsed.flags, "name"),
+    goal: firstFlag(parsed.flags, "goal"),
+    notes: listFlag(parsed.flags, "note"),
+    nextPhase: firstFlag(parsed.flags, "next-phase"),
+    nextName: firstFlag(parsed.flags, "next-name"),
+    nextGoal: firstFlag(parsed.flags, "next-goal"),
+    nextNotes: listFlag(parsed.flags, "next-note"),
+    status: firstFlag(parsed.flags, "status"),
+    title: firstFlag(parsed.flags, "title"),
+    plan: listFlag(parsed.flags, "plan"),
+  }));
+
+  const completed = nextState.phaseTracker.completed[0];
+  const current = nextState.phaseTracker.current;
+  process.stdout.write(`Completed phase ${completed?.id ?? "unknown"}${current ? ` and activated phase ${current.id}` : ""}.\n`);
+  return 0;
 }
 
 async function handleHandoff(rootDir: string, parsed: ParsedArgs): Promise<number> {
@@ -586,6 +646,10 @@ async function main(): Promise<number> {
       return handleHandoff(rootDir, parsed);
     case "start-new":
       return handleStartNew(rootDir, parsed);
+    case "set-phase":
+      return handleSetPhase(rootDir, parsed);
+    case "complete-phase":
+      return handleCompletePhase(rootDir, parsed);
     case "status":
       return handleStatus(rootDir);
     case "diff":

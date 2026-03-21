@@ -50,9 +50,9 @@ The roadmap is organized as: Foundation -> Utility -> Workflow Disappearance -> 
 
 | Phase | Focus | Priority | Status | Docs |
 |-------|-------|----------|--------|------|
-| **Phase 0** | **Code Hardening** | Critical | Start here | [00-code-hardening.md](./00-code-hardening.md) |
-| **Phase 1** | **Feature Expansion** | High | After Phase 0 | [01-feature-expansion.md](./01-feature-expansion.md) |
-| **Phase 1.5** | **Workflow Disappearance** | High | Ready to implement after Phase 1 | [01.5-workflow-disappearance.md](./01.5-workflow-disappearance.md) |
+| **Phase 0** | **Code Hardening** | Critical | Complete | [00-code-hardening.md](./00-code-hardening.md) |
+| **Phase 1** | **Feature Expansion** | High | Complete in repo | [01-feature-expansion.md](./01-feature-expansion.md) |
+| **Phase 1.5** | **Workflow Disappearance** | High | Active next phase | [01.5-workflow-disappearance.md](./01.5-workflow-disappearance.md) |
 | **Phase 2** | **Team/Org Mode** | Medium-High | After Phase 1 | *Coming soon* |
 | **Phase 3** | **Core Workflow Tightening** | Medium | After Phase 2 | *Coming soon* |
 | **Phase 4** | **Focused Integrations** | Medium | After Phase 3 | *Coming soon* |
@@ -62,6 +62,8 @@ The roadmap is organized as: Foundation -> Utility -> Workflow Disappearance -> 
 | Feature | Completed | Docs |
 |---------|-----------|------|
 | **Structured Metadata** | 2026-03-20 | [docs/structured-metadata.md](../structured-metadata.md) |
+| **Phase 0: Code Hardening** | 2026-03-20 | [00-code-hardening.md](./00-code-hardening.md) |
+| **Phase 1: Feature Expansion** | 2026-03-21 | [01-feature-expansion.md](./01-feature-expansion.md) |
 
 ---
 
@@ -94,6 +96,8 @@ The roadmap is organized as: Foundation -> Utility -> Workflow Disappearance -> 
 **Goal:** Add features that make Holistic clearly better than doing nothing while staying inside the core continuity workflow.
 
 **Prerequisites:** Phase 0 must be complete first
+
+**Status:** Complete in repo. The core deliverables are implemented and covered by the current in-repo verification path, so Phase 1.5 can begin. Release chores such as a version bump, npm publish, and fresh external MCP client validation remain follow-up work rather than blockers for the next phase.
 
 **Tasks:**
 1. MCP server mode (`holistic serve`)
@@ -136,6 +140,8 @@ The roadmap is organized as: Foundation -> Utility -> Workflow Disappearance -> 
 **North Star:** Open repo, start working, Holistic quietly keeps continuity alive.
 
 **Prerequisites:** Phase 1 complete and stable enough to harden the low-touch workflow.
+
+**Status:** Ready to implement now that Phase 1 is complete in repo.
 
 **Tasks:**
 1. Implicit resume or context recovery when MCP clients connect
@@ -255,4 +261,4 @@ These documents should inform the active roadmap, not expand it beyond Holistic'
 
 **Last updated:** March 20, 2026
 **Roadmap version:** 2.2 (phase-based, focus-constrained, workflow-disappearance north star)
-**Next review:** Before Phase 1.5 planning
+**Next review:** During Phase 1.5 implementation

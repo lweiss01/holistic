@@ -12,6 +12,25 @@ Add features that make Holistic clearly better than doing nothing. These are hig
 
 **⚠️ IMPORTANT:** Do not start this phase until Phase 0 is complete. Building features on a shaky foundation wastes time.
 
+## Implementation Status
+
+Phase 1 is complete in repo as of March 21, 2026.
+
+Implemented deliverables:
+- `holistic serve` thin MCP server mode
+- `holistic diff`
+- `holistic status`
+- git hook installation during `holistic init`
+- state file locking to protect concurrent writes
+
+Current verification signal:
+- `node --experimental-strip-types tests/run-tests.ts` passes, including coverage for MCP state persistence, diff rendering, status rendering, git hook generation, and passive capture.
+
+Remaining follow-up that does not block Phase 1.5:
+- Re-run end-to-end MCP validation with external Claude Desktop and Cursor clients during release hardening
+- Decide when to bump the version and publish
+- Cut a GitHub release when the release train is ready
+
 ---
 
 ## Implementation Plan
@@ -702,13 +721,23 @@ cat .holistic/state.json | grep checkpointCount
 
 ## Success Criteria
 
-- [ ] MCP server works with Claude Desktop and Cursor
-- [ ] `holistic diff` shows meaningful changes between sessions
-- [ ] `holistic status` provides quick read-only overview
-- [ ] Git hooks auto-installed and functional
-- [ ] Concurrent state access doesn't corrupt data
-- [ ] All commands work on Windows, macOS, Linux
-- [ ] Documentation updated for all new features
+- [x] Thin MCP server mode exists in repo and persists Holistic state
+- [x] `holistic diff` shows meaningful changes between sessions
+- [x] `holistic status` provides a quick read-only overview
+- [x] Git hooks can be installed and generate portable hook scripts
+- [x] Concurrent state access is protected by a state lock
+- [x] Documentation is updated for the implemented Phase 1 feature set
+
+---
+
+## Release Follow-Up
+
+- [ ] Re-run end-to-end MCP validation with external Claude Desktop and Cursor clients
+- [ ] Reconfirm command behavior on macOS and Linux in a real environment before release
+- [ ] Update version to 0.2.0 when the release is ready
+- [ ] Publish to npm
+- [ ] Create GitHub release
+- [ ] Update any release notes or changelog material
 
 ---
 
@@ -754,8 +783,9 @@ cat .holistic/state.json | grep checkpointCount
 ## Post-Completion
 
 After Phase 1:
+- [x] Update roadmap to mark Phase 1 complete
+- [x] Begin Phase 1.5 (Workflow Disappearance)
 - [ ] Update version to 0.2.0
 - [ ] Publish to npm
 - [ ] Create GitHub release
-- [ ] Update roadmap to mark Phase 1 complete
 - [ ] Begin Phase 2 (Team/Org Mode)

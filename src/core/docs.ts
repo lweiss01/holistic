@@ -1,7 +1,7 @@
 ﻿import fs from "node:fs";
 import path from "node:path";
 import { readArchivedSessions } from './state.ts';
-import type { HolisticState, ImpactNote, RegressionRisk, RuntimePaths, SessionRecord, ValidationItem } from './types.ts';
+import type { HolisticState, ImpactNote, PhaseRecord, RegressionRisk, RuntimePaths, SessionRecord, ValidationItem } from './types.ts';
 
 function renderList(items: string[], emptyText: string): string {
   if (items.length === 0) {
@@ -61,6 +61,31 @@ function renderStructuredRegressions(regressions: RegressionRisk[]): string {
     }
     return line;
   }).join("\n");
+}
+
+function renderPhaseLabel(phase: PhaseRecord): string {
+  return `Phase ${phase.id} - ${phase.name}`;
+}
+
+function renderPhaseTracking(state: HolisticState): string {
+  const lines: string[] = [];
+
+  if (state.phaseTracker.current) {
+    lines.push(`- Current phase: ${renderPhaseLabel(state.phaseTracker.current)}`);
+    lines.push(`- Phase goal: ${state.phaseTracker.current.goal}`);
+    lines.push(`- Phase started: ${state.phaseTracker.current.startedAt}`);
+  } else {
+    lines.push("- Current phase: No active phase recorded.");
+  }
+
+  if (state.phaseTracker.completed.length > 0) {
+    const completed = state.phaseTracker.completed[0];
+    lines.push(`- Most recently completed phase: ${renderPhaseLabel(completed)}${completed.completedAt ? ` (${completed.completedAt})` : ""}`);
+  } else {
+    lines.push("- Most recently completed phase: No completed phase recorded yet.");
+  }
+
+  return lines.join("\n");
 }
 
 function currentSnapshot(state: HolisticState): {
@@ -192,6 +217,10 @@ Open repo, start working, Holistic quietly keeps continuity alive.
 
 That is the intended end state for this project. Prefer changes that reduce ceremony, keep continuity durable, and make Holistic fade further into the background of normal work.
 
+## Phase Tracking
+
+${renderPhaseTracking(state)}
+
 ${knownFixesBlock}## Current Objective
 
 **${snapshot.title}**
@@ -303,6 +332,8 @@ Every agent working in this repo should:
 
 - \`holistic checkpoint --reason "<why>"\`
 - \`holistic checkpoint --fixed "<bug>" --fix-files "<file>" --fix-risk "<what would reintroduce it>"\`
+- \`holistic set-phase --phase "<id>" --name "<name>" --goal "<goal>"\`
+- \`holistic complete-phase --phase "<id>" --next-phase "<id>" --next-name "<name>" --next-goal "<goal>"\`
 - \`holistic handoff\`
 - \`holistic start-new --goal "<goal>"\`
 - \`holistic watch\`
@@ -339,7 +370,17 @@ Updated: ${state.updatedAt}
 
 function renderCurrentPlan(state: HolisticState): string {
   const snapshot = currentSnapshot(state);
+  const currentPhase = state.phaseTracker.current ? renderPhaseLabel(state.phaseTracker.current) : "No active phase recorded.";
+  const latestCompletedPhase = state.phaseTracker.completed[0]
+    ? renderPhaseLabel(state.phaseTracker.completed[0])
+    : "No completed phase recorded yet.";
   return `# Current Plan
+
+## Phase
+
+Current: ${currentPhase}
+
+Latest completed: ${latestCompletedPhase}
 
 ## Goal
 
