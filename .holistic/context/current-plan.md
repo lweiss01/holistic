@@ -6,7 +6,7 @@ Capture work and prepare a clean handoff.
 
 ## Latest Status
 
-Updated pre-push Holistic sync hint to recommend the generated helper scripts
+Committed: fix(sync): point pre-push hint to helper scripts
 
 ## Planned Next Steps
 

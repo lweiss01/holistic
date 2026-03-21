@@ -7,9 +7,9 @@ This archive is the durable memory of what agents changed, why they changed it, 
 - Session: session-2026-03-21T19-14-45-428Z
 - Agent: unknown
 - Status: active
-- When: 2026-03-21T20:01:51.000Z
+- When: 2026-03-21T20:02:08.765Z
 - Goal: Capture work and prepare a clean handoff.
-- Summary: Updated pre-push Holistic sync hint to recommend the generated helper scripts
+- Summary: Committed: fix(sync): point pre-push hint to helper scripts
 - Work done:
 - Added renderResumeOutput helper for CLI startup output
 - Showed splash banner for start and resume without changing MCP tool output
