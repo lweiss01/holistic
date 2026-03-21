@@ -8,19 +8,23 @@ Latest completed: Phase 1 - Feature Expansion
 
 ## Goal
 
-Plan Phase 1.5 around implicit resume, auto-session inference, smarter passive checkpoints, auto-drafted handoffs, automatic sync, and machine bootstrap
+Capture work and prepare a clean handoff.
 
 ## Latest Status
 
-Merged holistic2 UX improvements into holistic: root-level CLAUDE.md/GEMINI.md/HISTORY.md, --fixed regression flags, holistic start alias, AGENTS.md auto-start comment, README overhaul. Deleted holistic2.
+Implemented one-command machine bootstrap for hooks, daemon startup, and Claude Desktop MCP configuration.
 
 ## Planned Next Steps
 
-- Plan Phase 1.5 around implicit resume, auto-session inference, smarter passive checkpoints, auto-drafted handoffs, automatic sync, and machine bootstrap
+- Read HOLISTIC.md
+- Confirm next step with the user
 
 ## Project Impact
 
-- No impact notes captured yet.
+- Phase 1.5 work is now beginning from an explicit tracked phase state
+- Phase 1.5 now covers implicit resume, auto-session inference, and smarter passive checkpoint triggers.
+- Phase 1.5 now covers implicit resume, auto-session inference, smarter passive checkpoints, auto-drafted handoffs, and conservative auto-sync triggers.
+- Phase 1.5 now includes an end-to-end bootstrap path so new machines can be prepared with much less ceremony.
 
 ## References
 

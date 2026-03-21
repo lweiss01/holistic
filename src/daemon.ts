@@ -1,8 +1,20 @@
 import { pathToFileURL } from "node:url";
-import { captureRepoSnapshot, getGitSnapshot } from './core/git.ts';
+import { captureRepoSnapshot, getGitSnapshot, isPortableHolisticPath } from './core/git.ts';
 import { writeDerivedDocs } from './core/docs.ts';
-import { checkpointState, getRuntimePaths, loadState, saveState, startNewSession, withStateLock } from './core/state.ts';
-import type { AgentName, HolisticState, RuntimePaths } from './core/types.ts';
+import { requestAutoSync } from './core/sync.ts';
+import {
+  buildAutoDraftHandoff,
+  checkpointState,
+  getRuntimePaths,
+  loadState,
+  readDraftHandoff,
+  saveState,
+  shouldAutoDraftHandoff,
+  startNewSession,
+  withStateLock,
+  writeDraftHandoff,
+} from './core/state.ts';
+import type { AgentName, DraftHandoff, HolisticState, PassiveCaptureState, RuntimePaths } from './core/types.ts';
 
 interface ParsedArgs {
   flags: Record<string, string[]>;
@@ -39,6 +51,40 @@ function asAgent(value: string): AgentName {
   return "unknown";
 }
 
+const QUIET_TICKS_BEFORE_CHECKPOINT = 1;
+
+function now(): string {
+  return new Date().toISOString();
+}
+
+function defaultPassiveCapture(): PassiveCaptureState {
+  return {
+    lastObservedBranch: null,
+    pendingFiles: [],
+    activityTicks: 0,
+    quietTicks: 0,
+    lastCheckpointAt: null,
+  };
+}
+
+function uniqueFiles(files: string[]): string[] {
+  return [...new Set(files)].sort();
+}
+
+function summarizeFiles(files: string[]): string {
+  return files.slice(0, 3).join(", ");
+}
+
+function isSameDraft(left: DraftHandoff | null, right: DraftHandoff | null): boolean {
+  if (!left || !right) {
+    return false;
+  }
+
+  return left.sourceSessionId === right.sourceSessionId
+    && left.sourceSessionUpdatedAt === right.sourceSessionUpdatedAt
+    && left.reason === right.reason;
+}
+
 function persistLocked(rootDir: string, state: HolisticState, paths: RuntimePaths): HolisticState {
   writeDerivedDocs(paths, state);
   state.repoSnapshot = captureRepoSnapshot(rootDir);
@@ -46,49 +92,155 @@ function persistLocked(rootDir: string, state: HolisticState, paths: RuntimePath
   return state;
 }
 
-function mutateState(rootDir: string, mutator: (state: HolisticState, paths: RuntimePaths) => HolisticState): HolisticState {
-  const paths = getRuntimePaths(rootDir);
-  return withStateLock(paths, () => {
-    const { state, paths: lockedPaths } = loadState(rootDir);
-    const nextState = mutator(state, lockedPaths);
-    return persistLocked(rootDir, nextState, lockedPaths);
-  });
+function persistObservedState(state: HolisticState, paths: RuntimePaths, snapshot: Record<string, string>): HolisticState {
+  state.repoSnapshot = snapshot;
+  saveState(paths, state, { locked: true });
+  return state;
 }
 
-export function runDaemonTick(rootDir: string, agent: AgentName = "unknown"): { changed: boolean; summary: string } {
-  const { state } = loadState(rootDir);
-  const snapshot = getGitSnapshot(rootDir, state.repoSnapshot ?? {});
-
-  if (snapshot.changedFiles.length === 0) {
-    return { changed: false, summary: "No repo changes detected." };
+function ensurePassiveSession(rootDir: string, state: HolisticState, agent: AgentName): HolisticState {
+  if (state.activeSession) {
+    return state;
   }
 
-  mutateState(rootDir, (currentState) => {
-    let nextState = currentState;
-    if (!nextState.activeSession) {
-      nextState = startNewSession(rootDir, nextState, agent, "Passively capture repo activity for the next agent handoff", [
-        "Read HOLISTIC.md",
-        "Review the detected file changes",
-        "Confirm whether to continue planned work or start something new",
-      ], "Passive session capture");
+  return startNewSession(rootDir, state, agent, "Passively capture repo activity for the next agent handoff", [
+    "Read HOLISTIC.md",
+    "Review the detected repo activity",
+    "Confirm whether to continue planned work or start something new",
+  ], "Passive session capture");
+}
+
+export function runDaemonTick(rootDir: string, agent: AgentName = "unknown"): { changed: boolean; summary: string; syncTrigger?: "checkpoint" } {
+  const paths = getRuntimePaths(rootDir);
+  const result = withStateLock(paths, () => {
+    const { state, paths: lockedPaths } = loadState(rootDir);
+    const snapshot = getGitSnapshot(rootDir, state.repoSnapshot ?? {});
+    const tracker = {
+      ...defaultPassiveCapture(),
+      ...(state.passiveCapture ?? {}),
+      pendingFiles: state.passiveCapture?.pendingFiles ?? [],
+    };
+    const meaningfulFiles = snapshot.changedFiles.filter((file) => !isPortableHolisticPath(file));
+    const previousBranch = tracker.lastObservedBranch;
+    const branchChanged = Boolean(previousBranch && previousBranch !== snapshot.branch);
+
+    if (branchChanged) {
+      let nextState = ensurePassiveSession(rootDir, state, agent);
+      nextState = checkpointState(rootDir, nextState, {
+        agent,
+        reason: "branch-switch",
+        status: `Detected a branch switch from ${previousBranch} to ${snapshot.branch}; Holistic captured a continuity checkpoint automatically.`,
+        next: nextState.activeSession?.nextSteps.length
+          ? nextState.activeSession.nextSteps
+          : ["Review the new branch and confirm the intended task."],
+        impacts: ["Holistic now records branch switches as explicit continuity checkpoints."],
+        regressions: ["Branch changes should create a single checkpoint instead of repeated polling noise."],
+      });
+      nextState.passiveCapture = {
+        ...defaultPassiveCapture(),
+        lastObservedBranch: snapshot.branch,
+        lastCheckpointAt: now(),
+      };
+      persistLocked(rootDir, nextState, lockedPaths);
+      return {
+        changed: true,
+        summary: `Captured branch switch from ${previousBranch} to ${snapshot.branch}.`,
+        syncTrigger: "checkpoint" as const,
+      };
     }
 
-    return checkpointState(rootDir, nextState, {
-      agent,
-      reason: "daemon-auto",
-      status: `Detected repo activity on ${snapshot.branch}; Holistic captured it automatically in the background.`,
-      next: nextState.activeSession?.nextSteps.length
-        ? nextState.activeSession.nextSteps
-        : ["Review the recent file changes and confirm the intended task."],
-      impacts: ["Background capture is preserving repo activity without requiring a manual session-start command."],
-      regressions: ["Background capture reduces the chance that work is forgotten when agents switch tools or contexts."],
-    });
+    if (meaningfulFiles.length > 0) {
+      const nextState: HolisticState = {
+        ...state,
+        passiveCapture: {
+          ...tracker,
+          lastObservedBranch: snapshot.branch,
+          pendingFiles: uniqueFiles([...tracker.pendingFiles, ...meaningfulFiles]),
+          activityTicks: tracker.activityTicks + 1,
+          quietTicks: 0,
+        },
+      };
+      persistObservedState(nextState, lockedPaths, snapshot.snapshot);
+      return {
+        changed: false,
+        summary: `Buffered ${nextState.passiveCapture?.pendingFiles.length ?? 0} changed file(s) for a quieter passive checkpoint.`,
+      };
+    }
+
+    if (tracker.pendingFiles.length > 0) {
+      const quietTicks = tracker.quietTicks + 1;
+      if (quietTicks >= QUIET_TICKS_BEFORE_CHECKPOINT) {
+        let nextState = ensurePassiveSession(rootDir, state, agent);
+        const fileSummary = summarizeFiles(tracker.pendingFiles);
+        nextState = checkpointState(rootDir, nextState, {
+          agent,
+          reason: tracker.activityTicks > 1 || tracker.pendingFiles.length > 1 ? "daemon-auto-cluster" : "daemon-auto",
+          status: `Detected a quiet point after repo activity on ${snapshot.branch}; Holistic captured ${tracker.pendingFiles.length} file(s) automatically.`,
+          next: nextState.activeSession?.nextSteps.length
+            ? nextState.activeSession.nextSteps
+            : [`Review recent changes in ${fileSummary || "the repo"} and confirm the intended task.`],
+          impacts: ["Passive capture now clusters nearby repo changes before checkpointing, which reduces noise while preserving continuity."],
+          regressions: ["Passive checkpoints should cluster nearby edits instead of firing on every poll tick."],
+        });
+        nextState.passiveCapture = {
+          ...defaultPassiveCapture(),
+          lastObservedBranch: snapshot.branch,
+          lastCheckpointAt: now(),
+        };
+        persistLocked(rootDir, nextState, lockedPaths);
+        return {
+          changed: true,
+          summary: `Captured a passive checkpoint for ${tracker.pendingFiles.length} file(s) on ${snapshot.branch}.`,
+          syncTrigger: "checkpoint" as const,
+        };
+      }
+
+      const nextState: HolisticState = {
+        ...state,
+        passiveCapture: {
+          ...tracker,
+          lastObservedBranch: snapshot.branch,
+          quietTicks,
+        },
+      };
+      persistObservedState(nextState, lockedPaths, snapshot.snapshot);
+      return { changed: false, summary: "Waiting for repo activity to settle before checkpointing." };
+    }
+
+    if (tracker.lastObservedBranch !== snapshot.branch || Object.keys(state.repoSnapshot ?? {}).length === 0) {
+      const nextState: HolisticState = {
+        ...state,
+        passiveCapture: {
+          ...tracker,
+          lastObservedBranch: snapshot.branch,
+        },
+      };
+      persistObservedState(nextState, lockedPaths, snapshot.snapshot);
+    }
+
+    if (state.activeSession) {
+      const decision = shouldAutoDraftHandoff(state.activeSession);
+      if (decision.should) {
+        const nextDraft = buildAutoDraftHandoff(state, decision.reason);
+        const existingDraft = readDraftHandoff(lockedPaths);
+        if (nextDraft && !isSameDraft(existingDraft, nextDraft)) {
+          writeDraftHandoff(lockedPaths, nextDraft);
+          return {
+            changed: true,
+            summary: `Saved an auto-drafted handoff for ${decision.reason}.`,
+          };
+        }
+      }
+    }
+
+    return { changed: false, summary: "No repo changes detected." };
   });
 
-  return {
-    changed: true,
-    summary: `Captured ${snapshot.changedFiles.length} changed file(s) on ${snapshot.branch}.`,
-  };
+  if (result.syncTrigger) {
+    requestAutoSync(rootDir, result.syncTrigger);
+  }
+
+  return result;
 }
 
 async function main(): Promise<number> {

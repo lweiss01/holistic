@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { renderDiff, renderStatus } from "../src/cli.ts";
+import { finalizeDraftHandoffInput, renderDiff, renderStatus } from "../src/cli.ts";
 import { writeDerivedDocs } from "../src/core/docs.ts";
 import { captureRepoSnapshot } from "../src/core/git.ts";
-import { initializeHolistic } from "../src/core/setup.ts";
+import { bootstrapHolistic, initializeHolistic } from "../src/core/setup.ts";
+import { planAutoSync } from "../src/core/sync.ts";
 import {
   applyHandoff,
+  clearDraftHandoff,
   checkpointState,
   completePhase,
   computeSessionDiff,
@@ -16,12 +18,14 @@ import {
   getResumePayload,
   getRuntimePaths,
   loadSessionById,
+  readDraftHandoff,
   saveState,
   setActivePhase,
+  shouldAutoDraftHandoff,
   startNewSession,
 } from "../src/core/state.ts";
 import { runDaemonTick } from "../src/daemon.ts";
-import { callHolisticTool, listHolisticTools } from "../src/mcp-server.ts";
+import { buildResumeNotificationText, callHolisticTool, createHolisticMcpServer, listHolisticTools } from "../src/mcp-server.ts";
 import type { HolisticState } from "../src/core/types.ts";
 
 const workspaceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -115,8 +119,12 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "system", "sync-state.sh")));
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "zero-touch.md")));
       const config = JSON.parse(fs.readFileSync(path.join(rootDir, ".holistic", "config.json"), "utf8"));
+      assert.equal(config.autoInferSessions, true);
+      assert.equal(config.autoSync, true);
       assert.equal(config.sync.remote, "origin");
       assert.equal(config.sync.stateBranch, "holistic/state");
+      assert.equal(config.sync.syncOnCheckpoint, true);
+      assert.equal(config.sync.syncOnHandoff, true);
       assert.ok(fs.existsSync(result.startupTarget ?? ""));
     },
   },
@@ -135,6 +143,63 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "project-history.md")));
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "regression-watch.md")));
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "zero-touch.md")));
+    },
+  },
+  {
+    name: "bootstrap installs hooks, daemon, and Claude Desktop MCP config in one step",
+    run: () => {
+      const { rootDir } = makeRepo();
+      const fakeHome = makeTempDir("holistic-bootstrap-home");
+      const result = bootstrapHolistic(rootDir, {
+        platform: "win32",
+        homeDir: fakeHome,
+        intervalSeconds: 45,
+      });
+
+      assert.equal(result.gitHooksInstalled, true);
+      assert.equal(result.installed, true);
+      assert.equal(result.mcpConfigured, true);
+      assert.ok(result.startupTarget?.endsWith(".cmd"));
+      assert.ok(fs.existsSync(result.startupTarget ?? ""));
+      assert.deepEqual(result.checks, ["git-hooks", "mcp-config", "daemon"]);
+
+      const mcpConfig = JSON.parse(fs.readFileSync(result.mcpConfigFile ?? "", "utf8"));
+      const holisticServer = mcpConfig.mcpServers?.holistic;
+      assert.equal(holisticServer?.command, process.execPath);
+      assert.deepEqual(holisticServer?.env, { HOLISTIC_REPO: rootDir });
+      assert.ok(Array.isArray(holisticServer?.args));
+      assert.equal(holisticServer.args.includes("serve"), true);
+    },
+  },
+  {
+    name: "bootstrap is idempotent and preserves existing MCP servers",
+    run: () => {
+      const { rootDir } = makeRepo();
+      const fakeHome = makeTempDir("holistic-bootstrap-home");
+      const configPath = path.join(fakeHome, "Library", "Application Support", "Claude", "claude_desktop_config.json");
+      fs.mkdirSync(path.dirname(configPath), { recursive: true });
+      fs.writeFileSync(configPath, JSON.stringify({
+        mcpServers: {
+          existing: {
+            command: "existing-cmd",
+            args: ["serve"],
+          },
+        },
+      }, null, 2) + "\n", "utf8");
+
+      bootstrapHolistic(rootDir, {
+        platform: "darwin",
+        homeDir: fakeHome,
+      });
+      const second = bootstrapHolistic(rootDir, {
+        platform: "darwin",
+        homeDir: fakeHome,
+      });
+
+      const mcpConfig = JSON.parse(fs.readFileSync(second.mcpConfigFile ?? "", "utf8"));
+      assert.equal(mcpConfig.mcpServers.existing.command, "existing-cmd");
+      assert.equal(mcpConfig.mcpServers.holistic.command, process.execPath);
+      assert.deepEqual(second.checks, ["git-hooks", "mcp-config", "daemon"]);
     },
   },
   {
@@ -302,6 +367,22 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     },
   },
   {
+    name: "continueFromLatest infers a session from recent repo changes when no carryover exists",
+    run: () => {
+      const { rootDir, state } = makeRepo();
+      let nextState = persist(rootDir, state);
+      fs.mkdirSync(path.join(rootDir, "src"), { recursive: true });
+      fs.writeFileSync(path.join(rootDir, "src", "feature.ts"), "export const feature = true;\n", "utf8");
+
+      nextState = continueFromLatest(rootDir, nextState, "codex");
+      nextState = persist(rootDir, nextState);
+
+      assert.equal(nextState.activeSession?.title, "Continue recent repo work");
+      assert.match(nextState.activeSession?.currentGoal ?? "", /Continue work around src\/feature\.ts/);
+      assert.match(nextState.activeSession?.latestStatus ?? "", /Inferred a session from recent repo changes/);
+    },
+  },
+  {
     name: "mcp tool list stays intentionally thin and tool calls persist state",
     run: () => {
       const { rootDir, state } = makeRepo();
@@ -349,6 +430,82 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     },
   },
   {
+    name: "mcp connect sends visible resume notification when carryover exists",
+    run: async () => {
+      const { rootDir } = makeRepo();
+      let state = createInitialState(rootDir);
+      state = startNewSession(rootDir, state, "codex", "Implement implicit resume", ["Wire MCP notification", "Keep tool surface thin"]);
+      state = setActivePhase(state, {
+        phase: "1.5",
+        name: "Workflow Disappearance",
+        goal: "Reduce startup ceremony for MCP clients",
+        status: "Phase 1.5 kickoff",
+      });
+      state = checkpointState(rootDir, state, {
+        reason: "milestone",
+        status: "Working on MCP connect resume notifications",
+        next: ["Send a visible resume message when MCP initialization completes"],
+      });
+      state = persist(rootDir, state);
+
+      const text = buildResumeNotificationText(state, "codex");
+      assert.ok(text);
+      assert.match(text ?? "", /Holistic resume/);
+      assert.match(text ?? "", /Phase: 1\.5 - Workflow Disappearance/);
+      assert.match(text ?? "", /Current objective: Reduce startup ceremony for MCP clients/);
+
+      const server = createHolisticMcpServer(rootDir);
+      const sent: Array<{ level: string; logger?: string; data: unknown }> = [];
+      (server as unknown as {
+        sendLoggingMessage: (params: { level: string; logger?: string; data: unknown }) => Promise<void>;
+      }).sendLoggingMessage = async (params) => {
+        sent.push(params);
+      };
+
+      server.oninitialized?.();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      assert.equal(sent.length, 1);
+      assert.equal(sent[0]?.level, "info");
+      assert.equal(sent[0]?.logger, "holistic");
+      assert.match(String(sent[0]?.data ?? ""), /Holistic resume/);
+    },
+  },
+  {
+    name: "mcp connect auto-starts an inferred session before sending resume notification",
+    run: async () => {
+      const { rootDir, state } = makeRepo();
+      let nextState = persist(rootDir, state);
+      fs.mkdirSync(path.join(rootDir, "src"), { recursive: true });
+      fs.writeFileSync(path.join(rootDir, "src", "mcp.ts"), "export const mcp = true;\n", "utf8");
+
+      const server = createHolisticMcpServer(rootDir);
+      const sent: Array<{ level: string; logger?: string; data: unknown }> = [];
+      (server as unknown as {
+        sendLoggingMessage: (params: { level: string; logger?: string; data: unknown }) => Promise<void>;
+      }).sendLoggingMessage = async (params) => {
+        sent.push(params);
+      };
+
+      server.oninitialized?.();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      nextState = readState(rootDir);
+      assert.equal(nextState.activeSession?.title, "Continue recent repo work");
+      assert.equal(sent.length, 1);
+      assert.match(String(sent[0]?.data ?? ""), /Continue work around src\/mcp\.ts/);
+    },
+  },
+  {
+    name: "mcp connect skips resume notification when there is no carryover",
+    run: () => {
+      const { rootDir, state } = makeRepo();
+      persist(rootDir, state);
+      const text = buildResumeNotificationText(state, "codex");
+      assert.equal(text, null);
+    },
+  },
+  {
     name: "init can install git hooks and generate portable hook scripts",
     run: () => {
       const { rootDir } = makeRepo();
@@ -356,35 +513,157 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         installGitHooks: true,
       });
       assert.equal(result.gitHooksInstalled, true);
-      assert.deepEqual(result.gitHooks, ["post-commit", "pre-push"]);
+      assert.deepEqual(result.gitHooks, ["post-commit", "post-checkout", "pre-push"]);
 
       const postCommitPath = path.join(rootDir, ".git", "hooks", "post-commit");
+      const postCheckoutPath = path.join(rootDir, ".git", "hooks", "post-checkout");
       const prePushPath = path.join(rootDir, ".git", "hooks", "pre-push");
       assert.ok(fs.existsSync(postCommitPath));
+      assert.ok(fs.existsSync(postCheckoutPath));
       assert.ok(fs.existsSync(prePushPath));
       const postCommit = fs.readFileSync(postCommitPath, "utf8");
+      const postCheckout = fs.readFileSync(postCheckoutPath, "utf8");
       const prePush = fs.readFileSync(prePushPath, "utf8");
+      const syncPs1 = fs.readFileSync(path.join(rootDir, ".holistic", "system", "sync-state.ps1"), "utf8");
+      const syncSh = fs.readFileSync(path.join(rootDir, ".holistic", "system", "sync-state.sh"), "utf8");
       assert.match(postCommit, /Holistic auto-checkpoint after commit/);
       assert.match(postCommit, /'checkpoint' '--reason' 'post-commit'/);
       assert.match(postCommit, /Committed: \$COMMIT_SUBJECT/);
       assert.match(postCommit, /cd '/);
+      assert.match(postCheckout, /Holistic continuity checkpoint after branch switch/);
+      assert.match(postCheckout, /'checkpoint' '--reason' 'branch-switch'/);
+      assert.match(postCheckout, /\[ "\$3" = "1" \]/);
       assert.match(prePush, /Holistic Status:/);
       assert.match(prePush, /git push origin holistic\/state/);
+      assert.match(syncPs1, /core\.hooksPath=NUL/);
+      assert.match(syncSh, /core\.hooksPath=\/dev\/null/);
     },
   },
   {
-    name: "daemon tick creates passive capture without a manual session start",
+    name: "daemon tick clusters repo activity until a quiet point before checkpointing",
     run: () => {
       const { rootDir } = makeRepo();
       let state = createInitialState(rootDir);
       state = persist(rootDir, state);
       fs.writeFileSync(path.join(rootDir, "notes.txt"), "background change\n", "utf8");
 
-      const result = runDaemonTick(rootDir, "unknown");
-      assert.equal(result.changed, true);
+      const firstTick = runDaemonTick(rootDir, "unknown");
+      assert.equal(firstTick.changed, false);
+      let stateFile = readState(rootDir);
+      assert.equal(stateFile.activeSession, null);
+      assert.deepEqual(stateFile.passiveCapture?.pendingFiles, ["notes.txt"]);
+
+      const secondTick = runDaemonTick(rootDir, "unknown");
+      assert.equal(secondTick.changed, true);
+      stateFile = readState(rootDir);
+      assert.equal(stateFile.activeSession?.title, "Passive session capture");
+      assert.match(stateFile.activeSession?.latestStatus ?? "", /Detected a quiet point after repo activity/);
+      assert.deepEqual(stateFile.passiveCapture?.pendingFiles, []);
+    },
+  },
+  {
+    name: "daemon tick checkpoints branch switches immediately",
+    run: () => {
+      const { rootDir } = makeRepo();
+      let state = createInitialState(rootDir);
+      state = persist(rootDir, state);
+
+      let baseline = runDaemonTick(rootDir, "unknown");
+      assert.equal(baseline.changed, false);
+
+      fs.writeFileSync(path.join(rootDir, ".git", "HEAD"), "ref: refs/heads/feature\n", "utf8");
+      fs.writeFileSync(path.join(rootDir, ".git", "refs", "heads", "feature"), "1111111111111111111111111111111111111111\n", "utf8");
+
+      const branchTick = runDaemonTick(rootDir, "unknown");
+      assert.equal(branchTick.changed, true);
+
       const stateFile = readState(rootDir);
       assert.equal(stateFile.activeSession?.title, "Passive session capture");
-      assert.match(stateFile.activeSession?.latestStatus ?? "", /captured it automatically in the background/);
+      assert.match(stateFile.activeSession?.latestStatus ?? "", /branch switch from main to feature/);
+      assert.equal(stateFile.activeSession?.lastCheckpointReason, "branch-switch");
+    },
+  },
+  {
+    name: "auto-draft handoff triggers for significant work milestones",
+    run: () => {
+      const { rootDir } = makeRepo();
+      let state = createInitialState(rootDir);
+      state = startNewSession(rootDir, state, "codex", "Prepare a durable handoff", ["Keep continuity alive"]);
+      assert.ok(state.activeSession);
+      state.activeSession!.startedAt = new Date(Date.now() - (3 * 60 * 60 * 1000)).toISOString();
+      state.activeSession!.updatedAt = new Date().toISOString();
+      state.activeSession!.checkpointCount = 5;
+
+      const decision = shouldAutoDraftHandoff(state.activeSession!);
+      assert.equal(decision.should, true);
+      assert.equal(decision.reason, "work-milestone");
+    },
+  },
+  {
+    name: "auto-sync planning respects config toggles and platform-specific scripts",
+    run: () => {
+      const { rootDir } = makeRepo();
+      initializeHolistic(rootDir);
+
+      const checkpointPlan = planAutoSync(rootDir, "checkpoint", "win32");
+      assert.equal(checkpointPlan.enabled, true);
+      assert.equal(checkpointPlan.command, "powershell");
+      assert.match(checkpointPlan.scriptPath ?? "", /sync-state\.ps1$/);
+
+      const handoffPlan = planAutoSync(rootDir, "handoff", "linux");
+      assert.equal(handoffPlan.enabled, true);
+      assert.equal(handoffPlan.command, "sh");
+      assert.match(handoffPlan.scriptPath ?? "", /sync-state\.sh$/);
+
+      const configPath = path.join(rootDir, ".holistic", "config.json");
+      const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+      config.sync.syncOnCheckpoint = false;
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf8");
+
+      const disabledPlan = planAutoSync(rootDir, "checkpoint", "linux");
+      assert.equal(disabledPlan.enabled, false);
+      assert.match(disabledPlan.reason ?? "", /Checkpoint auto-sync disabled/);
+    },
+  },
+  {
+    name: "daemon tick saves an idle auto-drafted handoff and handoff --draft consumes it",
+    run: () => {
+      const { rootDir } = makeRepo();
+      let state = createInitialState(rootDir);
+      state = startNewSession(rootDir, state, "codex", "Document the current work", ["Review the current task", "Prepare handoff"]);
+      state = checkpointState(rootDir, state, {
+        agent: "codex",
+        reason: "milestone",
+        status: "Ready for an auto-drafted handoff",
+        done: ["Captured the main implementation status"],
+        next: ["Review the draft and continue if needed"],
+      });
+      assert.ok(state.activeSession);
+      state.activeSession!.updatedAt = new Date(Date.now() - (31 * 60 * 1000)).toISOString();
+      state = persist(rootDir, state);
+
+      const firstTick = runDaemonTick(rootDir, "codex");
+      assert.equal(firstTick.changed, true);
+      assert.match(firstTick.summary, /auto-drafted handoff/);
+
+      const paths = getRuntimePaths(rootDir);
+      const draft = readDraftHandoff(paths);
+      assert.ok(draft);
+      assert.equal(draft?.sourceSessionId, state.activeSession?.id);
+      assert.equal(draft?.reason, "idle-30min");
+      assert.equal(draft?.handoff.summary, "Ready for an auto-drafted handoff");
+
+      const secondTick = runDaemonTick(rootDir, "codex");
+      assert.equal(secondTick.changed, false);
+
+      const finalized = finalizeDraftHandoffInput(readState(rootDir).activeSession!, draft?.handoff ?? {});
+      let finalState = applyHandoff(rootDir, readState(rootDir), finalized);
+      clearDraftHandoff(paths);
+      finalState = persist(rootDir, finalState);
+
+      assert.equal(finalState.activeSession, null);
+      assert.equal(finalState.lastHandoff?.summary, "Ready for an auto-drafted handoff");
+      assert.equal(fs.existsSync(path.join(rootDir, ".holistic", "draft-handoff.json")), false);
     },
   },
 ];

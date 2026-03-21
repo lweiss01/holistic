@@ -1,16 +1,19 @@
 ﻿import fs from "node:fs";
 import path from "node:path";
-import { getGitSnapshot } from './git.ts';
+import { getGitSnapshot, getRecentCommitSubjects, isPortableHolisticPath } from './git.ts';
 import { withLockSync } from './lock.ts';
 import { sanitizeList, sanitizeText } from './redact.ts';
 import type {
   AgentName,
+  AutoHandoffDecision,
   CheckpointInput,
   CompletePhaseInput,
   DocIndex,
+  DraftHandoff,
   HandoffInput,
   HolisticState,
   PendingWorkItem,
+  PassiveCaptureState,
   PhaseRecord,
   PhaseTracker,
   ResumePayload,
@@ -79,6 +82,125 @@ function defaultPhaseTracker(): PhaseTracker {
   };
 }
 
+function defaultPassiveCapture(): PassiveCaptureState {
+  return {
+    lastObservedBranch: null,
+    pendingFiles: [],
+    activityTicks: 0,
+    quietTicks: 0,
+    lastCheckpointAt: null,
+  };
+}
+
+interface InferredSessionStart {
+  title: string;
+  goal: string;
+  plan: string[];
+  source: "pending" | "handoff" | "files" | "git" | "default";
+  status: string;
+  blockers?: string[];
+  nextSteps?: string[];
+  consumePendingWork?: boolean;
+}
+
+function loadHolisticConfig(rootDir: string): Record<string, unknown> {
+  const configPath = path.join(rootDir, ".holistic", "config.json");
+  if (!fs.existsSync(configPath)) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(fs.readFileSync(configPath, "utf8")) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+function autoInferRepoSignalsEnabled(rootDir: string): boolean {
+  const config = loadHolisticConfig(rootDir);
+  return config.autoInferSessions !== false;
+}
+
+function isPortableHolisticFile(file: string): boolean {
+  return isPortableHolisticPath(file);
+}
+
+function summarizeFilesForGoal(files: string[]): string {
+  const interesting = files
+    .filter((file) => !isPortableHolisticFile(file))
+    .slice(0, 3);
+
+  const targets = interesting.length > 0 ? interesting : files.slice(0, 3);
+  return targets.join(", ");
+}
+
+export function inferSessionStart(rootDir: string, state: HolisticState): InferredSessionStart {
+  const nextPending = state.pendingWork[0];
+  if (nextPending) {
+    return {
+      title: nextPending.title,
+      goal: nextPending.recommendedNextStep,
+      plan: ["Read HOLISTIC.md", nextPending.recommendedNextStep],
+      source: "pending",
+      status: nextPending.context,
+      nextSteps: [nextPending.recommendedNextStep],
+      consumePendingWork: true,
+    };
+  }
+
+  if (state.lastHandoff) {
+    return {
+      title: "Continue previous handoff",
+      goal: state.lastHandoff.nextAction,
+      plan: ["Read HOLISTIC.md", state.lastHandoff.nextAction],
+      source: "handoff",
+      status: state.lastHandoff.summary,
+      blockers: [...state.lastHandoff.blockers],
+      nextSteps: [state.lastHandoff.nextAction],
+    };
+  }
+
+  if (autoInferRepoSignalsEnabled(rootDir)) {
+    const snapshot = getGitSnapshot(rootDir, state.repoSnapshot ?? {});
+    const changedFiles = snapshot.changedFiles.filter((file) => !isPortableHolisticFile(file));
+    if (changedFiles.length > 0) {
+      const summary = summarizeFilesForGoal(changedFiles);
+      return {
+        title: "Continue recent repo work",
+        goal: `Continue work around ${summary}`,
+        plan: ["Review the most recently changed files", "Continue the current implementation thread"],
+        source: "files",
+        status: `Inferred a session from recent repo changes on ${snapshot.branch}.`,
+        nextSteps: [`Review ${summary}`],
+      };
+    }
+
+    const recentCommits = getRecentCommitSubjects(rootDir).filter((subject) => subject !== "docs(holistic): handoff");
+    if (recentCommits.length > 0) {
+      return {
+        title: "Continue recent git work",
+        goal: `Continue work related to: ${sanitizeText(recentCommits[0])}`,
+        plan: ["Review the latest commits", "Continue the most recent implementation thread"],
+        source: "git",
+        status: "Inferred a session from recent git history.",
+        nextSteps: ["Review the latest commit context before continuing"],
+      };
+    }
+  }
+
+  return {
+    title: "New work session",
+    goal: "Start a new task and capture the first checkpoint.",
+    plan: ["Read HOLISTIC.md", "Confirm the next task with the user"],
+    source: "default",
+    status: "No prior session context could be inferred automatically.",
+  };
+}
+
+export function canInferSessionStart(rootDir: string, state: HolisticState): boolean {
+  return inferSessionStart(rootDir, state).source !== "default";
+}
+
 export function createInitialState(rootDir: string): HolisticState {
   const timestamp = now();
   return {
@@ -91,6 +213,7 @@ export function createInitialState(rootDir: string): HolisticState {
     pendingWork: [],
     lastHandoff: null,
     docIndex: defaultDocIndex(),
+    passiveCapture: defaultPassiveCapture(),
     repoSnapshot: {},
     pendingCommit: null,
   };
@@ -157,6 +280,11 @@ function hydrateState(state: HolisticState): HolisticState {
     current: state.phaseTracker?.current ?? null,
     completed: state.phaseTracker?.completed ?? [],
   };
+  state.passiveCapture = {
+    ...defaultPassiveCapture(),
+    ...(state.passiveCapture ?? {}),
+    pendingFiles: state.passiveCapture?.pendingFiles ?? [],
+  };
   state.pendingWork = state.pendingWork ?? [];
   state.repoSnapshot = state.repoSnapshot ?? {};
   state.pendingCommit = state.pendingCommit ?? null;
@@ -200,6 +328,34 @@ export function saveState(paths: RuntimePaths, state: HolisticState, options?: {
   }
 
   withStateLock(paths, write);
+}
+
+export function draftHandoffFile(paths: RuntimePaths): string {
+  return path.join(paths.holisticDir, "draft-handoff.json");
+}
+
+export function readDraftHandoff(paths: RuntimePaths): DraftHandoff | null {
+  const filePath = draftHandoffFile(paths);
+  if (!fs.existsSync(filePath)) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(fs.readFileSync(filePath, "utf8")) as DraftHandoff;
+  } catch {
+    return null;
+  }
+}
+
+export function writeDraftHandoff(paths: RuntimePaths, draft: DraftHandoff): void {
+  fs.writeFileSync(draftHandoffFile(paths), JSON.stringify(draft, null, 2) + "\n", "utf8");
+}
+
+export function clearDraftHandoff(paths: RuntimePaths): void {
+  const filePath = draftHandoffFile(paths);
+  if (fs.existsSync(filePath)) {
+    fs.unlinkSync(filePath);
+  }
 }
 
 function createSession(agent: AgentName, goal: string, title?: string, plan?: string[]): SessionRecord {
@@ -364,6 +520,7 @@ export function computeSessionDiff(fromSession: SessionRecord, toSession: Sessio
 
 function refreshSessionFromRepo(rootDir: string, state: HolisticState, session: SessionRecord): { state: HolisticState; session: SessionRecord } {
   const snapshot = getGitSnapshot(rootDir, state.repoSnapshot ?? {});
+  const changedFiles = snapshot.changedFiles.filter((file) => !isPortableHolisticFile(file));
   return {
     state: {
       ...state,
@@ -372,7 +529,7 @@ function refreshSessionFromRepo(rootDir: string, state: HolisticState, session: 
     session: {
       ...session,
       branch: snapshot.branch,
-      changedFiles: snapshot.changedFiles,
+      changedFiles,
       updatedAt: now(),
     },
   };
@@ -635,50 +792,66 @@ export function continueFromLatest(rootDir: string, state: HolisticState, agent:
     };
   }
 
-  const nextPending = state.pendingWork[0];
-  if (nextPending) {
-    const resumed = createSession(agent, nextPending.recommendedNextStep, nextPending.title, [
-      "Read HOLISTIC.md",
-      nextPending.recommendedNextStep,
-    ]);
-    resumed.latestStatus = sanitizeText(nextPending.context);
-    resumed.nextSteps = [sanitizeText(nextPending.recommendedNextStep)];
-    const refreshed = refreshSessionFromRepo(rootDir, state, resumed);
-    refreshed.session.resumeRecap = buildResumeRecap({
-      ...refreshed.state,
-      activeSession: refreshed.session,
-      pendingWork: state.pendingWork.slice(1),
-    });
-    return {
-      ...refreshed.state,
-      activeSession: refreshed.session,
-      pendingWork: state.pendingWork.slice(1),
-      pendingCommit: null,
-    };
-  }
+  const inferred = inferSessionStart(rootDir, state);
+  const resumed = createSession(agent, inferred.goal, inferred.title, inferred.plan);
+  resumed.latestStatus = inferred.status;
+  resumed.nextSteps = inferred.nextSteps ? sanitizeList(inferred.nextSteps) : [];
+  resumed.blockers = inferred.blockers ? sanitizeList(inferred.blockers) : [];
 
-  if (state.lastHandoff) {
-    const resumed = createSession(agent, state.lastHandoff.nextAction, "Continue previous handoff", [
-      "Read HOLISTIC.md",
-      state.lastHandoff.nextAction,
-    ]);
-    resumed.latestStatus = state.lastHandoff.summary;
-    resumed.blockers = [...state.lastHandoff.blockers];
-    resumed.nextSteps = [state.lastHandoff.nextAction];
-    const refreshed = refreshSessionFromRepo(rootDir, state, resumed);
-    return {
-      ...refreshed.state,
-      activeSession: refreshed.session,
-      pendingCommit: null,
-    };
-  }
-
-  const fallback = createSession(agent, "Start a new task and capture the first checkpoint.");
-  const refreshed = refreshSessionFromRepo(rootDir, state, fallback);
+  const remainingPendingWork = inferred.consumePendingWork ? state.pendingWork.slice(1) : state.pendingWork;
+  const refreshed = refreshSessionFromRepo(rootDir, state, resumed);
+  refreshed.session.resumeRecap = buildResumeRecap({
+    ...refreshed.state,
+    activeSession: refreshed.session,
+    pendingWork: remainingPendingWork,
+  });
   return {
     ...refreshed.state,
     activeSession: refreshed.session,
+    pendingWork: remainingPendingWork,
     pendingCommit: null,
+  };
+}
+
+export function shouldAutoDraftHandoff(session: SessionRecord, currentTimeMs = Date.now()): AutoHandoffDecision {
+  const updatedAtMs = new Date(session.updatedAt).getTime();
+  const startedAtMs = new Date(session.startedAt).getTime();
+  const idleMinutes = (currentTimeMs - updatedAtMs) / 60000;
+  if (idleMinutes >= 30) {
+    return { should: true, reason: "idle-30min" };
+  }
+
+  const sessionHours = (currentTimeMs - startedAtMs) / 3600000;
+  if (session.checkpointCount >= 5 && sessionHours >= 2) {
+    return { should: true, reason: "work-milestone" };
+  }
+
+  return { should: false, reason: "" };
+}
+
+export function buildAutoDraftHandoff(state: HolisticState, reason: AutoHandoffDecision["reason"]): DraftHandoff | null {
+  const session = state.activeSession;
+  if (!session) {
+    return null;
+  }
+
+  return {
+    sourceSessionId: session.id,
+    sourceSessionUpdatedAt: session.updatedAt,
+    reason,
+    createdAt: now(),
+    handoff: {
+      summary: session.latestStatus || "Auto-drafted handoff",
+      done: [...session.workDone],
+      tried: [...session.triedItems],
+      next: session.nextSteps.length > 0 ? [...session.nextSteps] : ["Review auto-drafted handoff and continue."],
+      assumptions: [...session.assumptions],
+      blockers: [...session.blockers],
+      references: [...session.references],
+      impacts: [...session.impactNotes],
+      regressions: [...session.regressionRisks],
+      status: session.latestStatus,
+    },
   };
 }
 

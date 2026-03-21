@@ -4,8 +4,10 @@ import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, typ
 import { pathToFileURL } from "node:url";
 import { captureRepoSnapshot } from './core/git.ts';
 import { writeDerivedDocs } from './core/docs.ts';
+import { requestAutoSync } from './core/sync.ts';
 import {
   applyHandoff,
+  canInferSessionStart,
   checkpointState,
   continueFromLatest,
   getResumePayload,
@@ -63,6 +65,55 @@ function mutateState(rootDir: string, mutator: (state: HolisticState, paths: Run
     const nextState = mutator(state, lockedPaths);
     return persistLocked(rootDir, nextState, lockedPaths);
   });
+}
+
+function ensureMcpResumeState(rootDir: string, agent: AgentName = "unknown"): HolisticState {
+  const { state } = loadState(rootDir);
+  if (state.activeSession) {
+    return state;
+  }
+
+  if (!canInferSessionStart(rootDir, state)) {
+    return state;
+  }
+
+  return mutateState(rootDir, (currentState) => continueFromLatest(rootDir, currentState, agent));
+}
+
+export function buildResumeNotificationText(state: HolisticState, agent: AgentName = "unknown"): string | null {
+  const payload = getResumePayload(state, agent);
+  if (payload.status === "empty") {
+    return null;
+  }
+
+  const lines: string[] = [];
+  lines.push("Holistic resume");
+
+  if (state.phaseTracker.current) {
+    lines.push(`Phase: ${state.phaseTracker.current.id} - ${state.phaseTracker.current.name}`);
+  }
+
+  lines.push("");
+  lines.push(...payload.recap.map((line) => `- ${line}`));
+  lines.push("");
+  lines.push(`Choices: ${payload.choices.join(", ")}`);
+  lines.push("Use holistic_resume for an explicit refresh.");
+  return lines.join("\n");
+}
+
+export async function sendResumeNotification(server: Server, rootDir: string, agent: AgentName = "unknown"): Promise<boolean> {
+  const state = ensureMcpResumeState(rootDir, agent);
+  const text = buildResumeNotificationText(state, agent);
+  if (!text) {
+    return false;
+  }
+
+  await server.sendLoggingMessage({
+    level: "info",
+    logger: "holistic",
+    data: text,
+  });
+  return true;
 }
 
 export function listHolisticTools(): ListToolsResult {
@@ -143,6 +194,7 @@ export function callHolisticTool(rootDir: string, name: string, args?: Record<st
         impacts: Array.isArray(args?.impacts) ? args.impacts.filter((item): item is string => typeof item === "string") : undefined,
         regressions: Array.isArray(args?.regressions) ? args.regressions.filter((item): item is string => typeof item === "string") : undefined,
       }));
+      requestAutoSync(rootDir, "checkpoint");
 
       return textResult(`Checkpoint created: ${state.activeSession?.checkpointCount ?? 0} total checkpoints.`);
     }
@@ -160,6 +212,7 @@ export function callHolisticTool(rootDir: string, name: string, args?: Record<st
         impacts: Array.isArray(args?.impacts) ? args.impacts.filter((item): item is string => typeof item === "string") : undefined,
         regressions: Array.isArray(args?.regressions) ? args.regressions.filter((item): item is string => typeof item === "string") : undefined,
       }));
+      requestAutoSync(rootDir, "handoff");
 
       return textResult(`Handoff complete. Summary: ${nextState.lastHandoff?.summary ?? "n/a"}`);
     }
@@ -181,6 +234,13 @@ export function createHolisticMcpServer(rootDir: string): Server {
       },
     },
   );
+
+  server.oninitialized = () => {
+    void sendResumeNotification(server, rootDir).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to send Holistic resume notification: ${message}`);
+    });
+  };
 
   server.setRequestHandler(ListToolsRequestSchema, async () => listHolisticTools());
   server.setRequestHandler(CallToolRequestSchema, async (request) => {

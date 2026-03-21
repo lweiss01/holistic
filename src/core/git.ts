@@ -1,6 +1,15 @@
-﻿import fs from "node:fs";
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import type { GitSnapshot, RuntimePaths } from './types.ts';
+
+const HOLISTIC_PORTABLE_PATHS = new Set([
+  "HOLISTIC.md",
+  "AGENTS.md",
+  "CLAUDE.md",
+  "GEMINI.md",
+  "HISTORY.md",
+]);
 
 export function resolveGitDir(rootDir: string): string | null {
   const dotGitPath = path.join(rootDir, ".git");
@@ -25,17 +34,21 @@ export function resolveGitDir(rootDir: string): string | null {
 function getBranchName(rootDir: string): string {
   const gitDir = resolveGitDir(rootDir);
   if (!gitDir) {
-    return "unknown";  // Changed from "master" - makes failed reads visibly different
+    return "unknown";
   }
 
   const headPath = path.join(gitDir, "HEAD");
   if (!fs.existsSync(headPath)) {
-    return "unknown";  // Changed from "master" - failed read should not look like success
+    return "unknown";
   }
 
   const head = fs.readFileSync(headPath, "utf8").trim();
   const refMatch = /^ref:\s+refs\/heads\/(.+)$/i.exec(head);
-  return refMatch?.[1] ?? "detached";  // Changed from "DETACHED" for consistency
+  return refMatch?.[1] ?? "detached";
+}
+
+export function isPortableHolisticPath(file: string): boolean {
+  return file.startsWith(".holistic/") || HOLISTIC_PORTABLE_PATHS.has(file);
 }
 
 function walkRepoFiles(rootDir: string, currentDir: string, results: string[]): void {
@@ -96,6 +109,23 @@ export function getGitSnapshot(rootDir: string, previousSnapshot: Record<string,
     changedFiles: diffRepoSnapshots(previousSnapshot, snapshot),
     snapshot,
   };
+}
+
+export function getRecentCommitSubjects(rootDir: string, limit = 5): string[] {
+  try {
+    const output = execFileSync(
+      "git",
+      ["-C", rootDir, "log", `-n${limit}`, "--pretty=%s"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    );
+
+    return output
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
 }
 
 export function pendingCommitFile(paths: RuntimePaths): string {

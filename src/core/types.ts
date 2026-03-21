@@ -85,6 +85,14 @@ export interface PhaseTracker {
   completed: PhaseRecord[];
 }
 
+export interface PassiveCaptureState {
+  lastObservedBranch: string | null;
+  pendingFiles: string[];
+  activityTicks: number;
+  quietTicks: number;
+  lastCheckpointAt: string | null;
+}
+
 export interface SessionRecord {
   id: string;
   agent: AgentName;
@@ -143,6 +151,7 @@ export interface HolisticState {
   pendingWork: PendingWorkItem[];
   lastHandoff: LastHandoff | null;
   docIndex: DocIndex;
+  passiveCapture?: PassiveCaptureState;
   repoSnapshot?: Record<string, string>;
   pendingCommit?: {
     message: string;
@@ -237,6 +246,19 @@ export interface HandoffInput {
   relatedSessions?: string[];
   outcomeStatus?: OutcomeStatus;
   severity?: Severity;
+}
+
+export interface AutoHandoffDecision {
+  should: boolean;
+  reason: "idle-30min" | "work-milestone" | "";
+}
+
+export interface DraftHandoff {
+  sourceSessionId: string;
+  sourceSessionUpdatedAt: string;
+  reason: AutoHandoffDecision["reason"];
+  createdAt: string;
+  handoff: HandoffInput;
 }
 
 export interface ResumePayload {

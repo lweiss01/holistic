@@ -19,6 +19,10 @@ export interface InitOptions {
   stateBranch?: string;
 }
 
+export interface BootstrapOptions extends InitOptions {
+  configureMcp?: boolean;
+}
+
 export interface InitResult {
   installed: boolean;
   gitHooksInstalled: boolean;
@@ -27,6 +31,12 @@ export interface InitResult {
   startupTarget: string | null;
   systemDir: string;
   configFile: string;
+}
+
+export interface BootstrapResult extends InitResult {
+  mcpConfigured: boolean;
+  mcpConfigFile: string | null;
+  checks: string[];
 }
 
 function persist(rootDir: string, state: HolisticState, paths: RuntimePaths): HolisticState {
@@ -60,6 +70,18 @@ function runtimeEntryScript(name: "cli" | "daemon"): { scriptPath: string; useSt
   };
 }
 
+function mcpConfigFile(platform: NodeJS.Platform, homeDir: string): string {
+  switch (platform) {
+    case "win32":
+      return path.join(homeDir, "AppData", "Roaming", "Claude", "claude_desktop_config.json");
+    case "darwin":
+      return path.join(homeDir, "Library", "Application Support", "Claude", "claude_desktop_config.json");
+    case "linux":
+    default:
+      return path.join(homeDir, ".config", "Claude", "claude_desktop_config.json");
+  }
+}
+
 function quotePowerShell(value: string): string {
   return value.replace(/'/g, "''");
 }
@@ -71,10 +93,14 @@ function shellQuote(value: string): string {
 function writeConfig(paths: RuntimePaths, remote: string, stateBranch: string, intervalSeconds: number): void {
   const config = {
     version: 1,
+    autoInferSessions: true,
+    autoSync: true,
     sync: {
       strategy: "state-branch",
       remote,
       stateBranch,
+      syncOnCheckpoint: true,
+      syncOnHandoff: true,
       postHandoffPush: true,
       restoreOnStartup: true,
       trackedPaths: ["HOLISTIC.md", "AGENTS.md", "CLAUDE.md", "GEMINI.md", "HISTORY.md", ".holistic"],
@@ -118,16 +144,16 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     `$root = '${quotePowerShell(rootDir)}'`,
     `$remote = '${quotePowerShell(remote)}'`,
     `$stateBranch = '${quotePowerShell(stateBranch)}'`,
-    "$branch = git -C $root rev-parse --abbrev-ref HEAD",
+    "$branch = git -c core.hooksPath=NUL -C $root rev-parse --abbrev-ref HEAD",
     "if ($LASTEXITCODE -ne 0) { throw 'Unable to determine current branch.' }",
-    "git -C $root push $remote $branch",
+    "git -c core.hooksPath=NUL -C $root push $remote $branch",
     "$tmp = Join-Path $env:TEMP ('holistic-state-' + [guid]::NewGuid().ToString())",
-    "git -C $root worktree add --force $tmp | Out-Null",
+    "git -c core.hooksPath=NUL -C $root worktree add --force $tmp | Out-Null",
     "try {",
     "  Push-Location $tmp",
-    "  git switch $stateBranch 2>$null | Out-Null",
+    "  git -c core.hooksPath=NUL switch $stateBranch 2>$null | Out-Null",
     "  if ($LASTEXITCODE -ne 0) {",
-    "    git switch --orphan $stateBranch | Out-Null",
+    "    git -c core.hooksPath=NUL switch --orphan $stateBranch | Out-Null",
     "  }",
     "  Get-ChildItem -Force | Where-Object { $_.Name -ne '.git' } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue",
     `  Copy-Item -Path (Join-Path $root 'HOLISTIC.md') -Destination (Join-Path $tmp 'HOLISTIC.md') -Force`,
@@ -136,15 +162,15 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     `  Copy-Item -Path (Join-Path $root 'GEMINI.md') -Destination (Join-Path $tmp 'GEMINI.md') -Force`,
     `  Copy-Item -Path (Join-Path $root 'HISTORY.md') -Destination (Join-Path $tmp 'HISTORY.md') -Force`,
     `  Copy-Item -Path (Join-Path $root '.holistic') -Destination (Join-Path $tmp '.holistic') -Recurse -Force`,
-    "  git add HOLISTIC.md AGENTS.md CLAUDE.md GEMINI.md HISTORY.md .holistic",
-    "  git diff --cached --quiet",
+    "  git -c core.hooksPath=NUL add HOLISTIC.md AGENTS.md CLAUDE.md GEMINI.md HISTORY.md .holistic",
+    "  git -c core.hooksPath=NUL diff --cached --quiet",
     "  if ($LASTEXITCODE -ne 0) {",
-    "    git commit -m 'chore(holistic): sync portable state' | Out-Null",
+    "    git -c core.hooksPath=NUL commit -m 'chore(holistic): sync portable state' | Out-Null",
     "  }",
-    "  git push $remote HEAD:$stateBranch",
+    "  git -c core.hooksPath=NUL push $remote HEAD:$stateBranch",
     "} finally {",
     "  Pop-Location",
-    "  git -C $root worktree remove --force $tmp | Out-Null",
+    "  git -c core.hooksPath=NUL -C $root worktree remove --force $tmp | Out-Null",
     "}",
   ].join("\n");
 
@@ -169,14 +195,14 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     `ROOT='${shellQuote(rootDir)}'`,
     `REMOTE='${shellQuote(remote)}'`,
     `STATE_BRANCH='${shellQuote(stateBranch)}'`,
-    "BRANCH=$(git -C \"$ROOT\" rev-parse --abbrev-ref HEAD) || exit 1",
-    "git -C \"$ROOT\" push \"$REMOTE\" \"$BRANCH\" || exit 1",
+    "BRANCH=$(git -c core.hooksPath=/dev/null -C \"$ROOT\" rev-parse --abbrev-ref HEAD) || exit 1",
+    "git -c core.hooksPath=/dev/null -C \"$ROOT\" push \"$REMOTE\" \"$BRANCH\" || exit 1",
     "TMPDIR=$(mktemp -d 2>/dev/null || mktemp -d -t holistic-state)",
-    "git -C \"$ROOT\" worktree add --force \"$TMPDIR\" >/dev/null 2>&1 || exit 1",
-    "cleanup() { git -C \"$ROOT\" worktree remove --force \"$TMPDIR\" >/dev/null 2>&1; }",
+    "git -c core.hooksPath=/dev/null -C \"$ROOT\" worktree add --force \"$TMPDIR\" >/dev/null 2>&1 || exit 1",
+    "cleanup() { git -c core.hooksPath=/dev/null -C \"$ROOT\" worktree remove --force \"$TMPDIR\" >/dev/null 2>&1; }",
     "trap cleanup EXIT",
     "cd \"$TMPDIR\" || exit 1",
-    "git switch \"$STATE_BRANCH\" >/dev/null 2>&1 || git switch --orphan \"$STATE_BRANCH\" >/dev/null 2>&1 || exit 1",
+    "git -c core.hooksPath=/dev/null switch \"$STATE_BRANCH\" >/dev/null 2>&1 || git -c core.hooksPath=/dev/null switch --orphan \"$STATE_BRANCH\" >/dev/null 2>&1 || exit 1",
     "find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +",
     "cp \"$ROOT/HOLISTIC.md\" ./HOLISTIC.md",
     "cp \"$ROOT/AGENTS.md\" ./AGENTS.md",
@@ -184,9 +210,9 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     "cp \"$ROOT/GEMINI.md\" ./GEMINI.md",
     "cp \"$ROOT/HISTORY.md\" ./HISTORY.md",
     "cp -R \"$ROOT/.holistic\" ./.holistic",
-    "git add HOLISTIC.md AGENTS.md CLAUDE.md GEMINI.md HISTORY.md .holistic",
-    "git diff --cached --quiet || git commit -m 'chore(holistic): sync portable state' >/dev/null 2>&1",
-    "git push \"$REMOTE\" HEAD:\"$STATE_BRANCH\"",
+    "git -c core.hooksPath=/dev/null add HOLISTIC.md AGENTS.md CLAUDE.md GEMINI.md HISTORY.md .holistic",
+    "git -c core.hooksPath=/dev/null diff --cached --quiet || git -c core.hooksPath=/dev/null commit -m 'chore(holistic): sync portable state' >/dev/null 2>&1",
+    "git -c core.hooksPath=/dev/null push \"$REMOTE\" HEAD:\"$STATE_BRANCH\"",
   ].join("\n");
 
   const runPs1 = [
@@ -317,6 +343,88 @@ function installDaemon(rootDir: string, platform: NodeJS.Platform, homeDir: stri
   }
 }
 
+function readJsonObject(filePath: string): Record<string, unknown> {
+  if (!fs.existsSync(filePath)) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8")) as Record<string, unknown>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeClaudeDesktopMcpConfig(rootDir: string, platform: NodeJS.Platform, homeDir: string): string {
+  const configPath = mcpConfigFile(platform, homeDir);
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+
+  const runtime = runtimeEntryScript("cli");
+  const existing = readJsonObject(configPath);
+  const existingServers = existing.mcpServers && typeof existing.mcpServers === "object"
+    ? existing.mcpServers as Record<string, unknown>
+    : {};
+
+  const next = {
+    ...existing,
+    mcpServers: {
+      ...existingServers,
+      holistic: {
+        command: process.execPath,
+        args: [
+          ...(runtime.useStripTypes ? ["--experimental-strip-types"] : []),
+          runtime.scriptPath,
+          "serve",
+        ],
+        env: {
+          HOLISTIC_REPO: rootDir,
+        },
+      },
+    },
+  };
+
+  fs.writeFileSync(configPath, JSON.stringify(next, null, 2) + "\n", "utf8");
+  return configPath;
+}
+
+function verifyBootstrapSetup(rootDir: string, result: InitResult, platform: NodeJS.Platform, homeDir: string, configureMcp: boolean): { checks: string[]; mcpConfigFile: string | null } {
+  const checks: string[] = [];
+
+  for (const hook of result.gitHooks) {
+    const hookPath = path.join(rootDir, ".git", "hooks", hook);
+    if (!fs.existsSync(hookPath)) {
+      throw new Error(`Expected git hook was not installed: ${hook}`);
+    }
+  }
+  checks.push("git-hooks");
+
+  let configuredMcpPath: string | null = null;
+  if (configureMcp) {
+    configuredMcpPath = mcpConfigFile(platform, homeDir);
+    const config = readJsonObject(configuredMcpPath);
+    const mcpServers = config.mcpServers && typeof config.mcpServers === "object"
+      ? config.mcpServers as Record<string, unknown>
+      : {};
+    if (!("holistic" in mcpServers)) {
+      throw new Error("Expected Claude Desktop MCP configuration for Holistic.");
+    }
+    checks.push("mcp-config");
+  }
+
+  if (result.installed) {
+    if (!result.startupTarget || !fs.existsSync(result.startupTarget)) {
+      throw new Error("Expected daemon startup target to exist after bootstrap.");
+    }
+    checks.push("daemon");
+  }
+
+  return {
+    checks,
+    mcpConfigFile: configuredMcpPath,
+  };
+}
+
 export function initializeHolistic(rootDir: string, options: InitOptions = {}): InitResult {
   const { state, paths } = loadState(rootDir);
   persist(rootDir, state, paths);
@@ -357,5 +465,31 @@ export function initializeHolistic(rootDir: string, options: InitOptions = {}): 
     startupTarget,
     systemDir: systemDir(paths),
     configFile: configFile(paths),
+  };
+}
+
+export function bootstrapHolistic(rootDir: string, options: BootstrapOptions = {}): BootstrapResult {
+  const platform = options.platform ?? process.platform;
+  const homeDir = options.homeDir ?? os.homedir();
+  const configureMcp = options.configureMcp !== false;
+
+  const initResult = initializeHolistic(rootDir, {
+    ...options,
+    platform,
+    homeDir,
+    installDaemon: options.installDaemon !== false,
+    installGitHooks: options.installGitHooks !== false,
+  });
+
+  const configuredMcpPath = configureMcp
+    ? writeClaudeDesktopMcpConfig(rootDir, platform, homeDir)
+    : null;
+  const verification = verifyBootstrapSetup(rootDir, initResult, platform, homeDir, configureMcp);
+
+  return {
+    ...initResult,
+    mcpConfigured: configureMcp,
+    mcpConfigFile: configuredMcpPath ?? verification.mcpConfigFile,
+    checks: verification.checks,
   };
 }

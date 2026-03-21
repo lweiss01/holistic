@@ -39,6 +39,13 @@ export function installGitHooks(rootDir: string, gitDir: string | null, command:
     "--reason",
     "post-commit",
   ]);
+  const branchSwitchCommand = commandLine(command, [
+    "checkpoint",
+    "--reason",
+    "branch-switch",
+    "--status",
+    "Detected branch switch; review the new branch context.",
+  ]);
   const statusCommand = commandLine(command, ["status"]);
 
   const postCommit = `#!/usr/bin/env sh
@@ -49,6 +56,18 @@ cd '${shellQuote(rootDir)}' || exit 0
 if [ -f "$PWD/.holistic/state.json" ]; then
   COMMIT_SUBJECT=$(git -C "$PWD" log -1 --pretty=%s 2>/dev/null || echo post-commit)
   ${checkpointCommand} --status "Committed: $COMMIT_SUBJECT" >/dev/null 2>&1 || true
+fi
+
+exit 0
+`;
+
+  const postCheckout = `#!/usr/bin/env sh
+# Holistic continuity checkpoint after branch switch
+
+cd '${shellQuote(rootDir)}' || exit 0
+
+if [ -f "$PWD/.holistic/state.json" ] && [ "$3" = "1" ]; then
+  ${branchSwitchCommand} >/dev/null 2>&1 || true
 fi
 
 exit 0
@@ -73,10 +92,11 @@ exit 0
 `;
 
   fs.writeFileSync(path.join(hooksDir, "post-commit"), postCommit, { encoding: "utf8", mode: 0o755 });
+  fs.writeFileSync(path.join(hooksDir, "post-checkout"), postCheckout, { encoding: "utf8", mode: 0o755 });
   fs.writeFileSync(path.join(hooksDir, "pre-push"), prePush, { encoding: "utf8", mode: 0o755 });
 
   return {
     installed: true,
-    hooks: ["post-commit", "pre-push"],
+    hooks: ["post-commit", "post-checkout", "pre-push"],
   };
 }

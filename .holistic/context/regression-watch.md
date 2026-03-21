@@ -2,6 +2,37 @@
 
 Use this before changing existing behavior. It is the short list of fixes and outcomes that future agents should preserve.
 
+## Capture work and prepare a clean handoff.
+
+- Goal: Capture work and prepare a clean handoff.
+- Durable changes:
+- Marked Phase 1 complete and Phase 1.5 active with explicit phase tracking
+- Sent visible Holistic resume notifications when MCP clients connect
+- Auto-inferred sessions from pending work, handoffs, recent files, or recent commits
+- Clustered passive repo activity before checkpointing to reduce polling noise
+- Added explicit post-checkout branch-switch continuity checkpoints
+- Added idle and work-milestone auto-drafted handoff generation
+- Made holistic handoff draft-aware with a non-interactive --draft accept path
+- Added conservative auto-sync planning and trigger hooks for checkpoint and handoff flows
+- Hardened generated sync scripts to disable git hooks in state-branch worktrees
+- Added holistic bootstrap command for one-step machine setup
+- Configured Claude Desktop MCP to use the repo-local Holistic CLI entrypoint with HOLISTIC_REPO
+- Verified bootstrap idempotence and preservation of existing MCP server entries
+- Why this matters:
+- Phase 1.5 work is now beginning from an explicit tracked phase state
+- Phase 1.5 now covers implicit resume, auto-session inference, and smarter passive checkpoint triggers.
+- Phase 1.5 now covers implicit resume, auto-session inference, smarter passive checkpoints, auto-drafted handoffs, and conservative auto-sync triggers.
+- Phase 1.5 now includes an end-to-end bootstrap path so new machines can be prepared with much less ceremony.
+- Do not regress:
+- Keep the MCP integration thin and avoid adding startup ceremony while improving continuity
+- Passive checkpoints should ignore Holistic's own portable state files and avoid re-checkpointing on bookkeeping churn.
+- Branch switches should produce a single explicit continuity checkpoint instead of repeated daemon noise.
+- Auto-drafted handoffs should only refresh when the source session meaningfully changes and should never finalize a session without explicit handoff confirmation.
+- Auto-sync must stay hook-safe so syncing portable state cannot recursively create more Holistic activity.
+- Bootstrap must remain idempotent and should never clobber unrelated Claude Desktop MCP server entries.
+- Repo-local MCP bootstrap must keep pointing at the current Holistic CLI entrypoint so development setups work without a global install.
+- Source session: session-2026-03-21T01-01-43-885Z
+
 ## Session Two
 
 - Goal: Session two goal
