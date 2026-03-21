@@ -13,15 +13,19 @@ Use this before changing existing behavior. It is the short list of fixes and ou
 - Documented that serve prints its startup banner to stderr to keep MCP stdout clean
 - Updated sync-state.ps1 generator to detect whether the remote state branch exists before switching
 - Added regression coverage for first-run Windows state-branch sync script generation
+- Replaced raw git push holistic/state hint with generated sync helper guidance
+- Added regression coverage for helper-based pre-push sync messaging
 - Why this matters:
 - CLI startup flow now shows Holistic branding more consistently in PowerShell
 - CLI startup docs now match observed PowerShell behavior
 - Fresh Holistic repos on Windows can create and push the dedicated holistic/state branch on first sync
+- Holistic now points users at the supported cross-platform sync path instead of a misleading raw branch push
 - Do not regress:
 - Do not print decorative output to stdout in MCP server mode
 - Keep resume/start banner changes out of MCP tool responses
 - Keep README startup command descriptions aligned with actual CLI output
 - Do not assume the remote holistic/state branch already exists when generating Windows sync helpers
+- Do not reintroduce raw git push origin holistic/state as the primary user hint for syncing Holistic state
 - Source session: session-2026-03-21T19-14-45-428Z
 
 ## Capture work and prepare a clean handoff.

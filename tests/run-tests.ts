@@ -607,7 +607,9 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.match(postCheckout, /'checkpoint' '--reason' 'branch-switch'/);
       assert.match(postCheckout, /\[ "\$3" = "1" \]/);
       assert.match(prePush, /Holistic Status:/);
-      assert.match(prePush, /git push origin holistic\/state/);
+      assert.match(prePush, /Run the generated sync helper to update Holistic state:/);
+      assert.match(prePush, /sync-state\.ps1/);
+      assert.match(prePush, /sync-state\.sh/);
       assert.match(syncPs1, /core\.hooksPath=NUL/);
       assert.match(syncPs1, /PSNativeCommandUseErrorActionPreference/);
       assert.match(syncPs1, /ls-remote --quiet --exit-code --heads \$remote \$stateBranch/);

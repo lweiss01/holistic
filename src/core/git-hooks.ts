@@ -83,8 +83,9 @@ if [ -f "$PWD/.holistic/state.json" ]; then
   echo "Holistic Status:"
   ${statusCommand} || true
   echo ""
-  echo "Push to sync Holistic state:"
-  echo "  git push origin holistic/state"
+  echo "Run the generated sync helper to update Holistic state:"
+  echo "  Windows (PowerShell): powershell -NoProfile -ExecutionPolicy Bypass -File ./.holistic/system/sync-state.ps1"
+  echo "  macOS/Linux: ./.holistic/system/sync-state.sh"
   echo ""
 fi
 
