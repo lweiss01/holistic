@@ -59,7 +59,7 @@ This milestone is complete only when all are true:
 - [x] **S01: Automatic Startup Notifications** `risk:high` `depends:[]`
   > After this: MCP clients auto-greet with recap when conversation starts; non-MCP clients respond to `/holistic` with same pattern; greeting includes last handoff summary + 3-question prompt
 
-- [ ] **S01.5: ASCII Splash Screen & Branding** `risk:low` `depends:[S01]`
+- [x] **S01.5: ASCII Splash Screen & Branding** `risk:low` `depends:[S01]`
   > After this: CLI commands show branded ASCII splash on init/bootstrap; README has visual identity; clear value proposition visible in repo
 
 - [ ] **S02: Proactive Automatic Capture** `risk:medium` `depends:[S01]`
@@ -73,6 +73,18 @@ This milestone is complete only when all are true:
 
 - [ ] **S05: Documentation & Tool Parity** `risk:low` `depends:[S01,S02]`
   > After this: README tool comparison table shows which tools support MCP auto vs require `/holistic` manual; AGENTS.md documents `/holistic` pattern with clear instructions; all slash commands have helper text visible to agents
+
+- [ ] **S06: Real-World Dogfooding** `risk:medium` `depends:[S02,S03]`
+  > After this: Holistic validated in 2-3 different repos (newsthread Android app, others); rough edges identified and documented; confidence that "set and forget" works in practice with real workflows
+
+- [ ] **S07: Technical Polish & Cross-Platform** `risk:low` `depends:[]`
+  > After this: CRLF warnings fixed with proper .gitattributes; npm pack/install tested on Mac/Windows/Linux; error messages are helpful and actionable; bootstrap experience validated on clean machines
+
+- [ ] **S08: npm Publishing Preparation** `risk:low` `depends:[S06,S07]`
+  > After this: CHANGELOG.md exists; package.json has proper keywords; README is npm-ready; global install verified; ready for npm publish as 0.2.0
+
+- [ ] **S09: Launch Communications** `risk:low` `depends:[S08]`
+  > After this: LinkedIn post drafted; demo GIF/video ready; GitHub README has clear value prop; support plan ready for early adopters; beta feedback mechanism in place
 
 ## Boundary Map
 
