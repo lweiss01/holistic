@@ -1,5 +1,17 @@
 # PROJECT
 
+## Origin Story
+
+**The problem that spawned Holistic:**
+
+Development on NewsThread (an Android news aggregation app) was stalling due to context loss between AI agent sessions. Switching agents meant re-explaining the architecture. Coming back after a break meant starting over. Regressions kept coming back because new agents didn't know what had already been fixed.
+
+**The realization:** This isn't just a NewsThread problem - it's an AI-assisted development problem. Every developer using Claude/Codex/Cursor/etc hits the same wall.
+
+**The decision:** Pause NewsThread to build the tool that makes AI-assisted development actually sustainable across sessions, agents, and time.
+
+**The validation:** If Holistic works well enough to unblock NewsThread, it's worth sharing with other developers.
+
 ## What This Is
 
 Holistic is a cross-agent session continuity tool. It makes the repo itself the source of truth for session history, handoffs, and regression memory so you can switch between AI assistants (Claude, Codex, Gemini, etc.) without re-explaining the project every time.

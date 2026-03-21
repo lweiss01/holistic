@@ -1,5 +1,11 @@
 # Session Protocol
 
+## Product North Star
+
+Open repo, start working, Holistic quietly keeps continuity alive.
+
+The protocol below is the current operating model, not the final ideal. When improving Holistic, prefer changes that make more of this protocol happen automatically without weakening durable continuity.
+
 ## Startup
 
 1. Read `HOLISTIC.md`.

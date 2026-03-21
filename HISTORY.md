@@ -447,12 +447,12 @@ _Append-only log of every Holistic session. Newest entries at the bottom._
 
 ---
 
-## Session `session-2026-03-21T18-32-48-379Z` | 2026-03-21T19:12:14.816Z | unknown
+## Session `session-2026-03-21T18-32-48-379Z` | 2026-03-21T19:14:27.403Z | unknown
 
 **Branch:** `main`  
-**Status:** active  
+**Status:** handed_off  
 **Goal:** Capture work and prepare a clean handoff.  
-**Checkpoints:** 14
+**Checkpoints:** 15
 
 **Work done:**
 ✅ Researched MCP SDK notification primitives
@@ -499,6 +499,10 @@ _Append-only log of every Holistic session. Newest entries at the bottom._
 ✅ S01 Automatic Startup Notifications complete and verified
 ✅ S01.5 ASCII Splash Screen complete and verified
 ✅ All 28 tests passing
+✅ S01 Automatic Startup Notifications: complete and shipped
+✅ S01.5 ASCII Splash Screen: complete and shipped
+✅ Fixed .gitignore and README documentation about .holistic/system/
+✅ All changes committed and pushed to GitHub
 
 **Recommended next steps:**
 - User verification: T07 (MCP auto-greeting in Claude Desktop)
@@ -507,10 +511,26 @@ _Append-only log of every Holistic session. Newest entries at the bottom._
 - Consider adding ASCII splash screen slice
 - Execute S01.5/T01: Create splash screen module
 - Consider S02: Proactive Automatic Capture or other M001 slices
+- Continue with M001/S02: Proactive Automatic Capture
+- Or work on M001/S03: Automatic Memory Hygiene
 
 **Files changed:**
 - `.beads/daemon.log`
 - `.bg-shell/manifest.json`
-- `.gitignore`
-- `README.md`
+- `.holistic/state.json`
+- `.holistic/state.json.lock`
+
+---
+
+## Session `session-2026-03-21T19-14-45-428Z` | 2026-03-21T19:20:21.635Z | unknown
+
+**Branch:** `main`  
+**Status:** active  
+**Goal:** Capture work and prepare a clean handoff.  
+**Checkpoints:** 2
+
+**Files changed:**
+- `.beads/daemon.log`
+- `.bg-shell/manifest.json`
+- `.gsd/milestones/M001/M001-ROADMAP.md`
 

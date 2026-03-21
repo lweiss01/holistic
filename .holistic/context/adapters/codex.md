@@ -1,5 +1,11 @@
 # Codex Adapter
 
+## Product North Star
+
+Open repo, start working, Holistic quietly keeps continuity alive.
+
+Use this adapter to move toward that outcome: less manual setup, less re-briefing, and more continuity preserved by default.
+
 ## Startup Contract
 
 1. Read `HOLISTIC.md`.
