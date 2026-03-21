@@ -2,6 +2,35 @@
 
 This archive is the durable memory of what agents changed, why they changed it, and what the project impact was. Review it before revisiting a feature area.
 
+## Capture work and prepare a clean handoff.
+
+- Session: session-2026-03-21T04-06-41-194Z
+- Agent: codex
+- Status: handed_off
+- When: 2026-03-21T04:08:45.340Z
+- Goal: Capture work and prepare a clean handoff.
+- Summary: Handing off with the workflow-neutral refactor now clearly identified as the next cleanup priority.
+- Work done:
+- Reviewed the role of phase tracking against the product vision and identified it as workflow-management creep
+- Aligned on an optional work-context direction so Holistic can recognize systems like GSD2 or beads without becoming one
+- Added workflow-neutral guiding principles to the roadmap guardrails
+- Updated generated zero-touch guidance to reinforce optional workflow-context references over first-class planning models
+- Recorded checkpoints clarifying that Holistic should stay focused on session continuity instead of project-planning structure
+- Added guiding principles that Holistic should recognize workflow systems without becoming one
+- Updated generated zero-touch guidance to reinforce lightweight workflow-context references over first-class planning models
+- Why it mattered:
+- Holistic stays focused on session continuity instead of hard-coding one planning methodology into the product.
+- Future integrations can attach workflow metadata without making phases, slices, or tickets first-class Holistic concepts.
+- The repo now records anti-bloat guidance in both roadmap and generated operating docs.
+- The product direction is now explicitly guarded against planning-model bloat and workflow lock-in.
+- Regression risks:
+- Do not let Holistic drift into owning project-planning structure such as phases or slices.
+- Prefer inferred or explicit workflow context references over first-class workflow-management commands.
+- Do not let future continuity features hard-code phases, slices, or other methodology-specific planning structures into the core model.
+- References:
+- docs/roadmap/README.md
+- .holistic/context/zero-touch.md
+
 ## Plan Phase 2 Team/Org Mode
 
 - Session: session-2026-03-21T03-14-16-945Z

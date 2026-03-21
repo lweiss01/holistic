@@ -6,6 +6,13 @@ This directory contains detailed implementation plans for Holistic features orga
 
 Holistic should stay focused on one job: durable cross-agent context continuity anchored in the repo.
 
+## Guiding Principles
+
+- Holistic should recognize workflow systems, not become one.
+- Holistic owns session continuity, not project planning structure.
+- Prefer lightweight references to external workflow context over first-class phases, slices, tickets, or other methodology-specific models.
+- If a feature adds ceremony, workflow lock-in, or planning bloat without strengthening continuity, it probably does not belong in Holistic.
+
 ## Product North Star
 
 The real north star for Holistic is:

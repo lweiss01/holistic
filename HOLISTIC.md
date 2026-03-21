@@ -35,11 +35,11 @@ That is the intended end state for this project. Prefer changes that reduce cere
 
 **Resume from last handoff**
 
-Start Phase 2 Team/Org Mode planning
+Remove first-class phase tracking from Holistic core state, docs, and commands
 
 ## Latest Work Status
 
-Completed Phase 1.5 validation, marked the phase complete in repo, and transitioned Holistic to Phase 2 planning.
+Captured the workflow-neutral direction for Holistic, updated the guiding principles, and queued the phase-tracking cleanup work.
 
 ## What Was Tried
 
@@ -47,7 +47,7 @@ Completed Phase 1.5 validation, marked the phase complete in repo, and transitio
 
 ## What To Try Next
 
-- Start Phase 2 Team/Org Mode planning
+- Remove first-class phase tracking from Holistic core state, docs, and commands
 
 ## Active Plan
 
@@ -67,7 +67,7 @@ Completed Phase 1.5 validation, marked the phase complete in repo, and transitio
 
 ## Blockers
 
-- origin/holistic/state is not yet present on the remote, so end-to-end auto-sync validation remains follow-up work.
+- The phase-tracking commands and state still exist in the codebase and need follow-up cleanup.
 
 ## Changed Files In Current Session
 
@@ -75,11 +75,11 @@ Completed Phase 1.5 validation, marked the phase complete in repo, and transitio
 
 ## Pending Work Queue
 
+- Capture work and prepare a clean handoff.: Remove first-class phase tracking from Holistic core state, docs, and commands
 - Plan Phase 2 Team/Org Mode: Start Phase 2 Team/Org Mode planning
 - Capture work and prepare a clean handoff.: This should be the active next step now
 - Start using Holistic in this repo: Plan Phase 1.5 around implicit resume, auto-session inference, smarter passive checkpoints, auto-drafted handoffs, automatic sync, and machine bootstrap
 - Session Three: Review HOLISTIC.md and decide the next concrete step.
-- Session Two: Start third session
 
 ## Long-Term Memory
 
@@ -106,6 +106,6 @@ Completed Phase 1.5 validation, marked the phase complete in repo, and transitio
 
 ## Historical Memory
 
-- Last updated: 2026-03-21T03:35:48.598Z
-- Last handoff: Completed Phase 1.5 validation, marked the phase complete in repo, and transitioned Holistic to Phase 2 planning.
-- Pending sessions remembered: 9
+- Last updated: 2026-03-21T04:07:01.374Z
+- Last handoff: Captured the workflow-neutral direction for Holistic, updated the guiding principles, and queued the phase-tracking cleanup work.
+- Pending sessions remembered: 10

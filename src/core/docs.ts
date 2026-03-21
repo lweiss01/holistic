@@ -601,6 +601,8 @@ Zero-touch architecture exists to close the gap between the current protocol and
 - Treat the dedicated Holistic state branch as the clean cross-device distribution channel for that memory.
 - Add the Holistic daemon as the passive capture layer on devices where you want unattended local capture.
 - Add app-specific integrations when a tool exposes startup hooks or slash-command automation.
+- Holistic should recognize workflow systems, not become one.
+- Prefer lightweight workflow context references over baking phases, slices, or other planning structures into the core product.
 - Prefer workflow-disappearance improvements over adding more visible user ceremony.
 
 Project: ${state.projectName}

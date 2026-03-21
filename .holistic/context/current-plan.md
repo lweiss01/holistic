@@ -8,15 +8,15 @@ Latest completed: Phase 1.5 - Workflow Disappearance
 
 ## Goal
 
-Start Phase 2 Team/Org Mode planning
+Remove first-class phase tracking from Holistic core state, docs, and commands
 
 ## Latest Status
 
-Completed Phase 1.5 validation, marked the phase complete in repo, and transitioned Holistic to Phase 2 planning.
+Captured the workflow-neutral direction for Holistic, updated the guiding principles, and queued the phase-tracking cleanup work.
 
 ## Planned Next Steps
 
-- Start Phase 2 Team/Org Mode planning
+- Remove first-class phase tracking from Holistic core state, docs, and commands
 
 ## Project Impact
 

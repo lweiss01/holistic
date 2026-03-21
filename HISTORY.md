@@ -335,3 +335,29 @@ _Append-only log of every Holistic session. Newest entries at the bottom._
 - Choose the first contributor-tracking slice
 - Commit and push the Phase 1.5 workflow disappearance implementation
 
+---
+
+## Session `session-2026-03-21T04-06-41-194Z` | 2026-03-21T04:08:45.340Z | codex
+
+**Branch:** `main`  
+**Status:** handed_off  
+**Goal:** Capture work and prepare a clean handoff.  
+**Checkpoints:** 2
+
+**Work done:**
+✅ Reviewed the role of phase tracking against the product vision and identified it as workflow-management creep
+✅ Aligned on an optional work-context direction so Holistic can recognize systems like GSD2 or beads without becoming one
+✅ Added workflow-neutral guiding principles to the roadmap guardrails
+✅ Updated generated zero-touch guidance to reinforce optional workflow-context references over first-class planning models
+✅ Recorded checkpoints clarifying that Holistic should stay focused on session continuity instead of project-planning structure
+✅ Added guiding principles that Holistic should recognize workflow systems without becoming one
+✅ Updated generated zero-touch guidance to reinforce lightweight workflow-context references over first-class planning models
+
+**Recommended next steps:**
+- Remove first-class phase tracking from Holistic core state, docs, and commands
+- Design optional workContext metadata and detector strategy for external workflow systems such as GSD2 or beads
+- Keep current goal, latest status, next steps, and references derived from checkpoints and handoffs wherever possible
+- Design optional workContext metadata that can reference external workflow systems without owning them
+- Add a guiding principle that Holistic should recognize workflow systems, not become one
+- Design an optional workContext model and detector strategy for external workflow systems
+
