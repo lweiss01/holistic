@@ -38,6 +38,8 @@ Every agent working in this repo should:
 
 - `holistic checkpoint --reason "<why>"`
 - `holistic checkpoint --fixed "<bug>" --fix-files "<file>" --fix-risk "<what would reintroduce it>"`
+- `holistic set-phase --phase "<id>" --name "<name>" --goal "<goal>"`
+- `holistic complete-phase --phase "<id>" --next-phase "<id>" --next-name "<name>" --next-goal "<goal>"`
 - `holistic handoff`
 - `holistic start-new --goal "<goal>"`
 - `holistic watch`

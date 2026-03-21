@@ -24,6 +24,13 @@ Open repo, start working, Holistic quietly keeps continuity alive.
 
 That is the intended end state for this project. Prefer changes that reduce ceremony, keep continuity durable, and make Holistic fade further into the background of normal work.
 
+## Phase Tracking
+
+- Current phase: Phase 1.5 - Workflow Disappearance
+- Phase goal: Implement Phase 1.5 workflow disappearance
+- Phase started: 2026-03-21T00:59:53.158Z
+- Most recently completed phase: Phase 1 - Feature Expansion (2026-03-21T00:59:53.158Z)
+
 ## Current Objective
 
 **Resume from last handoff**
@@ -99,6 +106,6 @@ Merged holistic2 UX improvements into holistic: root-level CLAUDE.md/GEMINI.md/H
 
 ## Historical Memory
 
-- Last updated: 2026-03-20T22:28:39.870Z
+- Last updated: 2026-03-21T00:59:53.157Z
 - Last handoff: Merged holistic2 UX improvements into holistic: root-level CLAUDE.md/GEMINI.md/HISTORY.md, --fixed regression flags, holistic start alias, AGENTS.md auto-start comment, README overhaul. Deleted holistic2.
 - Pending sessions remembered: 7

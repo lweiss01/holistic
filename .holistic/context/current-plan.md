@@ -1,5 +1,11 @@
 # Current Plan
 
+## Phase
+
+Current: Phase 1.5 - Workflow Disappearance
+
+Latest completed: Phase 1 - Feature Expansion
+
 ## Goal
 
 Plan Phase 1.5 around implicit resume, auto-session inference, smarter passive checkpoints, auto-drafted handoffs, automatic sync, and machine bootstrap

@@ -2,34 +2,219 @@
 
 This archive is the durable memory of what agents changed, why they changed it, and what the project impact was. Review it before revisiting a feature area.
 
-## Start using Holistic in this repo
+## Session Three
 
-- Session: session-2026-03-20T22-19-30-578Z
+- Session: session-2026-03-20T22-07-24-946Z
 - Agent: unknown
-- Status: handed_off
-- When: 2026-03-20T23:39:52.979Z
-- Goal: Phase 1 rollout and real repo usage
-- Summary: All merged to main. Repo clean and ready.
+- Status: superseded
+- When: 2026-03-20T22:19:30.577Z
+- Goal: Session three goal
+- Summary: Session started.
 - Work done:
-- Refocused the roadmap around workflow disappearance instead of extra ceremony
-- Generate CLAUDE.md and GEMINI.md at repo root on init
-- Generate HISTORY.md at repo root
-- Add --fixed/--fix-files/--fix-risk flags with Known Fixes block
-- Add holistic start alias for holistic resume
-- Update AGENTS.md template with HTML auto-start comment
-- Overhaul README with emojis, compatibility table, session dialogue
-- Update sync scripts to include new root files
-- Merge to main, delete holistic2
+- No completed work recorded.
 - Why it mattered:
-- The roadmap now prioritizes low-touch continuity over surface-area growth
-- Future work should make resume, checkpoint, handoff, and sync fade further into the background
-- Agents now auto-discover protocol via root-level files without manual config
-- Regression protection is first-class UX with --fixed flag
+- No impact notes recorded.
 - Regression risks:
-- Do not add workflow steps that increase startup ceremony unless they clearly improve durable continuity
-- Avoid roadmap drift into broad platform features that do not help Holistic quietly preserve continuity
+- No specific regression risks recorded.
 - References:
 - No references recorded.
+
+## Session Two
+
+- Session: session-2026-03-20T22-07-23-761Z
+- Agent: unknown
+- Status: superseded
+- When: 2026-03-20T22:07:24.945Z
+- Goal: Session two goal
+- Summary: Completed session two
+- Work done:
+- Added beta
+- Why it mattered:
+- No impact notes recorded.
+- Regression risks:
+- Keep beta behavior
+- References:
+- No references recorded.
+
+## Session One
+
+- Session: session-2026-03-20T22-07-22-579Z
+- Agent: unknown
+- Status: superseded
+- When: 2026-03-20T22:07:23.760Z
+- Goal: Session one goal
+- Summary: Completed session one
+- Work done:
+- Added alpha
+- Why it mattered:
+- No impact notes recorded.
+- Regression risks:
+- Keep alpha behavior
+- References:
+- No references recorded.
+
+## Test branch fallback fix
+
+- Session: session-2026-03-20T02-39-52-257Z
+- Agent: codex
+- Status: superseded
+- When: 2026-03-20T22:07:22.578Z
+- Goal: Test branch fallback fix
+- Summary: Refocused Phases 3 and 4 around durable cross-agent context continuity instead of broad growth or platform expansion
+- Work done:
+- Changed getBranchName() fallback from 'master' to 'unknown'
+- Changed createSession() branch init from 'master' to empty string
+- All tests passing
+- Created 22 beads issues from roadmap
+- Closed holistic-imq after successful fix
+- Fixed branch fallback ambiguity (Task 1a)
+- Expanded AgentName union with 5 new agents (Task 1b)
+- Added state migration skeleton (Task 1c)
+- Consolidated readline usage (Task 1d)
+- Prepared package.json and .npmignore for publishing
+- Fixed branch fallback ambiguity (holistic-imq)
+- Expanded AgentName union to 8 agents (holistic-nbr)
+- Added state migration skeleton (holistic-64o)
+- Consolidated readline usage (holistic-eh8)
+- Built TypeScript compilation system (holistic-yn3)
+- Created 22 beads issues for Phases 0-4
+- Added Windows-compatible build script
+- Added resume reminder to Claude adapter
+- Replaced Unix-only clean script with a Node-based clean script
+- Replaced shell-based smoke test with a cross-platform Node smoke test
+- Verified npm pack contents with a workspace-local npm cache
+- Verified global install from holistic-0.1.0.tgz and smoke-tested the installed CLI
+- Updated README install instructions to match the validated packaged flow
+- Added a product focus guardrail to the roadmap
+- Reframed Phase 3 as core workflow tightening
+- Reframed Phase 4 as focused integrations with strict scope
+- Why it mattered:
+- Failed git reads now visibly different from actual 'master' branch
+- Phase 0 foundation fixes prevent embarrassing bugs when users arrive
+- 4/5 critical bugs fixed - only npm publishing remains
+- Foundation prevents embarrassing bugs when users arrive
+- All 8 agent types now supported with adapters
+- Schema changes have safe migration path
+- Windows users can now build successfully
+- Phase 0 packaging and install validation now succeeds on Windows
+- prepublishOnly now runs a real smoke test before publish
+- The roadmap now protects Holistic's niche instead of drifting toward an everything tool
+- Later-phase planning is now constrained to features that improve durable context continuity
+- Regression risks:
+- Do not use 'master' as a fallback value anywhere - use 'unknown' for failures
+- Node.js --experimental-strip-types doesn't work in node_modules, must build to JS
+- Always test npm install -g locally before publishing
+- Never skip Phase 0 on future projects - foundation matters
+- Keep package scripts cross-platform; do not reintroduce Unix-only rm or shell redirection
+- Keep README install instructions aligned with the packaged tarball flow
+- Do not add late-phase roadmap work that broadens Holistic beyond durable cross-agent context continuity without a clear continuity payoff
+- References:
+- holistic-yn3
+- holistic-imq
+- holistic-nbr
+- holistic-64o
+- holistic-eh8
+
+## Structured metadata and roadmap planning
+
+- Session: session-2026-03-20T01-56-30-503Z
+- Agent: claude
+- Status: superseded
+- When: 2026-03-20T02:39:52.256Z
+- Goal: Enhance history/regression docs with structured metadata and create implementation plans for daemon, sync, integrations, and visualization features
+- Summary: Roadmap now phase-based: 0=Hardening→1=Features→2=Team→3=Growth→4=IDE
+- Work done:
+- Added Severity, OutcomeStatus, AreaTag types
+- Added ValidationItem, ImpactNote, RegressionRisk structured types
+- Extended SessionRecord with optional structured metadata fields
+- Updated checkpoint and handoff inputs to support structured metadata
+- Enhanced docs.ts with structured rendering functions
+- Updated project history and regression watch rendering
+- Implemented structured metadata types (Severity, OutcomeStatus, AreaTag)
+- Created ValidationItem, ImpactNote, RegressionRisk structured types
+- Extended SessionRecord with backward-compatible optional metadata fields
+- Enhanced doc rendering to show structured metadata when available
+- Created comprehensive structured-metadata.md guide with examples
+- Created detailed roadmap for daemon passive capture (02)
+- Created detailed roadmap for cross-device sync (03)
+- Created detailed roadmap for agent integrations (04)
+- Created detailed roadmap for visualization & search (05)
+- Created roadmap README with implementation order and dependencies
+- Created Phase 0: Code Hardening roadmap (CRITICAL - do first)
+- Created Phase 1: Feature Expansion roadmap (MCP, diff, status, hooks)
+- Identified 5 critical foundation bugs to fix before any marketing
+- Restructured roadmap with clear phase dependencies
+- Marked original roadmaps 02-05 as reference material
+- Why it mattered:
+- History and regression docs can now show severity, affected areas, outcome status, and validation checklists
+- Backward compatible - existing sessions continue working with plain text
+- History and regression docs now support rich metadata (severity, areas, outcomes, validation checklists)
+- Roadmaps provide 2-3 session implementation plans for each major feature
+- Clear path forward: daemon+sync (foundation), integrations (adoption), visualization (scale)
+- Backward compatible - existing sessions work unchanged, new sessions can use structured metadata
+- Phase 0 prevents embarrassing bugs when new users arrive
+- MCP server (Phase 1) enables invisible capture in agents - most powerful adoption unlock
+- Clear path: fix foundation → build features → enable teams → grow audience → IDE extensions
+- Regression risks:
+- Do not remove legacy impactNotes and regressionRisks string arrays - needed for backward compatibility
+- Do not remove legacy impactNotes/regressionRisks string arrays - backward compatibility
+- Rendering logic must check for structured metadata first, gracefully fall back to plain text
+- Do NOT skip Phase 0 - building on shaky foundation wastes time
+- Do NOT publish features before fixing branch fallback ambiguity
+- Do NOT add new agent names without expanding AgentName union first
+- References:
+- docs/structured-metadata.md
+- docs/roadmap/README.md
+- docs/roadmap/02-daemon-passive-capture.md
+- docs/roadmap/03-cross-device-sync.md
+- docs/roadmap/04-agent-integrations.md
+- docs/roadmap/05-visualization-search.md
+- src/core/types.ts
+- src/core/docs.ts
+- src/core/state.ts
+- docs/roadmap/00-code-hardening.md
+- docs/roadmap/01-feature-expansion.md
+
+## Finalize Holistic v1 implementation
+
+- Session: session-2026-03-20T00-07-50-104Z
+- Agent: codex
+- Status: handed_off
+- When: 2026-03-20T00:08:05.321Z
+- Goal: Review the generated history/regression docs and decide whether to add more structured fields like severity, affected areas, or validation notes.
+- Summary: Clarified that hholistic is the user's local Beeftext shortcut on one laptop; the portable part is the startup prompt text, not the trigger itself.
+- Work done:
+- Recorded that the startup prompt is portable across tools, while the hholistic trigger is just a local text-expander shortcut.
+- Updated the Holistic handoff to distinguish the portable startup prompt from the local hholistic trigger.
+- Why it mattered:
+- The handoff now distinguishes between portable prompt content and a machine-specific hotkey trigger, which should reduce confusion in future sessions.
+- Future sessions now have a clearer explanation that the prompt content is portable but the hotkey trigger is machine-specific.
+- Regression risks:
+- Do not imply that hholistic or any specific hotkey name is portable across devices or IDEs.
+- References:
+- HOLISTIC.md
+- .holistic/context/zero-touch.md
+
+## Finalize Holistic v1 implementation
+
+- Session: session-2026-03-20T00-04-53-218Z
+- Agent: codex
+- Status: handed_off
+- When: 2026-03-20T00:05:25.833Z
+- Goal: Review the generated history/regression docs and decide whether to add more structured fields like severity, affected areas, or validation notes.
+- Summary: Added a platform-agnostic startup prompt pattern the user can bind to a hotkey so future agents reliably read the Holistic instructions before working.
+- Work done:
+- Provided a reusable hotkey-safe startup prompt for repo resume across IDEs and agent tools.
+- Provided a reusable startup prompt the user can bind to a hotkey across IDEs and agent tools.
+- Updated the Holistic session state so the hotkey guidance is preserved in the handoff docs.
+- Why it mattered:
+- The next session can start with a consistent agent-agnostic startup prompt instead of relying on tool-specific behavior or memory.
+- Regression risks:
+- Do not assume repo initialization alone will make every IDE agent read the Holistic docs automatically on open.
+- References:
+- HOLISTIC.md
+- .holistic/context/zero-touch.md
+- .holistic/context/adapters/antigravity.md
 
 ## Finalize Holistic v1 implementation
 
