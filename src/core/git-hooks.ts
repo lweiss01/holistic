@@ -5,6 +5,9 @@ export interface HookCommand {
   nodePath: string;
   scriptPath: string;
   useStripTypes: boolean;
+  stateFilePath: string;
+  syncPowerShellPath: string;
+  syncShellPath: string;
 }
 
 export interface GitHookInstallResult {
@@ -53,7 +56,7 @@ export function installGitHooks(rootDir: string, gitDir: string | null, command:
 
 cd '${shellQuote(rootDir)}' || exit 0
 
-if [ -f "$PWD/.holistic/state.json" ]; then
+if [ -f "$PWD/${shellQuote(command.stateFilePath)}" ]; then
   COMMIT_SUBJECT=$(git -C "$PWD" log -1 --pretty=%s 2>/dev/null || echo post-commit)
   ${checkpointCommand} --status "Committed: $COMMIT_SUBJECT" >/dev/null 2>&1 || true
 fi
@@ -66,7 +69,7 @@ exit 0
 
 cd '${shellQuote(rootDir)}' || exit 0
 
-if [ -f "$PWD/.holistic/state.json" ] && [ "$3" = "1" ]; then
+if [ -f "$PWD/${shellQuote(command.stateFilePath)}" ] && [ "$3" = "1" ]; then
   ${branchSwitchCommand} >/dev/null 2>&1 || true
 fi
 
@@ -78,14 +81,14 @@ exit 0
 
 cd '${shellQuote(rootDir)}' || exit 0
 
-if [ -f "$PWD/.holistic/state.json" ]; then
+if [ -f "$PWD/${shellQuote(command.stateFilePath)}" ]; then
   echo ""
   echo "Holistic Status:"
   ${statusCommand} || true
   echo ""
   echo "Run the generated sync helper to update Holistic state:"
-  echo "  Windows (PowerShell): powershell -NoProfile -ExecutionPolicy Bypass -File ./.holistic/system/sync-state.ps1"
-  echo "  macOS/Linux: ./.holistic/system/sync-state.sh"
+  echo "  Windows (PowerShell): powershell -NoProfile -ExecutionPolicy Bypass -File ./${shellQuote(command.syncPowerShellPath)}"
+  echo "  macOS/Linux: ./${shellQuote(command.syncShellPath)}"
   echo ""
 fi
 

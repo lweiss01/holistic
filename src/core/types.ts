@@ -151,11 +151,15 @@ export interface RuntimePaths {
   adaptersDir: string;
   masterDoc: string;
   agentsDoc: string;
+  rootHistoryDoc: string | null;
+  rootClaudeDoc: string | null;
+  rootGeminiDoc: string | null;
   currentPlanDoc: string;
   protocolDoc: string;
   historyDoc: string;
   regressionDoc: string;
   zeroTouchDoc: string;
+  trackedPaths: string[];
 }
 
 export interface GitSnapshot {

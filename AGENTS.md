@@ -1,54 +1,34 @@
 # AGENTS
 
-<!-- ═══════════════════════════════════════════════════════════════════
-     AGENT AUTO-START INSTRUCTIONS
-     ═══════════════════════════════════════════════════════════════════
+## Public Repo Policy
 
-  YOU ARE READING THIS FILE AUTOMATICALLY AT SESSION START. GOOD.
-  Now do the following BEFORE responding to the user or doing any work:
+This repository is the public Holistic product repo.
+Do not treat committed files here as a personal session archive.
+Do not commit self-dogfooding runtime state, generated handoff files, or local history back into `main`.
 
-  1. Read HOLISTIC.md in full.
-  2. Summarise to the user: what was last worked on, what's planned next,
-     and flag any KNOWN FIXES they should be aware of.
-  3. Ask: "Continue as planned, tweak the plan, or do something different?"
-  4. Run: holistic resume --agent <your-agent-name>
+## Start Here
 
-  DO NOT skip step 1. HOLISTIC.md is the source of truth.
-  ══════════════════════════════════════════════════════════════════ -->
+1. Read [HOLISTIC.md](./HOLISTIC.md).
+2. Read [README.md](./README.md) for current product direction.
+3. If local self-dogfooding files exist, prefer those local-only runtime files over creating or updating tracked public runtime files.
+4. Recap the current state for the user and ask whether to continue, tweak the plan, or start something new.
 
-## Holistic Protocol
+## Self-Dogfooding On This Repo
 
-### Product North Star
+The Holistic repo is a special case.
 
-Open repo, start working, Holistic quietly keeps continuity alive.
+- Normal user repos may use tracked runtime files and an optional `holistic/state` branch.
+- This repo should not expose a contributor's personal runtime state in the public codebase.
+- Local runtime state for dogfooding belongs in ignored files such as `.holistic-local/`, `HOLISTIC.local.md`, and `AGENTS.local.md`.
 
-Agents should treat that as the ultimate UX target. Prefer decisions that reduce manual ceremony while making checkpoint, resume, handoff, and regression-awareness more automatic and more reliable.
+## Guardrail
 
-Every agent working in this repo should:
+Before committing from this repo, check that you are not staging:
 
-1. Read [HOLISTIC.md](./HOLISTIC.md) first.
-2. Review [Project History](./.holistic/context/project-history.md), [Regression Watch](./.holistic/context/regression-watch.md), and [Zero-Touch Architecture](./.holistic/context/zero-touch.md) before changing behavior that may already have been fixed.
-3. Read the app-specific adapter in `.holistic/context/adapters/`.
-4. If the Holistic daemon is installed, assume passive capture is already running in the background.
-5. Run `holistic resume --agent <codex|claude|antigravity|gemini|copilot|cursor|goose|gsd>` only when you need an explicit recap or recovery flow.
-6. Recap the current state for the user and ask whether to continue, tweak the plan, or start something new.
-7. Record a checkpoint when focus changes, before likely context compaction, and before handoff.
+- `.holistic-local/`
+- `HOLISTIC.local.md`
+- `AGENTS.local.md`
+- local session archives
+- generated personal history or handoff files
 
-## Handoff Commands
-
-- `holistic checkpoint --reason "<why>"`
-- `holistic checkpoint --fixed "<bug>" --fix-files "<file>" --fix-risk "<what would reintroduce it>"`
-- `holistic set-phase --phase "<id>" --name "<name>" --goal "<goal>"`
-- `holistic complete-phase --phase "<id>" --next-phase "<id>" --next-name "<name>" --next-goal "<goal>"`
-- `holistic handoff`
-- `holistic start-new --goal "<goal>"`
-- `holistic watch`
-
-## Adding a New Agent Adapter
-
-To add instructions for a new agent, create a file at:
-
-`.holistic/context/adapters/<agent-name>.md`
-
-Copy any existing adapter as a template and customise the agent name and startup steps.
-Do not edit Holistic source files to register agents — adapters are data, not code.
+If the change is repo-local dogfooding state, keep it local.

@@ -16,6 +16,12 @@ Shared memory for AI agents, built into your repo.
 
 Holistic gives your AI agents shared memory inside the repo itself. When you switch from Claude to Codex to Gemini, the next agent can see what happened last time, what not to break, and what should happen next.
 
+## Public repo hygiene
+
+The Holistic product repo is a special case when it dogfoods itself.
+
+Normal user repos may commit portable Holistic runtime files and may use a separate `holistic/state` branch. This public repo should not ship a contributor's personal session history, handoff state, or live dogfooding runtime files. Self-dogfooding on this repo is redirected to ignored local files instead.
+
 ---
 
 ## The problem

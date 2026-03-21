@@ -39,6 +39,16 @@ export interface BootstrapResult extends InitResult {
   checks: string[];
 }
 
+interface RepoSetupConfigShape {
+  syncDefaults?: {
+    autoSync?: boolean;
+    syncOnCheckpoint?: boolean;
+    syncOnHandoff?: boolean;
+    postHandoffPush?: boolean;
+    restoreOnStartup?: boolean;
+  };
+}
+
 function persist(rootDir: string, state: HolisticState, paths: RuntimePaths): HolisticState {
   writeDerivedDocs(paths, state);
   state.repoSnapshot = captureRepoSnapshot(rootDir);
@@ -90,20 +100,86 @@ function shellQuote(value: string): string {
   return value.replace(/'/g, `'"'"'`);
 }
 
+function readRepoSetupConfig(rootDir: string): RepoSetupConfigShape {
+  const configPath = path.join(rootDir, "holistic.repo.json");
+  if (!fs.existsSync(configPath)) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(fs.readFileSync(configPath, "utf8")) as RepoSetupConfigShape;
+  } catch {
+    return {};
+  }
+}
+
+function powerShellStringArray(values: string[]): string {
+  return values.map((value) => `'${quotePowerShell(value)}'`).join(", ");
+}
+
+function shellPathList(values: string[]): string {
+  return values.map((value) => `"${value}"`).join(" ");
+}
+
+function isDirectoryTrackedPath(trackedPath: string): boolean {
+  return !path.extname(trackedPath);
+}
+
+function buildPowerShellCopyCommands(rootDir: string, trackedPaths: string[]): string[] {
+  return trackedPaths.map((trackedPath) => {
+    const source = `Join-Path $root '${quotePowerShell(trackedPath.replaceAll("/", "\\"))}'`;
+    const destination = `Join-Path $tmp '${quotePowerShell(trackedPath.replaceAll("/", "\\"))}'`;
+    const destinationDir = path.dirname(trackedPath).replaceAll("/", "\\");
+    const ensureParent = destinationDir === "."
+      ? []
+      : [`  New-Item -ItemType Directory -Path (Join-Path $tmp '${quotePowerShell(destinationDir)}') -Force | Out-Null`];
+
+    if (isDirectoryTrackedPath(trackedPath)) {
+      return [
+        ...ensureParent,
+        `  Copy-Item -Path (${source}) -Destination (${destination}) -Recurse -Force`,
+      ].join("\n");
+    }
+
+    return [
+      ...ensureParent,
+      `  Copy-Item -Path (${source}) -Destination (${destination}) -Force`,
+    ].join("\n");
+  });
+}
+
+function buildShellCopyCommands(trackedPaths: string[]): string[] {
+  const lines: string[] = [];
+  for (const trackedPath of trackedPaths) {
+    const dirName = path.posix.dirname(trackedPath.replaceAll("\\", "/"));
+    if (dirName !== ".") {
+      lines.push(`mkdir -p "$TMPDIR/${dirName}"`);
+    }
+    if (isDirectoryTrackedPath(trackedPath)) {
+      lines.push(`cp -R "$ROOT/${trackedPath}" "$TMPDIR/${trackedPath}"`);
+    } else {
+      lines.push(`cp "$ROOT/${trackedPath}" "$TMPDIR/${trackedPath}"`);
+    }
+  }
+  return lines;
+}
+
 function writeConfig(paths: RuntimePaths, remote: string, stateBranch: string, intervalSeconds: number): void {
+  const repoConfig = readRepoSetupConfig(paths.rootDir);
+  const syncDefaults = repoConfig.syncDefaults ?? {};
   const config = {
     version: 1,
     autoInferSessions: true,
-    autoSync: true,
+    autoSync: syncDefaults.autoSync ?? true,
     sync: {
       strategy: "state-branch",
       remote,
       stateBranch,
-      syncOnCheckpoint: true,
-      syncOnHandoff: true,
-      postHandoffPush: true,
-      restoreOnStartup: true,
-      trackedPaths: ["HOLISTIC.md", "AGENTS.md", "CLAUDE.md", "GEMINI.md", "HISTORY.md", ".holistic"],
+      syncOnCheckpoint: syncDefaults.syncOnCheckpoint ?? true,
+      syncOnHandoff: syncDefaults.syncOnHandoff ?? true,
+      postHandoffPush: syncDefaults.postHandoffPush ?? true,
+      restoreOnStartup: syncDefaults.restoreOnStartup ?? true,
+      trackedPaths: paths.trackedPaths,
     },
     daemon: {
       intervalSeconds,
@@ -117,6 +193,7 @@ function writeConfig(paths: RuntimePaths, remote: string, stateBranch: string, i
 function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeconds: number, remote: string, stateBranch: string): void {
   const sysDir = systemDir(paths);
   fs.mkdirSync(sysDir, { recursive: true });
+  const trackedPaths = paths.trackedPaths;
   const nodePath = process.execPath;
   const daemonRuntime = runtimeEntryScript("daemon");
   const daemonPath = daemonRuntime.scriptPath;
@@ -130,13 +207,13 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     `$root = '${quotePowerShell(rootDir)}'`,
     `$remote = '${quotePowerShell(remote)}'`,
     `$stateBranch = '${quotePowerShell(stateBranch)}'`,
-    "$tracked = @('HOLISTIC.md','AGENTS.md','CLAUDE.md','GEMINI.md','HISTORY.md','.holistic')",
-    "$status = git -C $root status --porcelain -- HOLISTIC.md AGENTS.md CLAUDE.md GEMINI.md HISTORY.md .holistic 2>$null",
+    `$tracked = @(${powerShellStringArray(trackedPaths)})`,
+    "$status = git -C $root status --porcelain -- $tracked 2>$null",
     "if ($LASTEXITCODE -ne 0) { exit 0 }",
     "if ($status) { Write-Host 'Holistic restore skipped because local Holistic files are dirty.'; exit 0 }",
     "git -C $root fetch $remote $stateBranch 2>$null",
     "if ($LASTEXITCODE -ne 0) { Write-Host 'Holistic restore skipped because remote state branch is unavailable.'; exit 0 }",
-    "git -C $root checkout FETCH_HEAD -- HOLISTIC.md AGENTS.md CLAUDE.md GEMINI.md HISTORY.md .holistic 2>$null | Out-Null",
+    "git -C $root checkout FETCH_HEAD -- $tracked 2>$null | Out-Null",
   ].join("\n");
 
   const syncPs1 = [
@@ -166,13 +243,8 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     "    git -c core.hooksPath=NUL switch -C $stateBranch FETCH_HEAD | Out-Null",
     "  }",
     "  Get-ChildItem -Force | Where-Object { $_.Name -ne '.git' } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue",
-    `  Copy-Item -Path (Join-Path $root 'HOLISTIC.md') -Destination (Join-Path $tmp 'HOLISTIC.md') -Force`,
-    `  Copy-Item -Path (Join-Path $root 'AGENTS.md') -Destination (Join-Path $tmp 'AGENTS.md') -Force`,
-    `  Copy-Item -Path (Join-Path $root 'CLAUDE.md') -Destination (Join-Path $tmp 'CLAUDE.md') -Force`,
-    `  Copy-Item -Path (Join-Path $root 'GEMINI.md') -Destination (Join-Path $tmp 'GEMINI.md') -Force`,
-    `  Copy-Item -Path (Join-Path $root 'HISTORY.md') -Destination (Join-Path $tmp 'HISTORY.md') -Force`,
-    `  Copy-Item -Path (Join-Path $root '.holistic') -Destination (Join-Path $tmp '.holistic') -Recurse -Force`,
-    "  git -c core.hooksPath=NUL add HOLISTIC.md AGENTS.md CLAUDE.md GEMINI.md HISTORY.md .holistic",
+    ...buildPowerShellCopyCommands(rootDir, trackedPaths),
+    `  git -c core.hooksPath=NUL add ${trackedPaths.map((trackedPath) => `'${quotePowerShell(trackedPath)}'`).join(" ")}`,
     "  git -c core.hooksPath=NUL diff --cached --quiet",
     "  if ($LASTEXITCODE -ne 0) {",
     "    git -c core.hooksPath=NUL commit -m 'chore(holistic): sync portable state' | Out-Null",
@@ -189,7 +261,7 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     `ROOT='${shellQuote(rootDir)}'`,
     `REMOTE='${shellQuote(remote)}'`,
     `STATE_BRANCH='${shellQuote(stateBranch)}'`,
-    "if ! git -C \"$ROOT\" diff --quiet -- HOLISTIC.md AGENTS.md CLAUDE.md GEMINI.md HISTORY.md .holistic 2>/dev/null; then",
+    `if ! git -C "$ROOT" diff --quiet -- ${shellPathList(trackedPaths)} 2>/dev/null; then`,
     "  echo 'Holistic restore skipped because local Holistic files are dirty.'",
     "  exit 0",
     "fi",
@@ -197,7 +269,7 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     "  echo 'Holistic restore skipped because remote state branch is unavailable.'",
     "  exit 0",
     "fi",
-    "git -C \"$ROOT\" checkout FETCH_HEAD -- HOLISTIC.md AGENTS.md CLAUDE.md GEMINI.md HISTORY.md .holistic 2>/dev/null || true",
+    `git -C "$ROOT" checkout FETCH_HEAD -- ${shellPathList(trackedPaths)} 2>/dev/null || true`,
   ].join("\n");
 
   const syncSh = [
@@ -214,13 +286,8 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     "cd \"$TMPDIR\" || exit 1",
     "git -c core.hooksPath=/dev/null switch \"$STATE_BRANCH\" >/dev/null 2>&1 || git -c core.hooksPath=/dev/null switch --orphan \"$STATE_BRANCH\" >/dev/null 2>&1 || exit 1",
     "find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +",
-    "cp \"$ROOT/HOLISTIC.md\" ./HOLISTIC.md",
-    "cp \"$ROOT/AGENTS.md\" ./AGENTS.md",
-    "cp \"$ROOT/CLAUDE.md\" ./CLAUDE.md",
-    "cp \"$ROOT/GEMINI.md\" ./GEMINI.md",
-    "cp \"$ROOT/HISTORY.md\" ./HISTORY.md",
-    "cp -R \"$ROOT/.holistic\" ./.holistic",
-    "git -c core.hooksPath=/dev/null add HOLISTIC.md AGENTS.md CLAUDE.md GEMINI.md HISTORY.md .holistic",
+    ...buildShellCopyCommands(trackedPaths),
+    `git -c core.hooksPath=/dev/null add ${trackedPaths.map((trackedPath) => `"${trackedPath}"`).join(" ")}`,
     "git -c core.hooksPath=/dev/null diff --cached --quiet || git -c core.hooksPath=/dev/null commit -m 'chore(holistic): sync portable state' >/dev/null 2>&1",
     "git -c core.hooksPath=/dev/null push \"$REMOTE\" HEAD:\"$STATE_BRANCH\"",
   ].join("\n");
@@ -261,12 +328,12 @@ Files:
   fs.writeFileSync(path.join(sysDir, "README.md"), readme, "utf8");
 }
 
-function installWindowsStartup(rootDir: string, homeDir: string): string {
+function installWindowsStartup(rootDir: string, paths: RuntimePaths, homeDir: string): string {
   const startupDir = path.join(homeDir, "AppData", "Roaming", "Microsoft", "Windows", "Start Menu", "Programs", "Startup");
   fs.mkdirSync(startupDir, { recursive: true });
   const slug = projectSlug(rootDir);
   const target = path.join(startupDir, `holistic-${slug}.cmd`);
-  const psScript = path.join(rootDir, ".holistic", "system", "run-daemon.ps1");
+  const psScript = path.join(systemDir(paths), "run-daemon.ps1");
   const content = [
     "@echo off",
     `powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"${psScript}\"`,
@@ -275,12 +342,12 @@ function installWindowsStartup(rootDir: string, homeDir: string): string {
   return target;
 }
 
-function installMacosLaunchAgent(rootDir: string, homeDir: string): string {
+function installMacosLaunchAgent(rootDir: string, paths: RuntimePaths, homeDir: string): string {
   const launchAgentsDir = path.join(homeDir, "Library", "LaunchAgents");
   fs.mkdirSync(launchAgentsDir, { recursive: true });
   const slug = projectSlug(rootDir);
   const target = path.join(launchAgentsDir, `com.holistic.${slug}.plist`);
-  const runScript = path.join(rootDir, ".holistic", "system", "run-daemon.sh");
+  const runScript = path.join(systemDir(paths), "run-daemon.sh");
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -305,14 +372,14 @@ function installMacosLaunchAgent(rootDir: string, homeDir: string): string {
   return target;
 }
 
-function installLinuxUserService(rootDir: string, homeDir: string): string {
+function installLinuxUserService(rootDir: string, paths: RuntimePaths, homeDir: string): string {
   const userSystemdDir = path.join(homeDir, ".config", "systemd", "user");
   const wantsDir = path.join(userSystemdDir, "default.target.wants");
   fs.mkdirSync(userSystemdDir, { recursive: true });
   fs.mkdirSync(wantsDir, { recursive: true });
   const slug = projectSlug(rootDir);
   const target = path.join(userSystemdDir, `holistic-${slug}.service`);
-  const runScript = path.join(rootDir, ".holistic", "system", "run-daemon.sh");
+  const runScript = path.join(systemDir(paths), "run-daemon.sh");
   const service = `[Unit]
 Description=Holistic daemon for ${slug}
 After=default.target
@@ -340,14 +407,14 @@ WantedBy=default.target
   return target;
 }
 
-function installDaemon(rootDir: string, platform: NodeJS.Platform, homeDir: string): string | null {
+function installDaemon(rootDir: string, paths: RuntimePaths, platform: NodeJS.Platform, homeDir: string): string | null {
   switch (platform) {
     case "win32":
-      return installWindowsStartup(rootDir, homeDir);
+      return installWindowsStartup(rootDir, paths, homeDir);
     case "darwin":
-      return installMacosLaunchAgent(rootDir, homeDir);
+      return installMacosLaunchAgent(rootDir, paths, homeDir);
     case "linux":
-      return installLinuxUserService(rootDir, homeDir);
+      return installLinuxUserService(rootDir, paths, homeDir);
     default:
       return null;
   }
@@ -452,7 +519,7 @@ export function initializeHolistic(rootDir: string, options: InitOptions = {}): 
   let gitHooks: string[] = [];
 
   if (options.installDaemon) {
-    startupTarget = installDaemon(rootDir, platform, homeDir);
+    startupTarget = installDaemon(rootDir, paths, platform, homeDir);
   }
 
   if (options.installGitHooks) {
@@ -461,6 +528,9 @@ export function initializeHolistic(rootDir: string, options: InitOptions = {}): 
       nodePath: process.execPath,
       scriptPath: cliRuntime.scriptPath,
       useStripTypes: cliRuntime.useStripTypes,
+      stateFilePath: path.relative(rootDir, paths.stateFile).replaceAll("\\", "/"),
+      syncPowerShellPath: path.relative(rootDir, path.join(systemDir(paths), "sync-state.ps1")).replaceAll("\\", "/"),
+      syncShellPath: path.relative(rootDir, path.join(systemDir(paths), "sync-state.sh")).replaceAll("\\", "/"),
     };
     const hookResult = installGitHooks(rootDir, resolveGitDir(rootDir), hookCommand);
     gitHooksInstalled = hookResult.installed;

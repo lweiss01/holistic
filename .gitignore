@@ -14,7 +14,14 @@ dist/
 .tmp-tests/
 
 # Machine-local scripts with absolute paths
+.holistic/
 .holistic/system/
+.holistic-local/
+HOLISTIC.local.md
+AGENTS.local.md
+HISTORY.local.md
+CLAUDE.local.md
+GEMINI.local.md
 
 # ── GSD baseline (auto-generated) ──
 .gsd/activity/

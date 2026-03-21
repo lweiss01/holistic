@@ -651,10 +651,15 @@ export function writeDerivedDocs(paths: RuntimePaths, state: HolisticState): voi
   fs.writeFileSync(`${paths.adaptersDir}/codex.md`, renderAdapter("Codex", "codex"), "utf8");
   fs.writeFileSync(`${paths.adaptersDir}/claude-cowork.md`, renderAdapter("Claude/Cowork", "claude"), "utf8");
   fs.writeFileSync(`${paths.adaptersDir}/antigravity.md`, renderAdapter("Antigravity", "antigravity"), "utf8");
-  // Root-level files auto-read by specific agents
-  fs.writeFileSync(path.join(paths.rootDir, "CLAUDE.md"), renderRootAgentDoc("Claude/Cowork", "claude"), "utf8");
-  fs.writeFileSync(path.join(paths.rootDir, "GEMINI.md"), renderRootAgentDoc("Antigravity/Gemini", "antigravity"), "utf8");
-  fs.writeFileSync(path.join(paths.rootDir, "HISTORY.md"), renderRootHistoryMd(paths, state), "utf8");
+  if (paths.rootClaudeDoc) {
+    fs.writeFileSync(paths.rootClaudeDoc, renderRootAgentDoc("Claude/Cowork", "claude"), "utf8");
+  }
+  if (paths.rootGeminiDoc) {
+    fs.writeFileSync(paths.rootGeminiDoc, renderRootAgentDoc("Antigravity/Gemini", "antigravity"), "utf8");
+  }
+  if (paths.rootHistoryDoc) {
+    fs.writeFileSync(paths.rootHistoryDoc, renderRootHistoryMd(paths, state), "utf8");
+  }
 }
 
 

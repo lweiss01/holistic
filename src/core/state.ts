@@ -27,9 +27,67 @@ function projectNameFromRoot(rootDir: string): string {
   return path.basename(rootDir);
 }
 
+interface RepoRuntimeConfigShape {
+  runtime?: {
+    holisticDir?: string;
+    masterDoc?: string;
+    agentsDoc?: string;
+    rootHistoryDoc?: string | null;
+    rootClaudeDoc?: string | null;
+    rootGeminiDoc?: string | null;
+    writeRootHistoryDoc?: boolean;
+    writeRootAgentDocs?: boolean;
+  };
+}
+
+function normalizeRelativePath(value: string): string {
+  return value.replaceAll("\\", "/");
+}
+
+function relativeToRoot(rootDir: string, absolutePath: string): string {
+  return normalizeRelativePath(path.relative(rootDir, absolutePath));
+}
+
+function readRepoRuntimeConfig(rootDir: string): RepoRuntimeConfigShape {
+  const configPath = path.join(rootDir, "holistic.repo.json");
+  if (!fs.existsSync(configPath)) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(fs.readFileSync(configPath, "utf8")) as RepoRuntimeConfigShape;
+  } catch {
+    return {};
+  }
+}
+
 export function getRuntimePaths(rootDir: string): RuntimePaths {
-  const holisticDir = path.join(rootDir, ".holistic");
+  const runtime = readRepoRuntimeConfig(rootDir).runtime ?? {};
+  const holisticDir = path.join(rootDir, runtime.holisticDir ?? ".holistic");
   const contextDir = path.join(holisticDir, "context");
+  const masterDoc = path.join(rootDir, runtime.masterDoc ?? "HOLISTIC.md");
+  const agentsDoc = path.join(rootDir, runtime.agentsDoc ?? "AGENTS.md");
+  const writeRootHistoryDoc = runtime.writeRootHistoryDoc !== false;
+  const writeRootAgentDocs = runtime.writeRootAgentDocs !== false;
+  const rootHistoryDoc = writeRootHistoryDoc
+    ? path.join(rootDir, runtime.rootHistoryDoc ?? "HISTORY.md")
+    : null;
+  const rootClaudeDoc = writeRootAgentDocs
+    ? path.join(rootDir, runtime.rootClaudeDoc ?? "CLAUDE.md")
+    : null;
+  const rootGeminiDoc = writeRootAgentDocs
+    ? path.join(rootDir, runtime.rootGeminiDoc ?? "GEMINI.md")
+    : null;
+
+  const trackedPaths = [
+    relativeToRoot(rootDir, masterDoc),
+    relativeToRoot(rootDir, agentsDoc),
+    rootHistoryDoc ? relativeToRoot(rootDir, rootHistoryDoc) : null,
+    rootClaudeDoc ? relativeToRoot(rootDir, rootClaudeDoc) : null,
+    rootGeminiDoc ? relativeToRoot(rootDir, rootGeminiDoc) : null,
+    relativeToRoot(rootDir, holisticDir),
+  ].filter((value, index, list): value is string => Boolean(value) && list.indexOf(value) === index);
+
   return {
     rootDir,
     holisticDir,
@@ -37,37 +95,41 @@ export function getRuntimePaths(rootDir: string): RuntimePaths {
     sessionsDir: path.join(holisticDir, "sessions"),
     contextDir,
     adaptersDir: path.join(contextDir, "adapters"),
-    masterDoc: path.join(rootDir, "HOLISTIC.md"),
-    agentsDoc: path.join(rootDir, "AGENTS.md"),
+    masterDoc,
+    agentsDoc,
+    rootHistoryDoc,
+    rootClaudeDoc,
+    rootGeminiDoc,
     currentPlanDoc: path.join(contextDir, "current-plan.md"),
     protocolDoc: path.join(contextDir, "session-protocol.md"),
     historyDoc: path.join(contextDir, "project-history.md"),
     regressionDoc: path.join(contextDir, "regression-watch.md"),
     zeroTouchDoc: path.join(contextDir, "zero-touch.md"),
+    trackedPaths,
   };
 }
 
-function defaultDocIndex(): DocIndex {
+function defaultDocIndex(paths: RuntimePaths): DocIndex {
   return {
-    masterDoc: "HOLISTIC.md",
-    stateFile: ".holistic/state.json",
-    sessionsDir: ".holistic/sessions",
-    contextDir: ".holistic/context",
+    masterDoc: relativeToRoot(paths.rootDir, paths.masterDoc),
+    stateFile: relativeToRoot(paths.rootDir, paths.stateFile),
+    sessionsDir: relativeToRoot(paths.rootDir, paths.sessionsDir),
+    contextDir: relativeToRoot(paths.rootDir, paths.contextDir),
     adapterDocs: {
-      codex: ".holistic/context/adapters/codex.md",
-      claude: ".holistic/context/adapters/claude-cowork.md",
-      antigravity: ".holistic/context/adapters/antigravity.md",
-      gemini: ".holistic/context/adapters/gemini.md",
-      copilot: ".holistic/context/adapters/copilot.md",
-      cursor: ".holistic/context/adapters/cursor.md",
-      goose: ".holistic/context/adapters/goose.md",
-      gsd: ".holistic/context/adapters/gsd.md",
+      codex: relativeToRoot(paths.rootDir, path.join(paths.adaptersDir, "codex.md")),
+      claude: relativeToRoot(paths.rootDir, path.join(paths.adaptersDir, "claude-cowork.md")),
+      antigravity: relativeToRoot(paths.rootDir, path.join(paths.adaptersDir, "antigravity.md")),
+      gemini: relativeToRoot(paths.rootDir, path.join(paths.adaptersDir, "gemini.md")),
+      copilot: relativeToRoot(paths.rootDir, path.join(paths.adaptersDir, "copilot.md")),
+      cursor: relativeToRoot(paths.rootDir, path.join(paths.adaptersDir, "cursor.md")),
+      goose: relativeToRoot(paths.rootDir, path.join(paths.adaptersDir, "goose.md")),
+      gsd: relativeToRoot(paths.rootDir, path.join(paths.adaptersDir, "gsd.md")),
     },
-    currentPlanDoc: ".holistic/context/current-plan.md",
-    protocolDoc: ".holistic/context/session-protocol.md",
-    historyDoc: ".holistic/context/project-history.md",
-    regressionDoc: ".holistic/context/regression-watch.md",
-    zeroTouchDoc: ".holistic/context/zero-touch.md",
+    currentPlanDoc: relativeToRoot(paths.rootDir, paths.currentPlanDoc),
+    protocolDoc: relativeToRoot(paths.rootDir, paths.protocolDoc),
+    historyDoc: relativeToRoot(paths.rootDir, paths.historyDoc),
+    regressionDoc: relativeToRoot(paths.rootDir, paths.regressionDoc),
+    zeroTouchDoc: relativeToRoot(paths.rootDir, paths.zeroTouchDoc),
   };
 }
 
@@ -93,7 +155,7 @@ interface InferredSessionStart {
 }
 
 function loadHolisticConfig(rootDir: string): Record<string, unknown> {
-  const configPath = path.join(rootDir, ".holistic", "config.json");
+  const configPath = path.join(getRuntimePaths(rootDir).holisticDir, "config.json");
   if (!fs.existsSync(configPath)) {
     return {};
   }
@@ -192,6 +254,7 @@ export function canInferSessionStart(rootDir: string, state: HolisticState): boo
 
 export function createInitialState(rootDir: string): HolisticState {
   const timestamp = now();
+  const paths = getRuntimePaths(rootDir);
   return {
     version: 2,
     projectName: projectNameFromRoot(rootDir),
@@ -200,7 +263,7 @@ export function createInitialState(rootDir: string): HolisticState {
     activeSession: null,
     pendingWork: [],
     lastHandoff: null,
-    docIndex: defaultDocIndex(),
+    docIndex: defaultDocIndex(paths),
     passiveCapture: defaultPassiveCapture(),
     repoSnapshot: {},
     pendingCommit: null,
@@ -246,18 +309,18 @@ function migrateState(state: HolisticState, fromVersion: number, toVersion: numb
 //   };
 // }
 
-function hydrateState(state: HolisticState): HolisticState {
+function hydrateState(state: HolisticState, paths: RuntimePaths): HolisticState {
   if (state.version < CURRENT_STATE_VERSION) {
     state = migrateState(state, state.version, CURRENT_STATE_VERSION);
   }
 
-  const defaults = defaultDocIndex();
+  const defaults = defaultDocIndex(paths);
   state.docIndex = {
-    ...defaults,
     ...(state.docIndex ?? {}),
+    ...defaults,
     adapterDocs: {
-      ...defaults.adapterDocs,
       ...(state.docIndex?.adapterDocs ?? {}),
+      ...defaults.adapterDocs,
     },
   };
   state.passiveCapture = {
@@ -278,7 +341,7 @@ function loadStateFromDisk(rootDir: string, paths: RuntimePaths): { state: Holis
 
   const raw = fs.readFileSync(paths.stateFile, "utf8");
   return {
-    state: hydrateState(JSON.parse(raw) as HolisticState),
+    state: hydrateState(JSON.parse(raw) as HolisticState, paths),
     created: false,
   };
 }
@@ -815,6 +878,7 @@ export function applyHandoff(rootDir: string, state: HolisticState, input: Hando
 
   writeArchivedSession(getRuntimePaths(rootDir), session);
 
+  const paths = getRuntimePaths(rootDir);
   return {
     ...refreshed.state,
     activeSession: null,
@@ -829,7 +893,7 @@ export function applyHandoff(rootDir: string, state: HolisticState, input: Hando
     },
     pendingCommit: {
       message: `docs(holistic): handoff session ${session.id}`,
-      files: ["HOLISTIC.md", "AGENTS.md", ".holistic"],
+      files: paths.trackedPaths,
     },
   };
 }

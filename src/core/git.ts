@@ -9,6 +9,11 @@ const HOLISTIC_PORTABLE_PATHS = new Set([
   "CLAUDE.md",
   "GEMINI.md",
   "HISTORY.md",
+  "HOLISTIC.local.md",
+  "AGENTS.local.md",
+  "CLAUDE.local.md",
+  "GEMINI.local.md",
+  "HISTORY.local.md",
 ]);
 
 export function resolveGitDir(rootDir: string): string | null {
@@ -48,7 +53,7 @@ function getBranchName(rootDir: string): string {
 }
 
 export function isPortableHolisticPath(file: string): boolean {
-  return file.startsWith(".holistic/") || HOLISTIC_PORTABLE_PATHS.has(file);
+  return file.startsWith(".holistic/") || file.startsWith(".holistic-local/") || HOLISTIC_PORTABLE_PATHS.has(file);
 }
 
 function walkRepoFiles(rootDir: string, currentDir: string, results: string[]): void {

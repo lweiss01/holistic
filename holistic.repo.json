@@ -1,0 +1,16 @@
+{
+  "runtime": {
+    "holisticDir": ".holistic-local",
+    "masterDoc": "HOLISTIC.local.md",
+    "agentsDoc": "AGENTS.local.md",
+    "writeRootHistoryDoc": false,
+    "writeRootAgentDocs": false
+  },
+  "syncDefaults": {
+    "autoSync": false,
+    "syncOnCheckpoint": false,
+    "syncOnHandoff": false,
+    "postHandoffPush": false,
+    "restoreOnStartup": false
+  }
+}

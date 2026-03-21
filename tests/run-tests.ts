@@ -17,6 +17,7 @@ import {
   createInitialState,
   getResumePayload,
   getRuntimePaths,
+  loadState,
   loadSessionById,
   readDraftHandoff,
   saveState,
@@ -126,6 +127,57 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(config.sync.syncOnCheckpoint, true);
       assert.equal(config.sync.syncOnHandoff, true);
       assert.ok(fs.existsSync(result.startupTarget ?? ""));
+    },
+  },
+  {
+    name: "repo runtime override keeps self-dogfooding files local-only",
+    run: () => {
+      const { rootDir } = makeRepo();
+      fs.writeFileSync(path.join(rootDir, "holistic.repo.json"), JSON.stringify({
+        runtime: {
+          holisticDir: ".holistic-local",
+          masterDoc: "HOLISTIC.local.md",
+          agentsDoc: "AGENTS.local.md",
+          writeRootHistoryDoc: false,
+          writeRootAgentDocs: false,
+        },
+        syncDefaults: {
+          autoSync: false,
+          syncOnCheckpoint: false,
+          syncOnHandoff: false,
+          postHandoffPush: false,
+          restoreOnStartup: false,
+        },
+      }, null, 2) + "\n", "utf8");
+      fs.writeFileSync(path.join(rootDir, "HOLISTIC.md"), "public holistic doc\n", "utf8");
+      fs.writeFileSync(path.join(rootDir, "AGENTS.md"), "public agents doc\n", "utf8");
+
+      const result = initializeHolistic(rootDir, {
+        installGitHooks: true,
+      });
+
+      assert.equal(result.gitHooksInstalled, true);
+      assert.ok(fs.existsSync(path.join(rootDir, ".holistic-local", "state.json")));
+      assert.ok(fs.existsSync(path.join(rootDir, "HOLISTIC.local.md")));
+      assert.ok(fs.existsSync(path.join(rootDir, "AGENTS.local.md")));
+      assert.equal(fs.readFileSync(path.join(rootDir, "HOLISTIC.md"), "utf8"), "public holistic doc\n");
+      assert.equal(fs.readFileSync(path.join(rootDir, "AGENTS.md"), "utf8"), "public agents doc\n");
+      assert.ok(!fs.existsSync(path.join(rootDir, "HISTORY.md")));
+      assert.ok(!fs.existsSync(path.join(rootDir, "CLAUDE.md")));
+      assert.ok(!fs.existsSync(path.join(rootDir, "GEMINI.md")));
+
+      const config = JSON.parse(fs.readFileSync(path.join(rootDir, ".holistic-local", "config.json"), "utf8"));
+      assert.equal(config.autoSync, false);
+      assert.equal(config.sync.syncOnCheckpoint, false);
+      assert.equal(config.sync.syncOnHandoff, false);
+
+      const loaded = loadState(rootDir);
+      assert.equal(loaded.paths.holisticDir, path.join(rootDir, ".holistic-local"));
+      assert.equal(loaded.state.docIndex.historyDoc, ".holistic-local/context/project-history.md");
+      assert.equal(loaded.state.docIndex.regressionDoc, ".holistic-local/context/regression-watch.md");
+
+      const postCommit = fs.readFileSync(path.join(rootDir, ".git", "hooks", "post-commit"), "utf8");
+      assert.match(postCommit, /\.holistic-local\/state\.json/);
     },
   },
   {

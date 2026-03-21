@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { getRuntimePaths } from './state.ts';
 
 export type AutoSyncTrigger = "checkpoint" | "handoff";
 
@@ -25,7 +26,7 @@ export interface AutoSyncPlan {
 }
 
 function loadConfig(rootDir: string): SyncConfigShape {
-  const configPath = path.join(rootDir, ".holistic", "config.json");
+  const configPath = path.join(getRuntimePaths(rootDir).holisticDir, "config.json");
   if (!fs.existsSync(configPath)) {
     return {};
   }
@@ -83,8 +84,10 @@ export function planAutoSync(rootDir: string, trigger: AutoSyncTrigger, platform
     };
   }
 
-  const scriptPath = path.join(rootDir, ".holistic", "system", platform === "win32" ? "sync-state.ps1" : "sync-state.sh");
-  if (!fs.existsSync(scriptPath)) {
+  const runtimePaths = getRuntimePaths(rootDir);
+  const scriptFile = platform === "win32" ? "sync-state.ps1" : "sync-state.sh";
+  const resolvedScriptPath = path.join(runtimePaths.holisticDir, "system", scriptFile);
+  if (!fs.existsSync(resolvedScriptPath)) {
     return {
       enabled: false,
       trigger,
@@ -100,9 +103,9 @@ export function planAutoSync(rootDir: string, trigger: AutoSyncTrigger, platform
     trigger,
     command: platform === "win32" ? "powershell" : "sh",
     args: platform === "win32"
-      ? ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath]
-      : [scriptPath],
-    scriptPath,
+      ? ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", resolvedScriptPath]
+      : [resolvedScriptPath],
+    scriptPath: resolvedScriptPath,
   };
 }
 
