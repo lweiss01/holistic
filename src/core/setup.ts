@@ -141,6 +141,7 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
 
   const syncPs1 = [
     "$ErrorActionPreference = 'Stop'",
+    "if (Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) { $PSNativeCommandUseErrorActionPreference = $false }",
     `$root = '${quotePowerShell(rootDir)}'`,
     `$remote = '${quotePowerShell(remote)}'`,
     `$stateBranch = '${quotePowerShell(stateBranch)}'`,
@@ -153,7 +154,7 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     "  Push-Location $tmp",
     "  $remoteStateExists = $false",
     "  try {",
-    "    git -c core.hooksPath=NUL ls-remote --exit-code --heads $remote $stateBranch *> $null",
+    "    git -c core.hooksPath=NUL ls-remote --quiet --exit-code --heads $remote $stateBranch *> $null",
     "    $remoteStateExists = ($LASTEXITCODE -eq 0)",
     "  } catch {",
     "    $remoteStateExists = $false",
@@ -161,7 +162,7 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     "  if (-not $remoteStateExists) {",
     "    git -c core.hooksPath=NUL switch --orphan $stateBranch | Out-Null",
     "  } else {",
-    "    git -c core.hooksPath=NUL fetch $remote $stateBranch *> $null",
+    "    git -c core.hooksPath=NUL fetch --quiet $remote $stateBranch *> $null",
     "    git -c core.hooksPath=NUL switch -C $stateBranch FETCH_HEAD | Out-Null",
     "  }",
     "  Get-ChildItem -Force | Where-Object { $_.Name -ne '.git' } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue",
