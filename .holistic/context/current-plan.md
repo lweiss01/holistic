@@ -2,16 +2,15 @@
 
 ## Goal
 
-Capture work and prepare a clean handoff.
+Design and implement a state-sync strategy that avoids GitHub Compare & pull request prompts for normal project repos
 
 ## Latest Status
 
-Committed: docs(holistic): handoff session session-2026-03-21T19-14-45-428Z
+Added GitHub banner/PR noise from same-repo state sync to the roadmap and queued it as the next product fix
 
 ## Planned Next Steps
 
-- Read HOLISTIC.md
-- Confirm next step with the user
+- Design and implement a state-sync strategy that avoids GitHub Compare & pull request prompts for normal project repos
 
 ## Project Impact
 

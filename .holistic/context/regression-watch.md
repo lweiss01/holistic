@@ -6,6 +6,23 @@ Use this before changing existing behavior. It is the short list of fixes and ou
 
 - Goal: Capture work and prepare a clean handoff.
 - Durable changes:
+- Updated project roadmap docs to track same-repo holistic/state GitHub PR prompts as a real product gap
+- Recorded that installed hook auto-refresh and GitHub banner removal are the next workflow-tightening follow-ups
+- Updated roadmap docs to treat same-repo holistic/state GitHub prompts as a real UX issue for normal project repos
+- Recorded hook auto-refresh drift as a related workflow-tightening follow-up
+- Why this matters:
+- Next session can start directly on removing GitHub banner noise instead of rediscovering the product issue from dogfooding
+- The next session can start directly on removing GitHub banner noise from Holistic's default sync UX
+- Do not regress:
+- Do not treat GitHub PR prompts from holistic/state as a dogfooding-only issue; fix the default real-repo UX
+- Do not treat GitHub PR prompts from holistic/state as a dogfooding-only problem
+- Do not leave installed git hooks stale when tracked hook templates change
+- Source session: session-2026-03-21T20-06-24-138Z
+
+## Capture work and prepare a clean handoff.
+
+- Goal: Capture work and prepare a clean handoff.
+- Durable changes:
 - Added renderResumeOutput helper for CLI startup output
 - Showed splash banner for start and resume without changing MCP tool output
 - Printed serve banner to stderr so MCP stdio stays protocol-safe

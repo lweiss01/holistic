@@ -5,19 +5,26 @@ This archive is the durable memory of what agents changed, why they changed it, 
 ## Capture work and prepare a clean handoff.
 
 - Session: session-2026-03-21T20-06-24-138Z
-- Agent: unknown
-- Status: active
-- When: 2026-03-21T20:06:24.451Z
+- Agent: codex
+- Status: handed_off
+- When: 2026-03-21T20:15:29.489Z
 - Goal: Capture work and prepare a clean handoff.
-- Summary: Committed: docs(holistic): handoff session session-2026-03-21T19-14-45-428Z
+- Summary: Session wrapped after converting GitHub state-branch PR noise into an explicit roadmap item
 - Work done:
-- No completed work recorded.
+- Updated project roadmap docs to track same-repo holistic/state GitHub PR prompts as a real product gap
+- Recorded that installed hook auto-refresh and GitHub banner removal are the next workflow-tightening follow-ups
+- Updated roadmap docs to treat same-repo holistic/state GitHub prompts as a real UX issue for normal project repos
+- Recorded hook auto-refresh drift as a related workflow-tightening follow-up
 - Why it mattered:
-- No impact notes recorded.
+- Next session can start directly on removing GitHub banner noise instead of rediscovering the product issue from dogfooding
+- The next session can start directly on removing GitHub banner noise from Holistic's default sync UX
 - Regression risks:
-- No specific regression risks recorded.
+- Do not treat GitHub PR prompts from holistic/state as a dogfooding-only issue; fix the default real-repo UX
+- Do not treat GitHub PR prompts from holistic/state as a dogfooding-only problem
+- Do not leave installed git hooks stale when tracked hook templates change
 - References:
-- No references recorded.
+- .gsd/PROJECT.md
+- .gsd/milestones/M001/M001-ROADMAP.md
 
 ## Capture work and prepare a clean handoff.
 

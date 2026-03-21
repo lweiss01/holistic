@@ -14,17 +14,19 @@
 
 ## Key Risks / Unknowns
 
-- **MCP notification actionability** — notification may send but agent may not act on it (testing shows it appears in logs but not agent context)
-- **Checkpoint spam threshold** — finding right balance between too aggressive (spam) and too conservative (missing important moments)
-- **Archive thrashing** — sessions archiving/unarchiving repeatedly if thresholds are wrong
-- **Agent instruction adherence** — non-MCP agents may not follow `/holistic` pattern consistently without proper instruction
+- **MCP notification actionability** - notification may send but agent may not act on it (testing shows it appears in logs but not agent context)
+- **Checkpoint spam threshold** - finding right balance between too aggressive (spam) and too conservative (missing important moments)
+- **Archive thrashing** - sessions archiving/unarchiving repeatedly if thresholds are wrong
+- **Agent instruction adherence** - non-MCP agents may not follow `/holistic` pattern consistently without proper instruction
+- **GitHub PR noise from state sync** - same-repo `holistic/state` pushes trigger "Compare & pull request" prompts that would feel confusing in real project repos
 
 ## Proof Strategy
 
-- **MCP notification actionability** → retire in S01 by proving agent greets automatically in fresh Claude Desktop conversation
-- **Checkpoint spam threshold** → retire in S02 by running daemon with real work patterns and verifying checkpoint frequency feels right
-- **Archive thrashing** → retire in S03 by creating test sessions, archiving them, and confirming they don't unarchive spuriously
-- **Agent instruction adherence** → retire in S05 by testing `/holistic` in web-based Claude and verifying agent follows the pattern
+- **MCP notification actionability** -> retire in S01 by proving agent greets automatically in fresh Claude Desktop conversation
+- **Checkpoint spam threshold** -> retire in S02 by running daemon with real work patterns and verifying checkpoint frequency feels right
+- **Archive thrashing** -> retire in S03 by creating test sessions, archiving them, and confirming they don't unarchive spuriously
+- **Agent instruction adherence** -> retire in S05 by testing `/holistic` in web-based Claude and verifying agent follows the pattern
+- **GitHub PR noise from state sync** -> retire in S07 by validating a same-repo sync strategy that does not leave users with lingering GitHub PR prompts or branch-noise confusion
 
 ## Verification Classes
 
@@ -78,7 +80,7 @@ This milestone is complete only when all are true:
   > After this: Holistic validated in 2-3 different repos (newsthread Android app, others); rough edges identified and documented; confidence that "set and forget" works in practice with real workflows
 
 - [ ] **S07: Technical Polish & Cross-Platform** `risk:low` `depends:[]`
-  > After this: CRLF warnings fixed with proper .gitattributes; npm pack/install tested on Mac/Windows/Linux; error messages are helpful and actionable; bootstrap experience validated on clean machines
+  > After this: CRLF warnings fixed with proper .gitattributes; npm pack/install tested on Mac/Windows/Linux; error messages are helpful and actionable; bootstrap experience validated on clean machines; same-repo state sync no longer creates confusing GitHub PR/banner prompts for normal project repos
 
 - [ ] **S08: npm Publishing Preparation** `risk:low` `depends:[S06,S07]`
   > After this: CHANGELOG.md exists; package.json has proper keywords; README is npm-ready; global install verified; ready for npm publish as 0.2.0
@@ -88,28 +90,28 @@ This milestone is complete only when all are true:
 
 ## Boundary Map
 
-### S01 → S02
+### S01 -> S02
 Produces:
-- `sendResumeNotification()` enhancement — sends actionable notification, not just log message
-- `/holistic` slash command handler — triggers same greeting pattern as MCP auto
-- `buildStartupGreeting()` — formats last handoff + 3 questions consistently
+- `sendResumeNotification()` enhancement - sends actionable notification, not just log message
+- `/holistic` slash command handler - triggers same greeting pattern as MCP auto
+- `buildStartupGreeting()` - formats last handoff + 3 questions consistently
 - MCP notification includes health warnings (if S04 data available)
 
 Consumes: nothing (first slice)
 
-### S01 → S04
+### S01 -> S04
 Produces:
 - Startup notification delivery mechanism that S04 can inject health warnings into
 
 Consumes: nothing (first slice)
 
-### S01 → S05
+### S01 -> S05
 Produces:
 - `/holistic` command pattern that S05 needs to document
 
 Consumes: nothing (first slice)
 
-### S02 → S05
+### S02 -> S05
 Produces:
 - `/checkpoint` and `/handoff` slash commands that S05 needs to document
 - Daemon checkpoint trigger logic that S05 can reference in docs
@@ -117,24 +119,24 @@ Produces:
 Consumes from S01:
 - Slash command infrastructure (if `/holistic` establishes pattern)
 
-### S03 → (standalone)
+### S03 -> (standalone)
 Produces:
 - `.holistic/sessions/archive/` directory structure
-- `archiveStaleSessionsauto()` — runs on session start and daemon tick
-- `unarchiveSession()` — automatic when session referenced/used
+- `archiveStaleSessionsauto()` - runs on session start and daemon tick
+- `unarchiveSession()` - automatic when session referenced/used
 - Archive rules: 30+ days old AND unreferenced in recent work
 
 Consumes: nothing (standalone, no dependencies)
 
-### S04 → S01
+### S04 -> S01
 Produces:
-- `buildHealthWarnings()` — detects daemon failures, checkpoint gaps, unusual patterns
+- `buildHealthWarnings()` - detects daemon failures, checkpoint gaps, unusual patterns
 - Health warning data structure that S01 injects into startup notification
 
 Consumes from S01:
 - Startup notification mechanism to inject warnings into
 
-### S05 → (documentation)
+### S05 -> (documentation)
 Produces:
 - README tool comparison table (MCP auto vs manual `/holistic`)
 - AGENTS.md `/holistic` pattern documentation

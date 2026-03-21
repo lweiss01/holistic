@@ -552,13 +552,20 @@ _Append-only log of every Holistic session. Newest entries at the bottom._
 
 ---
 
-## Session `session-2026-03-21T20-06-24-138Z` | 2026-03-21T20:06:24.451Z | unknown
+## Session `session-2026-03-21T20-06-24-138Z` | 2026-03-21T20:15:29.489Z | codex
 
 **Branch:** `main`  
-**Status:** active  
+**Status:** handed_off  
 **Goal:** Capture work and prepare a clean handoff.  
-**Checkpoints:** 1
+**Checkpoints:** 2
 
-**Files changed:**
-- `.beads/daemon.log`
+**Work done:**
+✅ Updated project roadmap docs to track same-repo holistic/state GitHub PR prompts as a real product gap
+✅ Recorded that installed hook auto-refresh and GitHub banner removal are the next workflow-tightening follow-ups
+✅ Updated roadmap docs to treat same-repo holistic/state GitHub prompts as a real UX issue for normal project repos
+✅ Recorded hook auto-refresh drift as a related workflow-tightening follow-up
+
+**Recommended next steps:**
+- Design and implement a state-sync strategy that avoids GitHub Compare & pull request prompts for normal project repos
+- Regenerate or auto-refresh installed git hooks when tracked hook templates change so local .git/hooks stay aligned with the repo
 

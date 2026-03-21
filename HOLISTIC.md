@@ -26,13 +26,13 @@ That is the intended end state for this project. Prefer changes that reduce cere
 
 ## Current Objective
 
-**Capture work and prepare a clean handoff.**
+**Resume from last handoff**
 
-Capture work and prepare a clean handoff.
+Design and implement a state-sync strategy that avoids GitHub Compare & pull request prompts for normal project repos
 
 ## Latest Work Status
 
-Committed: docs(holistic): handoff session session-2026-03-21T19-14-45-428Z
+Added GitHub banner/PR noise from same-repo state sync to the roadmap and queued it as the next product fix
 
 ## What Was Tried
 
@@ -40,12 +40,11 @@ Committed: docs(holistic): handoff session session-2026-03-21T19-14-45-428Z
 
 ## What To Try Next
 
-- Run `holistic start-new --goal "Describe the task"` to begin capturing work.
+- Design and implement a state-sync strategy that avoids GitHub Compare & pull request prompts for normal project repos
 
 ## Active Plan
 
-- Read HOLISTIC.md
-- Confirm next step with the user
+- No active plan has been captured yet.
 
 ## Overall Impact So Far
 
@@ -61,19 +60,19 @@ Committed: docs(holistic): handoff session session-2026-03-21T19-14-45-428Z
 
 ## Blockers
 
-- No blockers recorded.
+- No active blocker recorded
 
 ## Changed Files In Current Session
 
-- .beads/daemon.log
+- No repo changes detected for the active session.
 
 ## Pending Work Queue
 
+- Capture work and prepare a clean handoff.: Design and implement a state-sync strategy that avoids GitHub Compare & pull request prompts for normal project repos
 - Capture work and prepare a clean handoff.: Regenerate or auto-refresh installed git hooks when tracked hook templates change so local .git/hooks stay aligned with the repo
 - Remove first-class phase tracking from Holistic core state, docs, and commands: Review roadmap docs
 - Remove first-class phase tracking from Holistic core state, docs, and commands: Review roadmap docs
 - Capture work and prepare a clean handoff.: Remove first-class phase tracking from Holistic core state, docs, and commands
-- Plan Phase 2 Team/Org Mode: Start Phase 2 Team/Org Mode planning
 
 ## Long-Term Memory
 
@@ -100,6 +99,6 @@ Committed: docs(holistic): handoff session session-2026-03-21T19-14-45-428Z
 
 ## Historical Memory
 
-- Last updated: 2026-03-21T20:06:24.740Z
-- Last handoff: Completed Windows state-branch sync dogfooding and queued hook auto-refresh follow-up
-- Pending sessions remembered: 13
+- Last updated: 2026-03-21T20:15:17.344Z
+- Last handoff: Added GitHub banner/PR noise from same-repo state sync to the roadmap and queued it as the next product fix
+- Pending sessions remembered: 14
