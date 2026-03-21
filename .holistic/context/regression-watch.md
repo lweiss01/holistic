@@ -2,6 +2,38 @@
 
 Use this before changing existing behavior. It is the short list of fixes and outcomes that future agents should preserve.
 
+## Capture work and prepare a clean handoff.
+
+- Goal: Plan Holistic milestones M001-M003 using GSD workflow
+- Durable changes:
+- Committed 15 changed files with comprehensive commit message
+- Pushed to GitHub successfully
+- Refined milestone sequence: M001 Core Workflow Tightening, M002 Team/Org Mode, M003 Focused Integrations
+- Added 'set and forget' design philosophy to roadmap docs
+- Added 'silent partner' capture philosophy to roadmap docs
+- Defined M001 slices: S01 auto startup, S02 proactive capture, S03 archiving, S04 health diagnostics, S05 documentation
+- Wrote M002 and M003 draft context files for future discussion
+- Defined slash command set: /holistic, /checkpoint, /handoff
+- Wrote 14 active requirements with full traceability
+- Created detailed roadmap with 5 slices, boundary map, verification strategy
+- Documented research findings from MCP, daemon, sessions, agent patterns
+- Created PROJECT.md with current state and milestone sequence
+- Updated STATE.md pointing to next action: S01 planning
+- Why this matters:
+- Phase tracking removal is now available on GitHub
+- Breaking change documented in commit message
+- Holistic roadmap now has clear execution path with philosophy-driven design
+- M001 prioritizes making automatic capture work so users never think about Holistic
+- M001 has clear execution path from requirements through verification
+- Boundary map ensures slices connect cleanly
+- Research captured pitfalls and existing code patterns for implementation
+- Do not regress:
+- Keep 'silent partner' and 'set and forget' philosophies central to all feature decisions
+- Reject features that add user ceremony or require manual commands for normal workflows
+- Follow 'silent partner' philosophy - automatic capture, not user nagging
+- Follow 'set and forget' - minimize CLI usage, agent-conversation-first
+- Source session: session-2026-03-21T17-14-11-384Z
+
 ## Remove first-class phase tracking from Holistic core state, docs, and commands
 
 - Goal: Review project README for accuracy and current direction

@@ -1,0 +1,75 @@
+{
+  "id": "session-2026-03-21T01-01-43-885Z",
+  "agent": "unknown",
+  "branch": "main",
+  "startedAt": "2026-03-21T01:01:43.885Z",
+  "updatedAt": "2026-03-21T03:06:36.952Z",
+  "endedAt": "2026-03-21T03:06:36.952Z",
+  "status": "handed_off",
+  "title": "Capture work and prepare a clean handoff.",
+  "currentGoal": "Capture work and prepare a clean handoff.",
+  "currentPlan": [
+    "Read HOLISTIC.md",
+    "Confirm next step with the user"
+  ],
+  "latestStatus": "Testing Claude Desktop MCP in the Holistic repo",
+  "workDone": [
+    "Marked Phase 1 complete and Phase 1.5 active with explicit phase tracking",
+    "Sent visible Holistic resume notifications when MCP clients connect",
+    "Auto-inferred sessions from pending work, handoffs, recent files, or recent commits",
+    "Clustered passive repo activity before checkpointing to reduce polling noise",
+    "Added explicit post-checkout branch-switch continuity checkpoints",
+    "Added idle and work-milestone auto-drafted handoff generation",
+    "Made holistic handoff draft-aware with a non-interactive --draft accept path",
+    "Added conservative auto-sync planning and trigger hooks for checkpoint and handoff flows",
+    "Hardened generated sync scripts to disable git hooks in state-branch worktrees",
+    "Added holistic bootstrap command for one-step machine setup",
+    "Configured Claude Desktop MCP to use the repo-local Holistic CLI entrypoint with HOLISTIC_REPO",
+    "Verified bootstrap idempotence and preservation of existing MCP server entries"
+  ],
+  "triedItems": [],
+  "nextSteps": [
+    "Implement implicit resume or context recovery when MCP clients connect",
+    "Preserve the thin MCP tool surface while making startup lower-ceremony",
+    "Implement auto-drafted handoffs for idle or likely session-end states",
+    "Plan conservative automatic sync to the portable holistic/state branch",
+    "Evaluate the remaining Phase 1.5 bootstrap work for one-command machine setup",
+    "Revisit sync behavior in real repos once a remote state branch is available for end-to-end validation",
+    "Decide whether Phase 1.5 should be marked complete after a quick real-world bootstrap and auto-sync validation pass",
+    "If Phase 1.5 is complete, update docs and move to the next roadmap phase",
+    "Patch MCP checkpoints to infer claude as the agent by default"
+  ],
+  "assumptions": [],
+  "blockers": [],
+  "references": [],
+  "impactNotes": [
+    "Phase 1.5 work is now beginning from an explicit tracked phase state",
+    "Phase 1.5 now covers implicit resume, auto-session inference, and smarter passive checkpoint triggers.",
+    "Phase 1.5 now covers implicit resume, auto-session inference, smarter passive checkpoints, auto-drafted handoffs, and conservative auto-sync triggers.",
+    "Phase 1.5 now includes an end-to-end bootstrap path so new machines can be prepared with much less ceremony."
+  ],
+  "regressionRisks": [
+    "Keep the MCP integration thin and avoid adding startup ceremony while improving continuity",
+    "Passive checkpoints should ignore Holistic's own portable state files and avoid re-checkpointing on bookkeeping churn.",
+    "Branch switches should produce a single explicit continuity checkpoint instead of repeated daemon noise.",
+    "Auto-drafted handoffs should only refresh when the source session meaningfully changes and should never finalize a session without explicit handoff confirmation.",
+    "Auto-sync must stay hook-safe so syncing portable state cannot recursively create more Holistic activity.",
+    "Bootstrap must remain idempotent and should never clobber unrelated Claude Desktop MCP server entries.",
+    "Repo-local MCP bootstrap must keep pointing at the current Holistic CLI entrypoint so development setups work without a global install."
+  ],
+  "changedFiles": [
+    ".claude/settings.local.json"
+  ],
+  "checkpointCount": 6,
+  "lastCheckpointReason": "claude-mcp-dogfood",
+  "resumeRecap": [
+    "Current phase: Phase 1.5 - Workflow Disappearance",
+    "Phase goal: Implement Phase 1.5 workflow disappearance",
+    "Current objective: Capture work and prepare a clean handoff.",
+    "Latest status: Testing Claude Desktop MCP in the Holistic repo",
+    "Try next: Implement implicit resume or context recovery when MCP clients connect; Preserve the thin MCP tool surface while making startup lower-ceremony; Implement auto-drafted handoffs for idle or likely session-end states; Plan conservative automatic sync to the portable holistic/state branch; Evaluate the remaining Phase 1.5 bootstrap work for one-command machine setup; Revisit sync behavior in real repos once a remote state branch is available for end-to-end validation; Decide whether Phase 1.5 should be marked complete after a quick real-world bootstrap and auto-sync validation pass; If Phase 1.5 is complete, update docs and move to the next roadmap phase; Patch MCP checkpoints to infer claude as the agent by default",
+    "Overall impact so far: Phase 1.5 work is now beginning from an explicit tracked phase state; Phase 1.5 now covers implicit resume, auto-session inference, and smarter passive checkpoint triggers.; Phase 1.5 now covers implicit resume, auto-session inference, smarter passive checkpoints, auto-drafted handoffs, and conservative auto-sync triggers.; Phase 1.5 now includes an end-to-end bootstrap path so new machines can be prepared with much less ceremony.",
+    "Regression watch: Keep the MCP integration thin and avoid adding startup ceremony while improving continuity; Passive checkpoints should ignore Holistic's own portable state files and avoid re-checkpointing on bookkeeping churn.; Branch switches should produce a single explicit continuity checkpoint instead of repeated daemon noise.; Auto-drafted handoffs should only refresh when the source session meaningfully changes and should never finalize a session without explicit handoff confirmation.; Auto-sync must stay hook-safe so syncing portable state cannot recursively create more Holistic activity.; Bootstrap must remain idempotent and should never clobber unrelated Claude Desktop MCP server entries.; Repo-local MCP bootstrap must keep pointing at the current Holistic CLI entrypoint so development setups work without a global install.",
+    "Pending work waiting in queue: 7"
+  ]
+}

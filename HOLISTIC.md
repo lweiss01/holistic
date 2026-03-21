@@ -1,38 +1,18 @@
 # HOLISTIC
 
-<!-- ═══════════════════════════════════════════════════════════════════════
-     AGENT INSTRUCTIONS — READ THIS ENTIRE FILE BEFORE DOING ANYTHING ELSE
-     ═══════════════════════════════════════════════════════════════════════
-
-  1. Read this file top-to-bottom.
-  2. Read AGENTS.md for the setup steps specific to your agent.
-  3. Summarise to the user: what was last worked on, what's planned next.
-  4. Ask: "Continue as planned, tweak the plan, or do something different?"
-  5. Run `holistic resume --agent <your-agent-name>` to open a session.
-
-  ⚠️  If you are about to edit a file listed under KNOWN FIXES, STOP and
-     read that fix entry carefully before proceeding.
-  ════════════════════════════════════════════════════════════════════════ -->
-
 ## Start Here
 
 This repo uses Holistic for cross-agent handoffs. The source of truth is the repo itself: handoff docs, history, and regression memory should be committed and synced so any device can continue. Read this file first, then review the long-term history docs and zero-touch architecture note, then use the adapter doc for your app. The Holistic daemon is optional and only improves passive capture on devices where it is installed.
 
-## Product North Star
-
-Open repo, start working, Holistic quietly keeps continuity alive.
-
-That is the intended end state for this project. Prefer changes that reduce ceremony, keep continuity durable, and make Holistic fade further into the background of normal work.
-
 ## Current Objective
 
-**Resume from last handoff**
+**Capture work and prepare a clean handoff.**
 
-Review roadmap docs
+Plan Holistic milestones M001-M003 using GSD workflow
 
 ## Latest Work Status
 
-Phase tracking removal complete - codebase is now workflow-neutral
+Completed full milestone planning: requirements, research, roadmap, project definition
 
 ## What Was Tried
 
@@ -40,19 +20,31 @@ Phase tracking removal complete - codebase is now workflow-neutral
 
 ## What To Try Next
 
-- Review roadmap docs
+- Begin S01: Automatic Startup Notifications slice planning
+- Begin M001 detailed planning with focused research
+- Work is complete
 
 ## Active Plan
 
-- No active plan has been captured yet.
+- Read HOLISTIC.md
+- Confirm next step with the user
 
 ## Overall Impact So Far
 
-- No durable impact notes recorded yet.
+- Phase tracking removal is now available on GitHub
+- Breaking change documented in commit message
+- Holistic roadmap now has clear execution path with philosophy-driven design
+- M001 prioritizes making automatic capture work so users never think about Holistic
+- M001 has clear execution path from requirements through verification
+- Boundary map ensures slices connect cleanly
+- Research captured pitfalls and existing code patterns for implementation
 
 ## Regression Watch
 
-- Review the regression watch document before changing related behavior.
+- Keep 'silent partner' and 'set and forget' philosophies central to all feature decisions
+- Reject features that add user ceremony or require manual commands for normal workflows
+- Follow 'silent partner' philosophy - automatic capture, not user nagging
+- Follow 'set and forget' - minimize CLI usage, agent-conversation-first
 
 ## Key Assumptions
 
@@ -60,11 +52,14 @@ Phase tracking removal complete - codebase is now workflow-neutral
 
 ## Blockers
 
-- None
+- No blockers recorded.
 
 ## Changed Files In Current Session
 
-- No repo changes detected for the active session.
+- .bg-shell/manifest.json
+- .gsd/STATE.md
+- .gsd/milestones/M001/slices/S01/S01-PLAN.md
+- .holistic/state.json
 
 ## Pending Work Queue
 
@@ -99,6 +94,6 @@ Phase tracking removal complete - codebase is now workflow-neutral
 
 ## Historical Memory
 
-- Last updated: 2026-03-21T17:09:36.318Z
+- Last updated: 2026-03-21T18:22:23.830Z
 - Last handoff: Phase tracking removal complete - codebase is now workflow-neutral
 - Pending sessions remembered: 12
