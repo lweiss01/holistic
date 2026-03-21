@@ -6,7 +6,7 @@ Capture work and prepare a clean handoff.
 
 ## Latest Status
 
-Committed: feat(cli): show startup banner for resume and serve
+Committed: docs(holistic): refresh state after startup banner commit
 
 ## Planned Next Steps
 
