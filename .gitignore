@@ -13,6 +13,9 @@ dist/
 .claude/
 .tmp-tests/
 
+# Machine-local scripts with absolute paths
+.holistic/system/
+
 # ── GSD baseline (auto-generated) ──
 .gsd/activity/
 .gsd/runtime/

@@ -6,7 +6,7 @@ Capture work and prepare a clean handoff.
 
 ## Latest Status
 
-Committed: docs(holistic): S01 planning complete - handoff session with task breakdown
+Committed: feat(M001): S01 & S01.5 complete - automatic startup + ASCII branding
 
 ## Planned Next Steps
 
@@ -32,6 +32,9 @@ Committed: docs(holistic): S01 planning complete - handoff session with task bre
 - S01.5 ASCII Splash Screen planned and ready for execution
 - Holistic now has visual brand identity in CLI and README
 - Value proposition clearly visible: 'Your repo remembers, so your next agent doesn't have to guess'
+- Holistic now has automatic startup notifications for MCP tools
+- Holistic has visual brand identity with ASCII splash screen
+- Value proposition clearly communicated in CLI and README
 
 ## References
 

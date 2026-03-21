@@ -447,12 +447,12 @@ _Append-only log of every Holistic session. Newest entries at the bottom._
 
 ---
 
-## Session `session-2026-03-21T18-32-48-379Z` | 2026-03-21T18:57:19.041Z | unknown
+## Session `session-2026-03-21T18-32-48-379Z` | 2026-03-21T19:07:50.585Z | unknown
 
 **Branch:** `main`  
 **Status:** active  
 **Goal:** Capture work and prepare a clean handoff.  
-**Checkpoints:** 8
+**Checkpoints:** 12
 
 **Work done:**
 ✅ Researched MCP SDK notification primitives
@@ -483,13 +483,27 @@ _Append-only log of every Holistic session. Newest entries at the bottom._
 ✅ MCP notification enhanced with prominent tool description
 ✅ holistic_slash tool added for manual /holistic pattern
 ✅ AGENTS.md and adapters updated with startup guidance
+✅ T07 UAT passed: holistic_resume returns formatted greeting
+✅ T08 UAT passed: holistic_slash returns same greeting format
+✅ Both tools confirmed working with real Holistic state
+✅ S01 all tasks complete and UATs passing
+✅ Created S01.5 slice plan for ASCII splash screen
+✅ Added S01.5 to M001 roadmap
+✅ Updated GSD STATE to point to S01.5/T01
+✅ Created splash.ts module with renderSplash() and printSplash()
+✅ Added splash to init command with status items
+✅ Added splash to bootstrap command with status items
+✅ Added splash to README.md header with tagline
+✅ Tested in Windows terminal - renders correctly
 
 **Recommended next steps:**
 - User verification: T07 (MCP auto-greeting in Claude Desktop)
 - User verification: T08 (/holistic command testing)
+- Update M001 roadmap to mark S01 complete
+- Consider adding ASCII splash screen slice
+- Execute S01.5/T01: Create splash screen module
 
 **Files changed:**
+- `.beads/daemon.log`
 - `.bg-shell/manifest.json`
-- `.gsd/milestones/M001/slices/S01/S01-PLAN.md`
-- `.holistic/state.json`
 

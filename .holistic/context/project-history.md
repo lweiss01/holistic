@@ -7,9 +7,9 @@ This archive is the durable memory of what agents changed, why they changed it, 
 - Session: session-2026-03-21T18-32-48-379Z
 - Agent: unknown
 - Status: active
-- When: 2026-03-21T19:06:41.426Z
+- When: 2026-03-21T19:08:09.088Z
 - Goal: Capture work and prepare a clean handoff.
-- Summary: Committed: docs(holistic): S01 planning complete - handoff session with task breakdown
+- Summary: Committed: feat(M001): S01 & S01.5 complete - automatic startup + ASCII branding
 - Work done:
 - Researched MCP SDK notification primitives
 - Documented findings in S01-RESEARCH.md
@@ -51,6 +51,10 @@ This archive is the durable memory of what agents changed, why they changed it, 
 - Added splash to bootstrap command with status items
 - Added splash to README.md header with tagline
 - Tested in Windows terminal - renders correctly
+- Committed and pushed 19 files to main branch
+- S01 Automatic Startup Notifications complete and verified
+- S01.5 ASCII Splash Screen complete and verified
+- All 28 tests passing
 - Why it mattered:
 - MCP protocol has no 'initial context push' - must rely on tool discovery + agent cooperation
 - Both MCP and manual paths will use identical greeting format
@@ -69,6 +73,9 @@ This archive is the durable memory of what agents changed, why they changed it, 
 - S01.5 ASCII Splash Screen planned and ready for execution
 - Holistic now has visual brand identity in CLI and README
 - Value proposition clearly visible: 'Your repo remembers, so your next agent doesn't have to guess'
+- Holistic now has automatic startup notifications for MCP tools
+- Holistic has visual brand identity with ASCII splash screen
+- Value proposition clearly communicated in CLI and README
 - Regression risks:
 - Do not use sendLoggingMessage as primary delivery - it's for diagnostics only
 - buildStartupGreeting must be exported from state.ts and imported in mcp-server.ts

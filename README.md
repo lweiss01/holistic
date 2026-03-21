@@ -112,7 +112,16 @@ If you want repo scaffolding without changing local desktop integrations or daem
 holistic bootstrap --install-daemon false --configure-mcp false
 ```
 
-Do not commit `.holistic/system/`. It contains machine-local helper scripts with absolute paths.
+**What to commit:**
+- `.holistic/config.json` - repo configuration
+- `.holistic/state.json` - current session state  
+- `.holistic/context/` - generated docs (history, regression watch, adapters)
+- `.holistic/sessions/` - session history files
+
+**What NOT to commit:**
+- `.holistic/system/*.sh` and `.holistic/system/*.ps1` - machine-local scripts with absolute paths (already in `.gitignore`)
+
+The portable repo memory is meant to be committed and synced. Machine-local helper scripts are generated for each machine and stay local.
 
 After that, open the repo in your agent app and use a startup prompt like:
 
@@ -197,7 +206,7 @@ my-project/
       `- adapters/
 ```
 
-The portable repo memory is meant to be committed and synced. Machine-local helper scripts under `.holistic/system/` are generated for the current machine and should usually stay uncommitted.
+The portable repo memory (config, state, context, sessions) is meant to be committed and synced. Machine-local helper scripts under `.holistic/system/` are generated for each machine and stay local (already in `.gitignore`).
 
 ---
 
