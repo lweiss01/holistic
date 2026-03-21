@@ -1,5 +1,19 @@
 # HOLISTIC
 
+<!-- ═══════════════════════════════════════════════════════════════════════
+     AGENT INSTRUCTIONS — READ THIS ENTIRE FILE BEFORE DOING ANYTHING ELSE
+     ═══════════════════════════════════════════════════════════════════════
+
+  1. Read this file top-to-bottom.
+  2. Read AGENTS.md for the setup steps specific to your agent.
+  3. Summarise to the user: what was last worked on, what's planned next.
+  4. Ask: "Continue as planned, tweak the plan, or do something different?"
+  5. Run `holistic resume --agent <your-agent-name>` to open a session.
+
+  ⚠️  If you are about to edit a file listed under KNOWN FIXES, STOP and
+     read that fix entry carefully before proceeding.
+  ════════════════════════════════════════════════════════════════════════ -->
+
 ## Start Here
 
 This repo uses Holistic for cross-agent handoffs. The source of truth is the repo itself: handoff docs, history, and regression memory should be committed and synced so any device can continue. Read this file first, then review the long-term history docs and zero-touch architecture note, then use the adapter doc for your app. The Holistic daemon is optional and only improves passive capture on devices where it is installed.
@@ -12,13 +26,13 @@ That is the intended end state for this project. Prefer changes that reduce cere
 
 ## Current Objective
 
-**Start using Holistic in this repo**
+**Resume from last handoff**
 
-Phase 1 rollout and real repo usage
+Plan Phase 1.5 around implicit resume, auto-session inference, smarter passive checkpoints, auto-drafted handoffs, automatic sync, and machine bootstrap
 
 ## Latest Work Status
 
-Committed: docs: record the latest holistic checkpoint
+Merged holistic2 UX improvements into holistic: root-level CLAUDE.md/GEMINI.md/HISTORY.md, --fixed regression flags, holistic start alias, AGENTS.md auto-start comment, README overhaul. Deleted holistic2.
 
 ## What Was Tried
 
@@ -30,19 +44,15 @@ Committed: docs: record the latest holistic checkpoint
 
 ## Active Plan
 
-- Check current Holistic state
-- Use checkpoints during real work
-- Create a clean handoff when pausing
+- No active plan has been captured yet.
 
 ## Overall Impact So Far
 
-- The roadmap now prioritizes low-touch continuity over surface-area growth
-- Future work should make resume, checkpoint, handoff, and sync fade further into the background
+- No durable impact notes recorded yet.
 
 ## Regression Watch
 
-- Do not add workflow steps that increase startup ceremony unless they clearly improve durable continuity
-- Avoid roadmap drift into broad platform features that do not help Holistic quietly preserve continuity
+- Review the regression watch document before changing related behavior.
 
 ## Key Assumptions
 
@@ -54,17 +64,15 @@ Committed: docs: record the latest holistic checkpoint
 
 ## Changed Files In Current Session
 
-- .beads/daemon.log
-- .holistic/state.json
-- .holistic/state.json.lock
+- No repo changes detected for the active session.
 
 ## Pending Work Queue
 
+- Start using Holistic in this repo: Plan Phase 1.5 around implicit resume, auto-session inference, smarter passive checkpoints, auto-drafted handoffs, automatic sync, and machine bootstrap
 - Session Three: Review HOLISTIC.md and decide the next concrete step.
 - Session Two: Start third session
 - Session One: Start second session
 - Test branch fallback fix: Expand AgentName union to include Gemini, Copilot, Cursor, Goose, GSD
-- Structured metadata and roadmap planning: Review HOLISTIC.md and decide the next concrete step.
 
 ## Long-Term Memory
 
@@ -91,6 +99,6 @@ Committed: docs: record the latest holistic checkpoint
 
 ## Historical Memory
 
-- Last updated: 2026-03-20T22:28:14.947Z
-- Last handoff: No explicit handoff captured yet.
-- Pending sessions remembered: 6
+- Last updated: 2026-03-20T22:28:39.870Z
+- Last handoff: Merged holistic2 UX improvements into holistic: root-level CLAUDE.md/GEMINI.md/HISTORY.md, --fixed regression flags, holistic start alias, AGENTS.md auto-start comment, README overhaul. Deleted holistic2.
+- Pending sessions remembered: 7

@@ -1,5 +1,21 @@
 # AGENTS
 
+<!-- ═══════════════════════════════════════════════════════════════════
+     AGENT AUTO-START INSTRUCTIONS
+     ═══════════════════════════════════════════════════════════════════
+
+  YOU ARE READING THIS FILE AUTOMATICALLY AT SESSION START. GOOD.
+  Now do the following BEFORE responding to the user or doing any work:
+
+  1. Read HOLISTIC.md in full.
+  2. Summarise to the user: what was last worked on, what's planned next,
+     and flag any KNOWN FIXES they should be aware of.
+  3. Ask: "Continue as planned, tweak the plan, or do something different?"
+  4. Run: holistic resume --agent <your-agent-name>
+
+  DO NOT skip step 1. HOLISTIC.md is the source of truth.
+  ══════════════════════════════════════════════════════════════════ -->
+
 ## Holistic Protocol
 
 ### Product North Star
@@ -21,6 +37,16 @@ Every agent working in this repo should:
 ## Handoff Commands
 
 - `holistic checkpoint --reason "<why>"`
+- `holistic checkpoint --fixed "<bug>" --fix-files "<file>" --fix-risk "<what would reintroduce it>"`
 - `holistic handoff`
 - `holistic start-new --goal "<goal>"`
 - `holistic watch`
+
+## Adding a New Agent Adapter
+
+To add instructions for a new agent, create a file at:
+
+`.holistic/context/adapters/<agent-name>.md`
+
+Copy any existing adapter as a template and customise the agent name and startup steps.
+Do not edit Holistic source files to register agents — adapters are data, not code.
