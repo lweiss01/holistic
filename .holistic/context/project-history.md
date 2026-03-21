@@ -7,9 +7,9 @@ This archive is the durable memory of what agents changed, why they changed it, 
 - Session: session-2026-03-21T19-14-45-428Z
 - Agent: unknown
 - Status: active
-- When: 2026-03-21T19:56:45.276Z
+- When: 2026-03-21T20:00:01.413Z
 - Goal: Capture work and prepare a clean handoff.
-- Summary: Committed: fix(sync): handle first Windows state-branch push
+- Summary: Committed: fix(sync): quiet PowerShell state-branch fetch output
 - Work done:
 - Added renderResumeOutput helper for CLI startup output
 - Showed splash banner for start and resume without changing MCP tool output

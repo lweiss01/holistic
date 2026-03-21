@@ -6,7 +6,7 @@ Capture work and prepare a clean handoff.
 
 ## Latest Status
 
-Committed: fix(sync): handle first Windows state-branch push
+Committed: fix(sync): quiet PowerShell state-branch fetch output
 
 ## Planned Next Steps
 
