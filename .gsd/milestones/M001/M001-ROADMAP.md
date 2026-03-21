@@ -56,8 +56,11 @@ This milestone is complete only when all are true:
 
 ## Slices
 
-- [ ] **S01: Automatic Startup Notifications** `risk:high` `depends:[]`
+- [x] **S01: Automatic Startup Notifications** `risk:high` `depends:[]`
   > After this: MCP clients auto-greet with recap when conversation starts; non-MCP clients respond to `/holistic` with same pattern; greeting includes last handoff summary + 3-question prompt
+
+- [ ] **S01.5: ASCII Splash Screen & Branding** `risk:low` `depends:[S01]`
+  > After this: CLI commands show branded ASCII splash on init/bootstrap; README has visual identity; clear value proposition visible in repo
 
 - [ ] **S02: Proactive Automatic Capture** `risk:medium` `depends:[S01]`
   > After this: daemon checkpoints on time elapsed (2hr) OR significant files (5+); agents initiate checkpoints at natural breakpoints in conversation; handoff drafts trigger after 30min idle or completion signals; `/checkpoint` and `/handoff` slash commands available as safety valves

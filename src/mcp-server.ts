@@ -7,6 +7,7 @@ import { writeDerivedDocs } from './core/docs.ts';
 import { requestAutoSync } from './core/sync.ts';
 import {
   applyHandoff,
+  buildStartupGreeting,
   canInferSessionStart,
   checkpointState,
   continueFromLatest,
@@ -18,7 +19,7 @@ import {
 } from './core/state.ts';
 import type { AgentName, HolisticState, RuntimePaths } from './core/types.ts';
 
-type SupportedToolName = "holistic_resume" | "holistic_checkpoint" | "holistic_handoff";
+type SupportedToolName = "holistic_resume" | "holistic_checkpoint" | "holistic_handoff" | "holistic_slash";
 const DEFAULT_MCP_AGENT: AgentName = "claude";
 
 function asAgent(value: unknown, fallback: AgentName = "unknown"): AgentName {
@@ -82,19 +83,13 @@ function ensureMcpResumeState(rootDir: string, agent: AgentName = DEFAULT_MCP_AG
 }
 
 export function buildResumeNotificationText(state: HolisticState, agent: AgentName = DEFAULT_MCP_AGENT): string | null {
-  const payload = getResumePayload(state, agent);
-  if (payload.status === "empty") {
+  const greeting = buildStartupGreeting(state, agent);
+  if (!greeting) {
     return null;
   }
 
-  const lines: string[] = [];
-  lines.push("Holistic resume");
-  lines.push("");
-  lines.push(...payload.recap.map((line) => `- ${line}`));
-  lines.push("");
-  lines.push(`Choices: ${payload.choices.join(", ")}`);
-  lines.push("Use holistic_resume for an explicit refresh.");
-  return lines.join("\n");
+  // Add hint about using the tool for debugging
+  return `${greeting}\n\nUse holistic_resume tool for an explicit refresh.`;
 }
 
 export async function sendResumeNotification(server: Server, rootDir: string, agent: AgentName = DEFAULT_MCP_AGENT): Promise<boolean> {
@@ -104,6 +99,9 @@ export async function sendResumeNotification(server: Server, rootDir: string, ag
     return false;
   }
 
+  // Send as logging message for debugging visibility.
+  // NOTE: This is diagnostic only - agents discover context by calling holistic_resume tool.
+  // The enhanced tool description signals importance to agents at startup.
   await server.sendLoggingMessage({
     level: "info",
     logger: "holistic",
@@ -117,16 +115,32 @@ export function listHolisticTools(): ListToolsResult {
     tools: [
       {
         name: "holistic_resume",
-        description: "Resume the current Holistic session and get project context.",
+        description: "🎯 Resume Holistic session and get full project context. Call this FIRST at conversation start to load: current objective, recent work, regression watch, and next steps. Essential for maintaining continuity across sessions.",
         inputSchema: {
           type: "object",
           properties: {
             agent: {
               type: "string",
               enum: ["codex", "claude", "antigravity", "gemini", "copilot", "cursor", "goose", "gsd"],
+              description: "Agent name for context retrieval (optional, defaults to claude)",
             },
             continue: {
               type: "boolean",
+              description: "Auto-infer and start a session from recent work if none exists (optional)",
+            },
+          },
+        },
+      },
+      {
+        name: "holistic_slash",
+        description: "Lightweight startup command: load Holistic context and get project recap. Equivalent to typing '/holistic' - use this at conversation start for quick context refresh.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            agent: {
+              type: "string",
+              enum: ["codex", "claude", "antigravity", "gemini", "copilot", "cursor", "goose", "gsd"],
+              description: "Agent name (optional, defaults to claude)",
             },
           },
         },
@@ -173,7 +187,33 @@ export function callHolisticTool(rootDir: string, name: string, args?: Record<st
       const state = shouldContinue
         ? mutateState(rootDir, (currentState) => continueFromLatest(rootDir, currentState, agent))
         : loadState(rootDir).state;
-      return textResult(JSON.stringify(getResumePayload(state, agent), null, 2));
+      
+      // Return formatted greeting for agent consumption
+      const greeting = buildStartupGreeting(state, agent);
+      if (!greeting) {
+        return textResult("No active Holistic session or pending work found. Use holistic_resume with continue:true to infer a session from recent work.");
+      }
+      
+      return textResult(greeting);
+    }
+
+    case "holistic_slash": {
+      // Lightweight /holistic command - auto-infer session if needed
+      const agent = asAgent(args?.agent, DEFAULT_MCP_AGENT);
+      const state = mutateState(rootDir, (currentState) => {
+        // Auto-infer session from recent work if none exists
+        if (!currentState.activeSession && canInferSessionStart(rootDir, currentState)) {
+          return continueFromLatest(rootDir, currentState, agent);
+        }
+        return currentState;
+      });
+      
+      const greeting = buildStartupGreeting(state, agent);
+      if (!greeting) {
+        return textResult("No active Holistic session or pending work found in this repo yet.");
+      }
+      
+      return textResult(greeting);
     }
 
     case "holistic_checkpoint": {

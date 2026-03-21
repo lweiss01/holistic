@@ -4,10 +4,87 @@ This archive is the durable memory of what agents changed, why they changed it, 
 
 ## Capture work and prepare a clean handoff.
 
-- Session: session-2026-03-21T17-14-11-384Z
+- Session: session-2026-03-21T18-32-48-379Z
 - Agent: unknown
 - Status: active
-- When: 2026-03-21T18:31:40.226Z
+- When: 2026-03-21T19:06:41.426Z
+- Goal: Capture work and prepare a clean handoff.
+- Summary: Committed: docs(holistic): S01 planning complete - handoff session with task breakdown
+- Work done:
+- Researched MCP SDK notification primitives
+- Documented findings in S01-RESEARCH.md
+- Identified hybrid approach: enhanced tool description + manual fallback
+- Created buildStartupGreeting() in state.ts
+- Updated mcp-server.ts to use shared formatter
+- All 20 tests passing
+- Enhanced holistic_resume tool description with 🎯 emoji and clear call-to-action
+- Updated tool to return formatted greeting instead of JSON
+- Added comment explaining sendLoggingMessage is diagnostic only
+- Updated test to expect formatted text instead of JSON
+- Added holistic_slash tool to MCP server
+- Implements auto-infer behavior for manual context loading
+- Updated SupportedToolName type
+- Updated test to expect 4 tools instead of 3
+- Created mcp-notification.test.ts with 8 test cases
+- Tests cover: empty state, active session fields, choices, adapter docs, paths, handoff, pending work, recommended command
+- Integrated test module into run-tests.ts
+- All 28 tests passing (20 original + 8 new)
+- Added 'Startup Patterns' section to AGENTS.md
+- Documented MCP vs non-MCP tool differences
+- Added tool comparison table showing automatic vs manual triggers
+- Updated claude-cowork.md adapter to mention holistic_resume tool for MCP
+- All 28 tests still passing
+- Completed T01-T06: research, implementation, tests, documentation
+- 28 tests passing (20 original + 8 new)
+- MCP notification enhanced with prominent tool description
+- holistic_slash tool added for manual /holistic pattern
+- AGENTS.md and adapters updated with startup guidance
+- T07 UAT passed: holistic_resume returns formatted greeting
+- T08 UAT passed: holistic_slash returns same greeting format
+- Both tools confirmed working with real Holistic state
+- S01 all tasks complete and UATs passing
+- Created S01.5 slice plan for ASCII splash screen
+- Added S01.5 to M001 roadmap
+- Updated GSD STATE to point to S01.5/T01
+- Created splash.ts module with renderSplash() and printSplash()
+- Added splash to init command with status items
+- Added splash to bootstrap command with status items
+- Added splash to README.md header with tagline
+- Tested in Windows terminal - renders correctly
+- Why it mattered:
+- MCP protocol has no 'initial context push' - must rely on tool discovery + agent cooperation
+- Both MCP and manual paths will use identical greeting format
+- Agents will see prominent tool description signaling importance at startup
+- Tool calls return human-readable greeting format
+- Non-MCP tools can now use lightweight /holistic command pattern
+- Manual trigger available for tools where auto-resume doesn't work
+- Greeting format now has comprehensive test coverage
+- Prevents regressions in greeting content and structure
+- Agents now have clear documentation on how to load context at startup
+- Tool comparison table explains which environments support automatic vs manual
+- S01 implementation is code-complete and tested
+- Ready for manual UAT to verify real-world behavior
+- S01 Automatic Startup Notifications is complete and verified
+- S01 Automatic Startup Notifications delivered and verified
+- S01.5 ASCII Splash Screen planned and ready for execution
+- Holistic now has visual brand identity in CLI and README
+- Value proposition clearly visible: 'Your repo remembers, so your next agent doesn't have to guess'
+- Regression risks:
+- Do not use sendLoggingMessage as primary delivery - it's for diagnostics only
+- buildStartupGreeting must be exported from state.ts and imported in mcp-server.ts
+- holistic_resume must return formatted text greeting, not JSON payload
+- MCP tool list must include holistic_slash as 2nd tool
+- Test module must be imported and merged into allTests array in run-tests.ts
+- AGENTS.md must document both MCP and manual startup patterns
+- References:
+- No references recorded.
+
+## Capture work and prepare a clean handoff.
+
+- Session: session-2026-03-21T17-14-11-384Z
+- Agent: unknown
+- Status: handed_off
+- When: 2026-03-21T18:32:38.773Z
 - Goal: Plan Holistic milestones M001-M003 using GSD workflow
 - Summary: Committed: docs(holistic): handoff session session-2026-03-21T17-09-10-181Z
 - Work done:

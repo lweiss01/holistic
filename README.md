@@ -1,5 +1,17 @@
 # Holistic
 
+```
+██╗  ██╗ ██████╗ ██╗     ██╗███████╗████████╗██╗ ██████╗
+██║  ██║██╔═══██╗██║     ██║██╔════╝╚══██╔══╝██║██╔════╝
+███████║██║   ██║██║     ██║███████╗   ██║   ██║██║     
+██╔══██║██║   ██║██║     ██║╚════██║   ██║   ██║██║     
+██║  ██║╚██████╔╝███████╗██║███████║   ██║   ██║╚██████╗
+╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝╚══════╝   ╚═╝   ╚═╝ ╚═════╝
+
+Your repo remembers, so your next agent doesn't have to guess.
+Shared memory for AI agents, built into your repo.
+```
+
 ### One command. Every agent. Zero re-explaining.
 
 Holistic gives your AI agents shared memory inside the repo itself. When you switch from Claude to Codex to Gemini, the next agent can see what happened last time, what not to break, and what should happen next.

@@ -465,6 +465,31 @@ export function getResumePayload(state: HolisticState, agent: AgentName): Resume
   };
 }
 
+/**
+ * Build a formatted startup greeting for agents.
+ * Used by both MCP notification and manual /holistic command.
+ * Returns null if there's no meaningful context to share.
+ */
+export function buildStartupGreeting(state: HolisticState, agent: AgentName): string | null {
+  const payload = getResumePayload(state, agent);
+  if (payload.status === "empty") {
+    return null;
+  }
+
+  const lines: string[] = [];
+  lines.push("Holistic resume");
+  lines.push("");
+  lines.push(...payload.recap.map((line) => `- ${line}`));
+  lines.push("");
+  lines.push(`Choices: ${payload.choices.join(", ")}`);
+  lines.push(`Adapter doc: ${payload.adapterDoc}`);
+  lines.push(`Recommended command: ${payload.recommendedCommand}`);
+  lines.push(`Long-term history: ${state.docIndex.historyDoc}`);
+  lines.push(`Regression watch: ${state.docIndex.regressionDoc}`);
+  lines.push(`Zero-touch architecture: ${state.docIndex.zeroTouchDoc}`);
+  return lines.join("\n");
+}
+
 export function loadSessionById(state: HolisticState, paths: RuntimePaths, sessionId: string): SessionRecord | null {
   if (state.activeSession?.id === sessionId) {
     return state.activeSession;

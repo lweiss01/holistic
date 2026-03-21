@@ -25,6 +25,7 @@ import {
 } from "../src/core/state.ts";
 import { runDaemonTick } from "../src/daemon.ts";
 import { buildResumeNotificationText, callHolisticTool, createHolisticMcpServer, listHolisticTools, waitForStdioShutdown } from "../src/mcp-server.ts";
+import { tests as mcpNotificationTests } from "../src/__tests__/mcp-notification.test.ts";
 import type { HolisticState } from "../src/core/types.ts";
 
 const workspaceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -390,13 +391,11 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       persist(rootDir, state);
 
       const tools = listHolisticTools().tools.map((tool) => tool.name);
-      assert.deepEqual(tools, ["holistic_resume", "holistic_checkpoint", "holistic_handoff"]);
+      assert.deepEqual(tools, ["holistic_resume", "holistic_slash", "holistic_checkpoint", "holistic_handoff"]);
 
       const resumeBefore = callHolisticTool(rootDir, "holistic_resume", { agent: "codex" });
-      const initialPayload = JSON.parse(resumeBefore.content[0]?.type === "text" ? resumeBefore.content[0].text : "{}") as {
-        status: string;
-      };
-      assert.equal(initialPayload.status, "empty");
+      const initialText = resumeBefore.content[0]?.type === "text" ? resumeBefore.content[0].text : "";
+      assert.match(initialText, /No active Holistic session or pending work found/);
 
       const checkpoint = callHolisticTool(rootDir, "holistic_checkpoint", {
         reason: "mcp-test",
@@ -412,11 +411,13 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(nextState.activeSession?.agent, "claude");
 
       const resumed = callHolisticTool(rootDir, "holistic_resume", { agent: "codex", continue: true });
-      const resumedPayload = JSON.parse(resumed.content[0]?.type === "text" ? resumed.content[0].text : "{}") as {
-        activeSession: { latestStatus: string; agent: string } | null;
-      };
-      assert.equal(resumedPayload.activeSession?.latestStatus, "Created from MCP");
-      assert.equal(resumedPayload.activeSession?.agent, "codex");
+      const resumedText = resumed.content[0]?.type === "text" ? resumed.content[0].text : "";
+      assert.match(resumedText, /Holistic resume/);
+      assert.match(resumedText, /Latest status: Created from MCP/);
+      assert.match(resumedText, /Choices: continue, tweak, start-new/);
+
+      nextState = readState(rootDir);
+      assert.equal(nextState.activeSession?.agent, "codex");
 
       const handoff = callHolisticTool(rootDir, "holistic_handoff", {
         summary: "MCP handoff ready",
@@ -728,8 +729,11 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
   },
 ];
 
+// Merge in unit tests from test modules
+const allTests = [...tests, ...mcpNotificationTests];
+
 let failures = 0;
-for (const testCase of tests) {
+for (const testCase of allTests) {
   try {
     await testCase.run();
     console.log(`PASS ${testCase.name}`);
@@ -745,4 +749,4 @@ if (failures > 0) {
   process.exit(1);
 }
 
-console.log(`\n${tests.length} test(s) passed.`);
+console.log(`\n${allTests.length} test(s) passed.`);

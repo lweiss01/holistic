@@ -411,3 +411,85 @@ _Append-only log of every Holistic session. Newest entries at the bottom._
 **Files changed:**
 - `.bg-shell/manifest.json`
 
+---
+
+## Session `session-2026-03-21T17-14-11-384Z` | 2026-03-21T18:32:38.773Z | unknown
+
+**Branch:** `main`  
+**Status:** handed_off  
+**Goal:** Plan Holistic milestones M001-M003 using GSD workflow  
+**Checkpoints:** 11
+
+**Work done:**
+✅ Committed 15 changed files with comprehensive commit message
+✅ Pushed to GitHub successfully
+✅ Refined milestone sequence: M001 Core Workflow Tightening, M002 Team/Org Mode, M003 Focused Integrations
+✅ Added 'set and forget' design philosophy to roadmap docs
+✅ Added 'silent partner' capture philosophy to roadmap docs
+✅ Defined M001 slices: S01 auto startup, S02 proactive capture, S03 archiving, S04 health diagnostics, S05 documentation
+✅ Wrote M002 and M003 draft context files for future discussion
+✅ Defined slash command set: /holistic, /checkpoint, /handoff
+✅ Wrote 14 active requirements with full traceability
+✅ Created detailed roadmap with 5 slices, boundary map, verification strategy
+✅ Documented research findings from MCP, daemon, sessions, agent patterns
+✅ Created PROJECT.md with current state and milestone sequence
+✅ Updated STATE.md pointing to next action: S01 planning
+
+**Recommended next steps:**
+- Begin S01: Automatic Startup Notifications slice planning
+- Begin M001 detailed planning with focused research
+- Work is complete
+
+**Files changed:**
+- `.beads/daemon.log`
+- `.bg-shell/manifest.json`
+- `.gitignore`
+
+---
+
+## Session `session-2026-03-21T18-32-48-379Z` | 2026-03-21T18:57:19.041Z | unknown
+
+**Branch:** `main`  
+**Status:** active  
+**Goal:** Capture work and prepare a clean handoff.  
+**Checkpoints:** 8
+
+**Work done:**
+✅ Researched MCP SDK notification primitives
+✅ Documented findings in S01-RESEARCH.md
+✅ Identified hybrid approach: enhanced tool description + manual fallback
+✅ Created buildStartupGreeting() in state.ts
+✅ Updated mcp-server.ts to use shared formatter
+✅ All 20 tests passing
+✅ Enhanced holistic_resume tool description with 🎯 emoji and clear call-to-action
+✅ Updated tool to return formatted greeting instead of JSON
+✅ Added comment explaining sendLoggingMessage is diagnostic only
+✅ Updated test to expect formatted text instead of JSON
+✅ Added holistic_slash tool to MCP server
+✅ Implements auto-infer behavior for manual context loading
+✅ Updated SupportedToolName type
+✅ Updated test to expect 4 tools instead of 3
+✅ Created mcp-notification.test.ts with 8 test cases
+✅ Tests cover: empty state, active session fields, choices, adapter docs, paths, handoff, pending work, recommended command
+✅ Integrated test module into run-tests.ts
+✅ All 28 tests passing (20 original + 8 new)
+✅ Added 'Startup Patterns' section to AGENTS.md
+✅ Documented MCP vs non-MCP tool differences
+✅ Added tool comparison table showing automatic vs manual triggers
+✅ Updated claude-cowork.md adapter to mention holistic_resume tool for MCP
+✅ All 28 tests still passing
+✅ Completed T01-T06: research, implementation, tests, documentation
+✅ 28 tests passing (20 original + 8 new)
+✅ MCP notification enhanced with prominent tool description
+✅ holistic_slash tool added for manual /holistic pattern
+✅ AGENTS.md and adapters updated with startup guidance
+
+**Recommended next steps:**
+- User verification: T07 (MCP auto-greeting in Claude Desktop)
+- User verification: T08 (/holistic command testing)
+
+**Files changed:**
+- `.bg-shell/manifest.json`
+- `.gsd/milestones/M001/slices/S01/S01-PLAN.md`
+- `.holistic/state.json`
+

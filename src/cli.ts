@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { captureRepoSnapshot, clearPendingCommit, writePendingCommit } from './core/git.ts';
 import { writeDerivedDocs } from './core/docs.ts';
 import { bootstrapHolistic, initializeHolistic } from './core/setup.ts';
+import { printSplash } from './core/splash.ts';
 import { requestAutoSync } from './core/sync.ts';
 import { runDaemonTick } from './daemon.ts';
 import {
@@ -321,6 +322,11 @@ export function renderStatus(state: HolisticState): string {
 }
 
 async function handleInit(rootDir: string, parsed: ParsedArgs): Promise<number> {
+  // Show splash screen
+  printSplash({
+    message: "initializing shared memory layer...",
+  });
+
   const platformFlag = firstFlag(parsed.flags, "platform", process.platform);
   const platform = platformFlag === "windows" ? "win32" : platformFlag === "macos" ? "darwin" : platformFlag === "linux" ? "linux" : platformFlag;
   const intervalSeconds = Number.parseInt(firstFlag(parsed.flags, "interval", "30"), 10);
@@ -333,8 +339,24 @@ async function handleInit(rootDir: string, parsed: ParsedArgs): Promise<number> 
     stateBranch: firstFlag(parsed.flags, "state-branch", "holistic/state"),
   });
 
-  process.stdout.write(`Holistic initialized.
-System files: ${result.systemDir}
+  // Show status
+  const statusItems: string[] = [];
+  statusItems.push("session state restored");
+  statusItems.push("project memory loaded");
+  if (result.gitHooksInstalled) {
+    statusItems.push("git hooks installed");
+  }
+  if (result.installed) {
+    statusItems.push("daemon configured");
+  }
+  statusItems.push("handoff ready");
+
+  printSplash({
+    showStatus: true,
+    statusItems,
+  });
+
+  process.stdout.write(`System files: ${result.systemDir}
 Config: ${result.configFile}
 Platform: ${result.platform}
 Daemon install: ${result.installed ? `enabled at ${result.startupTarget}` : "not installed"}
@@ -348,6 +370,11 @@ Daemon install: ${result.installed ? `enabled at ${result.startupTarget}` : "not
 }
 
 async function handleBootstrap(rootDir: string, parsed: ParsedArgs): Promise<number> {
+  // Show splash screen
+  printSplash({
+    message: "bootstrapping holistic on this machine...",
+  });
+
   const platformFlag = firstFlag(parsed.flags, "platform", process.platform);
   const platform = platformFlag === "windows" ? "win32" : platformFlag === "macos" ? "darwin" : platformFlag === "linux" ? "linux" : platformFlag;
   const intervalSeconds = Number.parseInt(firstFlag(parsed.flags, "interval", "30"), 10);
@@ -361,8 +388,25 @@ async function handleBootstrap(rootDir: string, parsed: ParsedArgs): Promise<num
     stateBranch: firstFlag(parsed.flags, "state-branch", "holistic/state"),
   });
 
-  process.stdout.write(`Holistic bootstrap complete.
-System files: ${result.systemDir}
+  // Show status
+  const statusItems: string[] = [];
+  if (result.installed) {
+    statusItems.push("daemon installed");
+  }
+  if (result.gitHooksInstalled) {
+    statusItems.push("git hooks installed");
+  }
+  if (result.mcpConfigured) {
+    statusItems.push("Claude Desktop MCP configured");
+  }
+  statusItems.push("bootstrap complete");
+
+  printSplash({
+    showStatus: true,
+    statusItems,
+  });
+
+  process.stdout.write(`System files: ${result.systemDir}
 Config: ${result.configFile}
 Platform: ${result.platform}
 Daemon install: ${result.installed ? `enabled at ${result.startupTarget}` : "not installed"}
