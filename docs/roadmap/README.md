@@ -13,6 +13,24 @@ Holistic should stay focused on one job: durable cross-agent context continuity 
 - Prefer lightweight references to external workflow context over first-class phases, slices, tickets, or other methodology-specific models.
 - If a feature adds ceremony, workflow lock-in, or planning bloat without strengthening continuity, it probably does not belong in Holistic.
 
+## Design Philosophy: Set It and Forget It
+
+**Pattern:** If it requires the user to remember a CLI command, it should either be automatic or flow through the agent conversation.
+
+The ideal Holistic experience is:
+- **Setup once** — `holistic bootstrap` on a new machine
+- **Work normally** — open repo, agent reads context, work happens
+- **Background continuity** — checkpoints, handoffs, memory hygiene happen automatically or through natural agent conversation
+- **CLI is optional** — power users can use `holistic status`, `holistic diff`, etc., but most users never need to
+
+**Design test for new features:**
+- ✓ Good: "The agent sees this warning and suggests action"
+- ✓ Good: "This happens automatically in the background"
+- ✗ Bad: "The user should run this command regularly"
+- ✗ Bad: "The user needs to check this dashboard"
+
+**Agent-conversation-first, CLI-optional** — Surface important state and actions through the agent's natural interaction flow, not through commands the user must remember to run.
+
 ## Product North Star
 
 The real north star for Holistic is:
