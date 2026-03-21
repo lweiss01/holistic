@@ -26,13 +26,13 @@ That is the intended end state for this project. Prefer changes that reduce cere
 
 ## Current Objective
 
-**Resume from last handoff**
+**Capture work and prepare a clean handoff.**
 
-Regenerate or auto-refresh installed git hooks when tracked hook templates change so local .git/hooks stay aligned with the repo
+Capture work and prepare a clean handoff.
 
 ## Latest Work Status
 
-Completed Windows state-branch sync dogfooding and queued hook auto-refresh follow-up
+Committed: docs(holistic): handoff session session-2026-03-21T19-14-45-428Z
 
 ## What Was Tried
 
@@ -40,11 +40,12 @@ Completed Windows state-branch sync dogfooding and queued hook auto-refresh foll
 
 ## What To Try Next
 
-- Regenerate or auto-refresh installed git hooks when tracked hook templates change so local .git/hooks stay aligned with the repo
+- Run `holistic start-new --goal "Describe the task"` to begin capturing work.
 
 ## Active Plan
 
-- No active plan has been captured yet.
+- Read HOLISTIC.md
+- Confirm next step with the user
 
 ## Overall Impact So Far
 
@@ -60,11 +61,11 @@ Completed Windows state-branch sync dogfooding and queued hook auto-refresh foll
 
 ## Blockers
 
-- No active blocker recorded
+- No blockers recorded.
 
 ## Changed Files In Current Session
 
-- No repo changes detected for the active session.
+- .beads/daemon.log
 
 ## Pending Work Queue
 
@@ -99,6 +100,6 @@ Completed Windows state-branch sync dogfooding and queued hook auto-refresh foll
 
 ## Historical Memory
 
-- Last updated: 2026-03-21T20:04:13.850Z
+- Last updated: 2026-03-21T20:06:24.740Z
 - Last handoff: Completed Windows state-branch sync dogfooding and queued hook auto-refresh follow-up
 - Pending sessions remembered: 13

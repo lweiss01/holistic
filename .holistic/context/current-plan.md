@@ -2,15 +2,16 @@
 
 ## Goal
 
-Regenerate or auto-refresh installed git hooks when tracked hook templates change so local .git/hooks stay aligned with the repo
+Capture work and prepare a clean handoff.
 
 ## Latest Status
 
-Completed Windows state-branch sync dogfooding and queued hook auto-refresh follow-up
+Committed: docs(holistic): handoff session session-2026-03-21T19-14-45-428Z
 
 ## Planned Next Steps
 
-- Regenerate or auto-refresh installed git hooks when tracked hook templates change so local .git/hooks stay aligned with the repo
+- Read HOLISTIC.md
+- Confirm next step with the user
 
 ## Project Impact
 
