@@ -609,6 +609,10 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.match(prePush, /Holistic Status:/);
       assert.match(prePush, /git push origin holistic\/state/);
       assert.match(syncPs1, /core\.hooksPath=NUL/);
+      assert.match(syncPs1, /ls-remote --exit-code --heads \$remote \$stateBranch/);
+      assert.match(syncPs1, /if \(-not \$remoteStateExists\)/);
+      assert.match(syncPs1, /switch --orphan \$stateBranch/);
+      assert.match(syncPs1, /switch -C \$stateBranch FETCH_HEAD/);
       assert.match(syncSh, /core\.hooksPath=\/dev\/null/);
     },
   },

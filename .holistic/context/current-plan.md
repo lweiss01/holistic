@@ -6,7 +6,7 @@ Capture work and prepare a clean handoff.
 
 ## Latest Status
 
-Committed: docs(holistic): refresh state after startup banner commit
+Fixed Windows first-run state-branch sync so holistic/state can be created cleanly
 
 ## Planned Next Steps
 
@@ -17,6 +17,7 @@ Committed: docs(holistic): refresh state after startup banner commit
 
 - CLI startup flow now shows Holistic branding more consistently in PowerShell
 - CLI startup docs now match observed PowerShell behavior
+- Fresh Holistic repos on Windows can create and push the dedicated holistic/state branch on first sync
 
 ## References
 

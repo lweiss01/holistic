@@ -7,22 +7,26 @@ This archive is the durable memory of what agents changed, why they changed it, 
 - Session: session-2026-03-21T19-14-45-428Z
 - Agent: unknown
 - Status: active
-- When: 2026-03-21T19:46:19.420Z
+- When: 2026-03-21T19:56:25.239Z
 - Goal: Capture work and prepare a clean handoff.
-- Summary: Committed: docs(holistic): refresh state after startup banner commit
+- Summary: Fixed Windows first-run state-branch sync so holistic/state can be created cleanly
 - Work done:
 - Added renderResumeOutput helper for CLI startup output
 - Showed splash banner for start and resume without changing MCP tool output
 - Printed serve banner to stderr so MCP stdio stays protocol-safe
 - Updated README command table for start and serve banner behavior
 - Documented that serve prints its startup banner to stderr to keep MCP stdout clean
+- Updated sync-state.ps1 generator to detect whether the remote state branch exists before switching
+- Added regression coverage for first-run Windows state-branch sync script generation
 - Why it mattered:
 - CLI startup flow now shows Holistic branding more consistently in PowerShell
 - CLI startup docs now match observed PowerShell behavior
+- Fresh Holistic repos on Windows can create and push the dedicated holistic/state branch on first sync
 - Regression risks:
 - Do not print decorative output to stdout in MCP server mode
 - Keep resume/start banner changes out of MCP tool responses
 - Keep README startup command descriptions aligned with actual CLI output
+- Do not assume the remote holistic/state branch already exists when generating Windows sync helpers
 - References:
 - No references recorded.
 
