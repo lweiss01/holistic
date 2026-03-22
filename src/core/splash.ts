@@ -3,10 +3,25 @@
  * Provides visual identity and communicates value proposition.
  */
 
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 export interface SplashOptions {
   message?: string;
   showStatus?: boolean;
   statusItems?: string[];
+}
+
+function getVersion(): string {
+  const currentFile = fileURLToPath(import.meta.url);
+  const packagePath = path.resolve(path.dirname(currentFile), "..", "..", "package.json");
+  try {
+    const pkg = JSON.parse(fs.readFileSync(packagePath, "utf8")) as { version?: string };
+    return pkg.version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
 }
 
 const HOLISTIC_ASCII = `
@@ -27,8 +42,10 @@ const SUBTITLE = "Shared memory for AI agents, built into your repo.";
 export function renderSplash(options: SplashOptions = {}): string {
   const lines: string[] = [];
 
-  // ASCII art
+  // ASCII art + version
   lines.push(HOLISTIC_ASCII);
+  lines.push(`   v${getVersion()}`);
+  lines.push("");
 
   // Message (e.g., "initializing shared memory layer...")
   if (options.message) {
