@@ -18,6 +18,27 @@ Holistic gives your AI agents shared memory inside the repo itself. When you swi
 
 ---
 
+## Get started in 30 seconds ⚡
+
+Open your project repo in PowerShell, Terminal, Command Prompt, or whatever shell you normally use.
+
+Run these two commands:
+
+```bash
+npm install -g holistic
+holistic bootstrap
+```
+
+After that, open the repo in your agent app and use this startup prompt:
+
+```text
+Before doing any other work, read AGENTS.md and HOLISTIC.md, recap the current state briefly, and ask me exactly one question: continue as planned, tweak the plan, or start something new.
+```
+
+That is enough to get the basic Holistic workflow working.
+
+---
+
 ## The problem 😵
 
 If you use more than one AI coding assistant, the workflow usually falls apart:
@@ -144,14 +165,6 @@ holistic bootstrap --install-daemon false --configure-mcp false
 - `.holistic/system/*.sh` and `.holistic/system/*.ps1` - machine-local scripts with absolute paths (already in `.gitignore`)
 
 The portable repo memory is meant to be committed and synced. Machine-local helper scripts are generated for each machine and stay local.
-
-After that, open the repo in your agent app and use a startup prompt like:
-
-```text
-Before doing any other work, read AGENTS.md and HOLISTIC.md, recap the current state briefly, and ask me exactly one question: continue as planned, tweak the plan, or start something new.
-```
-
-That is enough for normal repo-first continuity.
 
 ---
 
