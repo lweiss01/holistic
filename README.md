@@ -106,7 +106,7 @@ npm link
 ```bash
 cd my-project
 holistic bootstrap --remote origin
-git add HOLISTIC.md AGENTS.md CLAUDE.md GEMINI.md HISTORY.md
+git add .gitattributes HOLISTIC.md AGENTS.md CLAUDE.md GEMINI.md HISTORY.md
 git add .holistic/config.json .holistic/state.json
 git add .holistic/context/
 git commit -m "feat: add holistic"
@@ -128,6 +128,7 @@ holistic bootstrap --install-daemon false --configure-mcp false
 ```
 
 **What to commit:**
+- `.gitattributes` - Holistic-managed line-ending rules for portable files
 - `.holistic/config.json` - repo configuration
 - `.holistic/state.json` - current session state  
 - `.holistic/context/` - generated docs (history, regression watch, adapters)

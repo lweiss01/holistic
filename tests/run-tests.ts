@@ -119,6 +119,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "system", "sync-state.ps1")));
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "system", "sync-state.sh")));
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "zero-touch.md")));
+      const attributes = fs.readFileSync(path.join(rootDir, ".gitattributes"), "utf8");
       const config = JSON.parse(fs.readFileSync(path.join(rootDir, ".holistic", "config.json"), "utf8"));
       assert.equal(config.autoInferSessions, true);
       assert.equal(config.autoSync, true);
@@ -127,6 +128,9 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal("stateBranch" in config.sync, false);
       assert.equal(config.sync.syncOnCheckpoint, true);
       assert.equal(config.sync.syncOnHandoff, true);
+      assert.match(attributes, /BEGIN HOLISTIC MANAGED ATTRIBUTES/);
+      assert.match(attributes, /HOLISTIC\.md text eol=lf/);
+      assert.match(attributes, /\.holistic\/\*\*\/\*\.ps1 text eol=crlf/);
       assert.ok(fs.existsSync(result.startupTarget ?? ""));
     },
   },
@@ -152,6 +156,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       }, null, 2) + "\n", "utf8");
       fs.writeFileSync(path.join(rootDir, "HOLISTIC.md"), "public holistic doc\n", "utf8");
       fs.writeFileSync(path.join(rootDir, "AGENTS.md"), "public agents doc\n", "utf8");
+      fs.writeFileSync(path.join(rootDir, ".gitattributes"), ".beads/issues.jsonl merge=beads\n", "utf8");
 
       const result = initializeHolistic(rootDir, {
         installGitHooks: true,
@@ -163,6 +168,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.ok(fs.existsSync(path.join(rootDir, "AGENTS.local.md")));
       assert.equal(fs.readFileSync(path.join(rootDir, "HOLISTIC.md"), "utf8"), "public holistic doc\n");
       assert.equal(fs.readFileSync(path.join(rootDir, "AGENTS.md"), "utf8"), "public agents doc\n");
+      assert.equal(fs.readFileSync(path.join(rootDir, ".gitattributes"), "utf8"), ".beads/issues.jsonl merge=beads\n");
       assert.ok(!fs.existsSync(path.join(rootDir, "HISTORY.md")));
       assert.ok(!fs.existsSync(path.join(rootDir, "CLAUDE.md")));
       assert.ok(!fs.existsSync(path.join(rootDir, "GEMINI.md")));

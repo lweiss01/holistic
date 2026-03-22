@@ -11,6 +11,8 @@ import type { AgentName, HolisticState, RuntimePaths } from './types.ts';
 const DEFAULT_STATE_REF = "refs/holistic/state";
 const DEFAULT_LEGACY_STATE_BRANCH = "holistic/state";
 const TEMP_SYNC_BRANCH = "holistic-sync-tmp";
+const HOLISTIC_GITATTRIBUTES_BEGIN = "# BEGIN HOLISTIC MANAGED ATTRIBUTES";
+const HOLISTIC_GITATTRIBUTES_END = "# END HOLISTIC MANAGED ATTRIBUTES";
 
 export interface InitOptions {
   installDaemon?: boolean;
@@ -124,6 +126,75 @@ function readRepoSetupConfig(rootDir: string): RepoSetupConfigShape {
   } catch {
     return {};
   }
+}
+
+function relativePath(rootDir: string, targetPath: string | null): string | null {
+  if (!targetPath) {
+    return null;
+  }
+
+  return path.relative(rootDir, targetPath).replaceAll("\\", "/");
+}
+
+function shouldManageGitAttributes(paths: RuntimePaths): boolean {
+  return path.basename(paths.holisticDir) === ".holistic"
+    && path.basename(paths.masterDoc) === "HOLISTIC.md"
+    && path.basename(paths.agentsDoc) === "AGENTS.md";
+}
+
+function renderHolisticGitAttributes(paths: RuntimePaths): string {
+  const lines = [
+    HOLISTIC_GITATTRIBUTES_BEGIN,
+    `${relativePath(paths.rootDir, paths.masterDoc)} text eol=lf`,
+    `${relativePath(paths.rootDir, paths.agentsDoc)} text eol=lf`,
+  ];
+
+  const rootHistory = relativePath(paths.rootDir, paths.rootHistoryDoc);
+  const rootClaude = relativePath(paths.rootDir, paths.rootClaudeDoc);
+  const rootGemini = relativePath(paths.rootDir, paths.rootGeminiDoc);
+  const holisticDir = relativePath(paths.rootDir, paths.holisticDir);
+
+  if (rootHistory) {
+    lines.push(`${rootHistory} text eol=lf`);
+  }
+  if (rootClaude) {
+    lines.push(`${rootClaude} text eol=lf`);
+  }
+  if (rootGemini) {
+    lines.push(`${rootGemini} text eol=lf`);
+  }
+  if (holisticDir) {
+    lines.push(`${holisticDir}/**/*.md text eol=lf`);
+    lines.push(`${holisticDir}/**/*.json text eol=lf`);
+    lines.push(`${holisticDir}/**/*.sh text eol=lf`);
+    lines.push(`${holisticDir}/**/*.ps1 text eol=crlf`);
+    lines.push(`${holisticDir}/**/*.cmd text eol=crlf`);
+  }
+
+  lines.push(HOLISTIC_GITATTRIBUTES_END);
+  return lines.join("\n");
+}
+
+function writeManagedGitAttributes(rootDir: string, paths: RuntimePaths): void {
+  if (!shouldManageGitAttributes(paths)) {
+    return;
+  }
+
+  const attributesPath = path.join(rootDir, ".gitattributes");
+  const managedBlock = renderHolisticGitAttributes(paths);
+  const current = fs.existsSync(attributesPath) ? fs.readFileSync(attributesPath, "utf8") : "";
+  const pattern = new RegExp(`${HOLISTIC_GITATTRIBUTES_BEGIN}[\\s\\S]*?${HOLISTIC_GITATTRIBUTES_END}\\n?`, "m");
+
+  let next: string;
+  if (pattern.test(current)) {
+    next = current.replace(pattern, `${managedBlock}\n`);
+  } else if (current.trim().length === 0) {
+    next = `${managedBlock}\n`;
+  } else {
+    next = `${current.replace(/\s*$/, "\n\n")}${managedBlock}\n`;
+  }
+
+  fs.writeFileSync(attributesPath, next, "utf8");
 }
 
 function powerShellStringArray(values: string[]): string {
@@ -635,6 +706,7 @@ export function refreshHolisticHooks(rootDir: string): GitHookInstallResult {
 export function initializeHolistic(rootDir: string, options: InitOptions = {}): InitResult {
   const { state, paths } = loadState(rootDir);
   persist(rootDir, state, paths);
+  writeManagedGitAttributes(rootDir, paths);
 
   const intervalSeconds = options.intervalSeconds ?? 30;
   const remote = options.remote ?? "origin";
