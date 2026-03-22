@@ -661,10 +661,3 @@ export function writeDerivedDocs(paths: RuntimePaths, state: HolisticState): voi
     fs.writeFileSync(paths.rootHistoryDoc, renderRootHistoryMd(paths, state), "utf8");
   }
 }
-
-
-
-
-
-
-
