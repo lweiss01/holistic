@@ -4,7 +4,7 @@ import path from "node:path";
 import { createInterface, type Interface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { repoLocalCliCommand } from './core/cli-fallback.ts';
+import { renderRepoLocalCliCommands } from './core/cli-fallback.ts';
 import { captureRepoSnapshot, clearPendingCommit, writePendingCommit } from './core/git.ts';
 import { writeDerivedDocs } from './core/docs.ts';
 import { bootstrapHolistic, initializeHolistic, refreshHolisticHooks } from './core/setup.ts';
@@ -386,12 +386,12 @@ async function handleInit(rootDir: string, parsed: ParsedArgs): Promise<number> 
     statusItems,
   });
 
-  const initFallback = repoLocalCliCommand(path.relative(rootDir, path.join(result.systemDir, "..", "context")).replaceAll("\\", "/"), "resume --agent codex");
+  const initFallback = renderRepoLocalCliCommands(path.relative(rootDir, path.join(result.systemDir, "..", "context")).replaceAll("\\", "/"), "resume --agent codex");
   process.stdout.write(`System files: ${result.systemDir}
 Config: ${result.configFile}
 Platform: ${result.platform}
 Daemon install: ${result.installed ? `enabled at ${result.startupTarget}` : "not installed"}
-CLI fallback: ${result.platform === "win32" ? initFallback.windows : initFallback.posix}
+Repo-local CLI: ${initFallback}
 `);
 
   if (result.gitHooksInstalled) {
@@ -440,7 +440,7 @@ async function handleBootstrap(rootDir: string, parsed: ParsedArgs): Promise<num
     statusItems,
   });
 
-  const bootstrapFallback = repoLocalCliCommand(path.relative(rootDir, path.join(result.systemDir, "..", "context")).replaceAll("\\", "/"), "resume --agent codex");
+  const bootstrapFallback = renderRepoLocalCliCommands(path.relative(rootDir, path.join(result.systemDir, "..", "context")).replaceAll("\\", "/"), "resume --agent codex");
   process.stdout.write(`System files: ${result.systemDir}
 Config: ${result.configFile}
 Platform: ${result.platform}
@@ -448,7 +448,7 @@ Daemon install: ${result.installed ? `enabled at ${result.startupTarget}` : "not
 Git hooks: ${result.gitHooksInstalled ? result.gitHooks.join(", ") : "not installed"}
 MCP config: ${result.mcpConfigured ? result.mcpConfigFile : "skipped"}
 Checks: ${result.checks.join(", ")}
-CLI fallback: ${result.platform === "win32" ? bootstrapFallback.windows : bootstrapFallback.posix}
+Repo-local CLI: ${bootstrapFallback}
 `);
   return 0;
 }
@@ -465,8 +465,7 @@ async function handleResume(rootDir: string, parsed: ParsedArgs): Promise<number
       return 0;
     }
 
-    const fallback = repoLocalCliCommand(nextState.docIndex.contextDir, payload.recommendedCommand);
-    process.stdout.write(renderResumeOutput(`Holistic resume\n\n${payload.recap.map((line) => `- ${line}`).join("\n")}\n\nChoices: ${payload.choices.join(", ")}\nAdapter doc: ${payload.adapterDoc}\nRecommended command: ${payload.recommendedCommand}\nCLI fallback if PATH is missing: Windows ${fallback.windows}; macOS/Linux ${fallback.posix}\nLong-term history: ${nextState.docIndex.historyDoc}\nRegression watch: ${nextState.docIndex.regressionDoc}\nZero-touch architecture: ${nextState.docIndex.zeroTouchDoc}\n`));
+    process.stdout.write(renderResumeOutput(`Holistic resume\n\n${payload.recap.map((line) => `- ${line}`).join("\n")}\n\nChoices: ${payload.choices.join(", ")}\nAdapter doc: ${payload.adapterDoc}\nRecommended command: ${payload.recommendedCommand}\nLong-term history: ${nextState.docIndex.historyDoc}\nRegression watch: ${nextState.docIndex.regressionDoc}\nZero-touch architecture: ${nextState.docIndex.zeroTouchDoc}\n`));
     return 0;
   }
 
@@ -477,8 +476,7 @@ async function handleResume(rootDir: string, parsed: ParsedArgs): Promise<number
     return 0;
   }
 
-  const fallback = repoLocalCliCommand(state.docIndex.contextDir, payload.recommendedCommand);
-  process.stdout.write(renderResumeOutput(`Holistic resume\n\n${payload.recap.map((line) => `- ${line}`).join("\n")}\n\nChoices: ${payload.choices.join(", ")}\nAdapter doc: ${payload.adapterDoc}\nRecommended command: ${payload.recommendedCommand}\nCLI fallback if PATH is missing: Windows ${fallback.windows}; macOS/Linux ${fallback.posix}\nLong-term history: ${state.docIndex.historyDoc}\nRegression watch: ${state.docIndex.regressionDoc}\nZero-touch architecture: ${state.docIndex.zeroTouchDoc}\n`));
+  process.stdout.write(renderResumeOutput(`Holistic resume\n\n${payload.recap.map((line) => `- ${line}`).join("\n")}\n\nChoices: ${payload.choices.join(", ")}\nAdapter doc: ${payload.adapterDoc}\nRecommended command: ${payload.recommendedCommand}\nLong-term history: ${state.docIndex.historyDoc}\nRegression watch: ${state.docIndex.regressionDoc}\nZero-touch architecture: ${state.docIndex.zeroTouchDoc}\n`));
   return 0;
 }
 

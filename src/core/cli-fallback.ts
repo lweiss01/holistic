@@ -26,7 +26,11 @@ export function repoLocalCliCommand(contextDir: string, command: string): { wind
   };
 }
 
+export function renderRepoLocalCliCommands(contextDir: string, command: string): string {
+  const commands = repoLocalCliCommand(contextDir, command);
+  return `Windows \`${commands.windows}\`; macOS/Linux \`${commands.posix}\``;
+}
+
 export function renderCliFallbackNote(contextDir: string, command: string): string {
-  const fallback = repoLocalCliCommand(contextDir, command);
-  return `If \`holistic\` is not on PATH, use the repo-local helper instead: Windows \`${fallback.windows}\`; macOS/Linux \`${fallback.posix}\`.`;
+  return `Use the repo-local Holistic helper in this repo: ${renderRepoLocalCliCommands(contextDir, command)}.`;
 }

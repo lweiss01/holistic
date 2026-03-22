@@ -219,12 +219,13 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
       assert.equal(payload.status, "empty");
       assert.deepEqual(payload.choices, ["start-new"]);
+      assert.match(payload.recommendedCommand, /\.\\\.holistic\\system\\holistic\.cmd start-new --goal "Describe the new task"/);
       assert.ok(fs.existsSync(path.join(rootDir, "HOLISTIC.md")));
       assert.ok(fs.existsSync(path.join(rootDir, "AGENTS.md")));
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "state.json")));
-      assert.match(fs.readFileSync(path.join(rootDir, "HOLISTIC.md"), "utf8"), /repo-local helper/);
+      assert.match(fs.readFileSync(path.join(rootDir, "HOLISTIC.md"), "utf8"), /repo-local Holistic helper/);
       assert.match(fs.readFileSync(path.join(rootDir, "AGENTS.md"), "utf8"), /repo-local Holistic helper/);
-      assert.match(fs.readFileSync(path.join(rootDir, ".holistic", "context", "session-protocol.md"), "utf8"), /repo-local helper/);
+      assert.match(fs.readFileSync(path.join(rootDir, ".holistic", "context", "session-protocol.md"), "utf8"), /repo-local Holistic helper/);
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "project-history.md")));
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "regression-watch.md")));
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "zero-touch.md")));
@@ -512,7 +513,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.match(resumedText, /Holistic resume/);
       assert.match(resumedText, /Latest status: Created from MCP/);
       assert.match(resumedText, /Choices: continue, tweak, start-new/);
-      assert.match(resumedText, /CLI fallback if PATH is missing/);
+      assert.match(resumedText, /Recommended command: Windows/);
+      assert.match(resumedText, /\.\\\.holistic\\system\\holistic\.cmd resume --continue/);
 
       nextState = readState(rootDir);
       assert.equal(nextState.activeSession?.agent, "codex");

@@ -1,6 +1,6 @@
 ﻿import fs from "node:fs";
 import path from "node:path";
-import { repoLocalCliCommand } from './cli-fallback.ts';
+import { renderRepoLocalCliCommands } from './cli-fallback.ts';
 import { getGitSnapshot, getRecentCommitSubjects, isPortableHolisticPath } from './git.ts';
 import { withLockSync } from './lock.ts';
 import { sanitizeList, sanitizeText } from './redact.ts';
@@ -526,12 +526,15 @@ export function getResumePayload(state: HolisticState, agent: AgentName): Resume
   const recap = buildResumeRecap(state);
   const hasCarryover = Boolean(state.activeSession || state.lastHandoff || state.pendingWork.length > 0);
   const choices = hasCarryover ? ["continue", "tweak", "start-new"] : ["start-new"];
+  const recommendedCommand = hasCarryover
+    ? renderRepoLocalCliCommands(state.docIndex.contextDir, "resume --continue")
+    : renderRepoLocalCliCommands(state.docIndex.contextDir, "start-new --goal \"Describe the new task\"");
 
   return {
     status: hasCarryover ? "ready" : "empty",
     recap,
     choices,
-    recommendedCommand: hasCarryover ? "holistic resume --continue" : "holistic start-new --goal \"Describe the new task\"",
+    recommendedCommand,
     adapterDoc: state.docIndex.adapterDocs[agent] ?? state.docIndex.adapterDocs.codex,
     activeSession: state.activeSession,
     pendingWork: state.pendingWork,
@@ -549,7 +552,6 @@ export function buildStartupGreeting(state: HolisticState, agent: AgentName): st
   if (payload.status === "empty") {
     return null;
   }
-  const fallback = repoLocalCliCommand(state.docIndex.contextDir, payload.recommendedCommand);
 
   const lines: string[] = [];
   lines.push("Holistic resume");
@@ -559,7 +561,6 @@ export function buildStartupGreeting(state: HolisticState, agent: AgentName): st
   lines.push(`Choices: ${payload.choices.join(", ")}`);
   lines.push(`Adapter doc: ${payload.adapterDoc}`);
   lines.push(`Recommended command: ${payload.recommendedCommand}`);
-  lines.push(`CLI fallback if PATH is missing: Windows ${fallback.windows}; macOS/Linux ${fallback.posix}`);
   lines.push(`Long-term history: ${state.docIndex.historyDoc}`);
   lines.push(`Regression watch: ${state.docIndex.regressionDoc}`);
   lines.push(`Zero-touch architecture: ${state.docIndex.zeroTouchDoc}`);

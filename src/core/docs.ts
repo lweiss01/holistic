@@ -178,8 +178,7 @@ function renderHolisticMd(state: HolisticState): string {
   2. Read AGENTS.md for the setup steps specific to your agent.
   3. Summarise to the user: what was last worked on, what's planned next.
   4. Ask: "What would you like to work on — continue recent work, or start something new?"
-  5. Run \`holistic resume --agent <your-agent-name>\` to open a session.
-  6. If \`holistic\` is not on PATH, use the repo-local helper under \`system/\` for this repo.
+  5. Open the session with the repo-local Holistic helper for this repo.
 
   ⚠️  If you are about to edit a file listed under KNOWN FIXES, STOP and
      read that fix entry carefully before proceeding.
@@ -270,7 +269,10 @@ ${adapterLinks}
 function renderAgentsMd(state: HolisticState): string {
   const resumeFallbackNote = renderCliFallbackNote(state.docIndex.contextDir, "resume --agent <your-agent-name>");
   const checkpointFallbackNote = renderCliFallbackNote(state.docIndex.contextDir, "checkpoint --reason \"<why>\"");
+  const checkpointFixNote = renderCliFallbackNote(state.docIndex.contextDir, "checkpoint --fixed \"<bug>\" --fix-files \"<file>\" --fix-risk \"<what would reintroduce it>\"");
   const handoffFallbackNote = renderCliFallbackNote(state.docIndex.contextDir, "handoff");
+  const startNewNote = renderCliFallbackNote(state.docIndex.contextDir, "start-new --goal \"<goal>\"");
+  const watchNote = renderCliFallbackNote(state.docIndex.contextDir, "watch");
   return `# AGENTS
 
 <!-- ═══════════════════════════════════════════════════════════════════
@@ -284,8 +286,7 @@ function renderAgentsMd(state: HolisticState): string {
   2. Summarise to the user: what was last worked on, what's planned next,
      and flag any KNOWN FIXES they should be aware of.
   3. Ask: "What would you like to work on — continue recent work, or start something new?"
-  4. Run: holistic resume --agent <your-agent-name>
-  5. If that command is unavailable, use the repo-local Holistic helper for this repo.
+  4. Open the session with the repo-local Holistic helper for this repo.
 
   DO NOT skip step 1. HOLISTIC.md is the source of truth.
   ══════════════════════════════════════════════════════════════════ -->
@@ -304,7 +305,7 @@ Every agent working in this repo should:
 2. Review [Project History](./.holistic/context/project-history.md), [Regression Watch](./.holistic/context/regression-watch.md), and [Zero-Touch Architecture](./.holistic/context/zero-touch.md) before changing behavior that may already have been fixed.
 3. Read the app-specific adapter in \`${state.docIndex.contextDir}/adapters/\`.
 4. If the Holistic daemon is installed, assume passive capture is already running in the background.
-5. Run \`holistic resume --agent <codex|claude|antigravity|gemini|copilot|cursor|goose|gsd>\` only when you need an explicit recap or recovery flow.
+5. Use the repo-local Holistic helper for explicit recap or recovery flows in this repo.
 6. Recap the current state for the user and ask whether to continue, tweak the plan, or start something new.
 7. Record a checkpoint when focus changes, before likely context compaction, and before handoff.
 
@@ -312,17 +313,13 @@ ${resumeFallbackNote}
 
 ## Handoff Commands
 
-- \`holistic checkpoint --reason "<why>"\`
-- \`holistic checkpoint --fixed "<bug>" --fix-files "<file>" --fix-risk "<what would reintroduce it>"\`
+- ${checkpointFallbackNote.slice(3)}
+- ${checkpointFixNote.slice(3)}
 - \`holistic set-phase --phase "<id>" --name "<name>" --goal "<goal>"\`
 - \`holistic complete-phase --phase "<id>" --next-phase "<id>" --next-name "<name>" --next-goal "<goal>"\`
-- \`holistic handoff\`
-- \`holistic start-new --goal "<goal>"\`
-- \`holistic watch\`
-
-Fallbacks when PATH is missing:
-- ${checkpointFallbackNote.slice(3)}
 - ${handoffFallbackNote.slice(3)}
+- ${startNewNote.slice(3)}
+- ${watchNote.slice(3)}
 
 ## Adding a New Agent Adapter
 
@@ -397,7 +394,7 @@ The protocol below is the current operating model, not the final ideal. When imp
 1. Read \`HOLISTIC.md\`.
 2. Review \`project-history.md\`, \`regression-watch.md\`, and \`zero-touch.md\` for durable project memory and automation expectations.
 3. If the Holistic daemon is installed, let it capture repo activity in the background.
-4. Run \`holistic resume --agent <app>\` only when you need an explicit recap or recovery flow.
+4. Use the repo-local Holistic helper for explicit recap or recovery flows in this repo.
 5. Recap the work state to the user.
 6. Ask whether to continue as planned, tweak the plan, or start something new.
 
@@ -405,20 +402,20 @@ ${resumeFallbackNote}
 
 ## During The Session
 
-Run \`holistic checkpoint\`:
+Use the repo-local Holistic helper for checkpoints in this repo:
 
 - when the task focus changes
 - before likely context compaction
 - after meaningful progress
 - when you fix something another agent might accidentally re-break later
 
-Use \`holistic watch\` if you want foreground background checkpoints while working manually.
+Use the repo-local Holistic helper with \`watch\` if you want foreground background checkpoints while working manually.
 
 ${checkpointFallbackNote}
 
 ## Handoff
 
-1. Run \`holistic handoff\`.
+1. Use the repo-local Holistic helper to run \`handoff\`.
 2. Confirm or edit the drafted summary.
 3. Make sure the next step, impact, and regression risks are accurate.
 4. Let Holistic write the docs and create the handoff commit.\n5. Holistic sync helpers should push the current branch and mirror portable state to the dedicated portable state ref.\n6. If you continue on another device, pull or restore the latest portable state before starting work.
@@ -444,7 +441,7 @@ Use this adapter to move toward that outcome: less manual setup, less re-briefin
 1. Read \`HOLISTIC.md\`.
 2. Review \`project-history.md\`, \`regression-watch.md\`, and \`zero-touch.md\` for durable memory before editing related code.
 3. If the Holistic daemon is installed, treat passive session capture as already active.
-4. Run \`holistic resume --agent ${commandName}\` when you need an explicit recap or recovery flow.
+4. Use the repo-local Holistic helper when you need an explicit recap or recovery flow.
 5. Recap the current state for the user in the first 30 seconds.
 6. Ask: continue as planned, tweak the plan, or start something new.
 
@@ -452,7 +449,7 @@ ${resumeFallbackNote}
 
 ## Checkpoint Contract
 
-Run \`holistic checkpoint\` when:
+Use the repo-local Holistic helper for checkpoints in this repo when:
 
 - the task focus changes
 - you are about to compact or clear context
@@ -465,8 +462,8 @@ ${checkpointFallbackNote}
 
 ## Handoff Contract
 
-- Preferred: map your session-end workflow to \`holistic handoff\`
-- Fallback: ask the user to run \`holistic handoff\` before leaving the session
+- Preferred: map your session-end workflow to the repo-local Holistic helper with \`handoff\`
+- Fallback: ask the user to run the repo-local Holistic helper with \`handoff\` before leaving the session
 
 ${handoffFallbackNote}
 `;
@@ -612,8 +609,7 @@ function renderRootAgentDoc(agentName: string, commandName: string): string {
 2. Read \`AGENTS.md\` — find the section for your agent and follow its setup steps.
 3. Summarise to the user: what was last worked on, what's planned next, and any known fixes to protect.
 4. Ask: "Continue as planned, tweak the plan, or do something different?"
-5. Run \`holistic resume --agent ${commandName}\` to register the session.
-6. If \`holistic\` is not on PATH, use \`./.holistic/system/holistic resume --agent ${commandName}\` on macOS/Linux or \`.\\.holistic\\system\\holistic.cmd resume --agent ${commandName}\` on Windows.
+5. Use \`./.holistic/system/holistic resume --agent ${commandName}\` on macOS/Linux or \`.\\.holistic\\system\\holistic.cmd resume --agent ${commandName}\` on Windows to register the session.
 
 **After significant work or on any git commit (hook fires automatically):**
 - Run \`holistic checkpoint --reason '<what you just did>'\`
