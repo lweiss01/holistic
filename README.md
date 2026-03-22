@@ -20,7 +20,7 @@ Holistic gives your AI agents shared memory inside the repo itself. When you swi
 
 The Holistic product repo is a special case when it dogfoods itself.
 
-Normal user repos may commit portable Holistic runtime files and may use a separate `holistic/state` branch. This public repo should not ship a contributor's personal session history, handoff state, or live dogfooding runtime files. Self-dogfooding on this repo is redirected to ignored local files instead.
+Normal user repos may commit portable Holistic runtime files and sync them through a dedicated portable git ref. This public repo should not ship a contributor's personal session history, handoff state, or live dogfooding runtime files. Self-dogfooding on this repo is redirected to ignored local files instead.
 
 ---
 
@@ -105,11 +105,20 @@ npm link
 
 ```bash
 cd my-project
-holistic bootstrap --remote origin --state-branch holistic/state
+holistic bootstrap --remote origin
 git add HOLISTIC.md AGENTS.md CLAUDE.md GEMINI.md HISTORY.md
 git add .holistic/config.json .holistic/state.json
 git add .holistic/context/
 git commit -m "feat: add holistic"
+```
+
+By default, Holistic now syncs portable state through a hidden git ref (`refs/holistic/state`) to avoid GitHub branch noise.
+
+Advanced overrides:
+
+```bash
+holistic bootstrap --state-ref refs/holistic/state
+holistic bootstrap --state-branch holistic/state
 ```
 
 If you want repo scaffolding without changing local desktop integrations or daemon startup on the current machine, use:
@@ -248,7 +257,7 @@ Holistic is intentionally repo-first, not machine-first.
 | Layer | Purpose | Portable? |
 |---|---|---|
 | Repo memory | Shared handoff, history, regression, and session state | Yes |
-| State branch | Cross-device distribution of Holistic state via git | Yes |
+| State ref | Cross-device distribution of Holistic state via git | Yes |
 | Local daemon | Passive capture on one machine | No |
 
 That split is what makes Holistic work across tools and devices instead of only on one laptop.

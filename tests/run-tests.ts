@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { finalizeDraftHandoffInput, renderDiff, renderResumeOutput, renderStatus } from "../src/cli.ts";
 import { writeDerivedDocs } from "../src/core/docs.ts";
 import { captureRepoSnapshot } from "../src/core/git.ts";
-import { bootstrapHolistic, initializeHolistic } from "../src/core/setup.ts";
+import { bootstrapHolistic, initializeHolistic, refreshHolisticHooks } from "../src/core/setup.ts";
 import { planAutoSync } from "../src/core/sync.ts";
 import {
   applyHandoff,
@@ -123,7 +123,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(config.autoInferSessions, true);
       assert.equal(config.autoSync, true);
       assert.equal(config.sync.remote, "origin");
-      assert.equal(config.sync.stateBranch, "holistic/state");
+      assert.equal(config.sync.stateRef, "refs/holistic/state");
+      assert.equal("stateBranch" in config.sync, false);
       assert.equal(config.sync.syncOnCheckpoint, true);
       assert.equal(config.sync.syncOnHandoff, true);
       assert.ok(fs.existsSync(result.startupTarget ?? ""));
@@ -168,6 +169,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
       const config = JSON.parse(fs.readFileSync(path.join(rootDir, ".holistic-local", "config.json"), "utf8"));
       assert.equal(config.autoSync, false);
+      assert.equal(config.sync.stateRef, "refs/holistic/state");
       assert.equal(config.sync.syncOnCheckpoint, false);
       assert.equal(config.sync.syncOnHandoff, false);
 
@@ -178,6 +180,24 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
       const postCommit = fs.readFileSync(path.join(rootDir, ".git", "hooks", "post-commit"), "utf8");
       assert.match(postCommit, /\.holistic-local\/state\.json/);
+    },
+  },
+  {
+    name: "legacy state-branch option keeps visible branch sync compatibility",
+    run: () => {
+      const { rootDir } = makeRepo();
+      initializeHolistic(rootDir, {
+        stateBranch: "holistic/state",
+      });
+
+      const config = JSON.parse(fs.readFileSync(path.join(rootDir, ".holistic", "config.json"), "utf8"));
+      const syncPs1 = fs.readFileSync(path.join(rootDir, ".holistic", "system", "sync-state.ps1"), "utf8");
+      const syncSh = fs.readFileSync(path.join(rootDir, ".holistic", "system", "sync-state.sh"), "utf8");
+
+      assert.equal(config.sync.stateBranch, "holistic/state");
+      assert.equal("stateRef" in config.sync, false);
+      assert.match(syncPs1, /\$stateRef = 'refs\/heads\/holistic\/state'/);
+      assert.match(syncSh, /STATE_REF='refs\/heads\/holistic\/state'/);
     },
   },
   {
@@ -652,24 +672,62 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       const syncPs1 = fs.readFileSync(path.join(rootDir, ".holistic", "system", "sync-state.ps1"), "utf8");
       const syncSh = fs.readFileSync(path.join(rootDir, ".holistic", "system", "sync-state.sh"), "utf8");
       assert.match(postCommit, /Holistic auto-checkpoint after commit/);
+      assert.match(postCommit, /HOLISTIC-MANAGED post-commit/);
       assert.match(postCommit, /'checkpoint' '--reason' 'post-commit'/);
       assert.match(postCommit, /Committed: \$COMMIT_SUBJECT/);
       assert.match(postCommit, /cd '/);
       assert.match(postCheckout, /Holistic continuity checkpoint after branch switch/);
+      assert.match(postCheckout, /HOLISTIC-MANAGED post-checkout/);
       assert.match(postCheckout, /'checkpoint' '--reason' 'branch-switch'/);
       assert.match(postCheckout, /\[ "\$3" = "1" \]/);
+      assert.match(prePush, /HOLISTIC-MANAGED pre-push/);
       assert.match(prePush, /Holistic Status:/);
       assert.match(prePush, /Run the generated sync helper to update Holistic state:/);
       assert.match(prePush, /sync-state\.ps1/);
       assert.match(prePush, /sync-state\.sh/);
       assert.match(syncPs1, /core\.hooksPath=NUL/);
       assert.match(syncPs1, /PSNativeCommandUseErrorActionPreference/);
-      assert.match(syncPs1, /ls-remote --quiet --exit-code --heads \$remote \$stateBranch/);
-      assert.match(syncPs1, /if \(-not \$remoteStateExists\)/);
-      assert.match(syncPs1, /switch --orphan \$stateBranch/);
-      assert.match(syncPs1, /fetch --quiet \$remote \$stateBranch/);
-      assert.match(syncPs1, /switch -C \$stateBranch FETCH_HEAD/);
+      assert.match(syncPs1, /\$stateRef = 'refs\/holistic\/state'/);
+      assert.match(syncPs1, /\$legacySeedRef = 'refs\/heads\/holistic\/state'/);
+      assert.match(syncPs1, /ls-remote --quiet --exit-code \$remote \$stateRef/);
+      assert.match(syncPs1, /ls-remote --quiet --exit-code \$remote \$legacySeedRef/);
+      assert.match(syncPs1, /switch --detach FETCH_HEAD/);
+      assert.doesNotMatch(syncPs1, /switch -C \$stateBranch FETCH_HEAD/);
       assert.match(syncSh, /core\.hooksPath=\/dev\/null/);
+      assert.match(syncSh, /STATE_REF='refs\/holistic\/state'/);
+      assert.match(syncSh, /LEGACY_SEED_REF='refs\/heads\/holistic\/state'/);
+    },
+  },
+  {
+    name: "managed hook refresh heals stale hooks and preserves custom hooks",
+    run: () => {
+      const { rootDir } = makeRepo();
+      initializeHolistic(rootDir, {
+        installGitHooks: true,
+      });
+
+      const postCommitPath = path.join(rootDir, ".git", "hooks", "post-commit");
+      const postCheckoutPath = path.join(rootDir, ".git", "hooks", "post-checkout");
+      const prePushPath = path.join(rootDir, ".git", "hooks", "pre-push");
+      const stalePostCommit = fs.readFileSync(postCommitPath, "utf8").replace("Holistic auto-checkpoint after commit", "Stale Holistic hook");
+      const customPrePush = "#!/usr/bin/env sh\n# custom user hook\nexit 0\n";
+
+      fs.writeFileSync(postCommitPath, stalePostCommit, "utf8");
+      fs.unlinkSync(postCheckoutPath);
+      fs.writeFileSync(prePushPath, customPrePush, { encoding: "utf8", mode: 0o755 });
+
+      const refreshed = refreshHolisticHooks(rootDir);
+      assert.equal(refreshed.installed, true);
+      assert.ok(refreshed.refreshed.includes("post-commit"));
+      assert.ok(refreshed.refreshed.includes("post-checkout"));
+      assert.match(refreshed.warnings[0] ?? "", /pre-push/);
+      assert.match(fs.readFileSync(postCommitPath, "utf8"), /Holistic auto-checkpoint after commit/);
+      assert.ok(fs.existsSync(postCheckoutPath));
+      assert.equal(fs.readFileSync(prePushPath, "utf8"), customPrePush);
+
+      const secondPass = refreshHolisticHooks(rootDir);
+      assert.deepEqual(secondPass.refreshed, []);
+      assert.match(secondPass.warnings[0] ?? "", /pre-push/);
     },
   },
   {

@@ -4,6 +4,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, typ
 import { pathToFileURL } from "node:url";
 import { captureRepoSnapshot } from './core/git.ts';
 import { writeDerivedDocs } from './core/docs.ts';
+import { refreshHolisticHooks } from './core/setup.ts';
 import { requestAutoSync } from './core/sync.ts';
 import {
   applyHandoff,
@@ -301,6 +302,10 @@ export async function waitForStdioShutdown(stdin: Pick<NodeJS.ReadStream, "once"
 }
 
 export async function runMcpServer(rootDir: string): Promise<void> {
+  const hookResult = refreshHolisticHooks(rootDir);
+  for (const warning of hookResult.warnings) {
+    console.error(warning);
+  }
   const transport = new StdioServerTransport();
   const server = createHolisticMcpServer(rootDir);
   await server.connect(transport);

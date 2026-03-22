@@ -1,12 +1,16 @@
-﻿import fs from "node:fs";
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeDerivedDocs } from './docs.ts';
 import { captureRepoSnapshot, resolveGitDir } from './git.ts';
-import { installGitHooks, type HookCommand } from './git-hooks.ts';
-import { loadState, saveState } from './state.ts';
+import { installGitHooks, refreshGitHooks, type GitHookInstallResult, type HookCommand } from './git-hooks.ts';
+import { getRuntimePaths, loadState, saveState } from './state.ts';
 import type { AgentName, HolisticState, RuntimePaths } from './types.ts';
+
+const DEFAULT_STATE_REF = "refs/holistic/state";
+const DEFAULT_LEGACY_STATE_BRANCH = "holistic/state";
+const TEMP_SYNC_BRANCH = "holistic-sync-tmp";
 
 export interface InitOptions {
   installDaemon?: boolean;
@@ -16,6 +20,7 @@ export interface InitOptions {
   intervalSeconds?: number;
   agent?: AgentName;
   remote?: string;
+  stateRef?: string;
   stateBranch?: string;
 }
 
@@ -27,6 +32,7 @@ export interface InitResult {
   installed: boolean;
   gitHooksInstalled: boolean;
   gitHooks: string[];
+  gitHookWarnings: string[];
   platform: string;
   startupTarget: string | null;
   systemDir: string;
@@ -47,6 +53,13 @@ interface RepoSetupConfigShape {
     postHandoffPush?: boolean;
     restoreOnStartup?: boolean;
   };
+}
+
+interface SyncTarget {
+  ref: string;
+  stateRef?: string;
+  stateBranch?: string;
+  legacySeedBranch?: string | null;
 }
 
 function persist(rootDir: string, state: HolisticState, paths: RuntimePaths): HolisticState {
@@ -125,6 +138,38 @@ function isDirectoryTrackedPath(trackedPath: string): boolean {
   return !path.extname(trackedPath);
 }
 
+function normalizeStateBranch(value: string): string {
+  return value.startsWith("refs/heads/") ? value.slice("refs/heads/".length) : value;
+}
+
+function branchToRef(branch: string): string {
+  return branch.startsWith("refs/") ? branch : `refs/heads/${branch}`;
+}
+
+function resolveSyncTarget(options: Pick<InitOptions, "stateRef" | "stateBranch">): SyncTarget {
+  if (options.stateRef) {
+    return {
+      ref: options.stateRef,
+      stateRef: options.stateRef,
+      legacySeedBranch: options.stateRef === DEFAULT_STATE_REF ? DEFAULT_LEGACY_STATE_BRANCH : null,
+    };
+  }
+
+  if (options.stateBranch) {
+    const stateBranch = normalizeStateBranch(options.stateBranch);
+    return {
+      ref: branchToRef(stateBranch),
+      stateBranch,
+    };
+  }
+
+  return {
+    ref: DEFAULT_STATE_REF,
+    stateRef: DEFAULT_STATE_REF,
+    legacySeedBranch: DEFAULT_LEGACY_STATE_BRANCH,
+  };
+}
+
 function buildPowerShellCopyCommands(rootDir: string, trackedPaths: string[]): string[] {
   return trackedPaths.map((trackedPath) => {
     const source = `Join-Path $root '${quotePowerShell(trackedPath.replaceAll("/", "\\"))}'`;
@@ -164,23 +209,26 @@ function buildShellCopyCommands(trackedPaths: string[]): string[] {
   return lines;
 }
 
-function writeConfig(paths: RuntimePaths, remote: string, stateBranch: string, intervalSeconds: number): void {
+function writeConfig(paths: RuntimePaths, remote: string, syncTarget: SyncTarget, intervalSeconds: number): void {
   const repoConfig = readRepoSetupConfig(paths.rootDir);
   const syncDefaults = repoConfig.syncDefaults ?? {};
+  const syncConfig = {
+    strategy: "state-branch",
+    remote,
+    syncOnCheckpoint: syncDefaults.syncOnCheckpoint ?? true,
+    syncOnHandoff: syncDefaults.syncOnHandoff ?? true,
+    postHandoffPush: syncDefaults.postHandoffPush ?? true,
+    restoreOnStartup: syncDefaults.restoreOnStartup ?? true,
+    trackedPaths: paths.trackedPaths,
+    ...(syncTarget.stateRef ? { stateRef: syncTarget.stateRef } : {}),
+    ...(syncTarget.stateBranch ? { stateBranch: syncTarget.stateBranch } : {}),
+  };
+
   const config = {
     version: 1,
     autoInferSessions: true,
     autoSync: syncDefaults.autoSync ?? true,
-    sync: {
-      strategy: "state-branch",
-      remote,
-      stateBranch,
-      syncOnCheckpoint: syncDefaults.syncOnCheckpoint ?? true,
-      syncOnHandoff: syncDefaults.syncOnHandoff ?? true,
-      postHandoffPush: syncDefaults.postHandoffPush ?? true,
-      restoreOnStartup: syncDefaults.restoreOnStartup ?? true,
-      trackedPaths: paths.trackedPaths,
-    },
+    sync: syncConfig,
     daemon: {
       intervalSeconds,
       agent: "unknown",
@@ -190,7 +238,7 @@ function writeConfig(paths: RuntimePaths, remote: string, stateBranch: string, i
   fs.writeFileSync(configFile(paths), JSON.stringify(config, null, 2) + "\n", "utf8");
 }
 
-function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeconds: number, remote: string, stateBranch: string): void {
+function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeconds: number, remote: string, syncTarget: SyncTarget): void {
   const sysDir = systemDir(paths);
   fs.mkdirSync(sysDir, { recursive: true });
   const trackedPaths = paths.trackedPaths;
@@ -201,19 +249,41 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
   const syncPs1Path = path.join(sysDir, "sync-state.ps1");
   const restoreShPath = path.join(sysDir, "restore-state.sh");
   const syncShPath = path.join(sysDir, "sync-state.sh");
+  const legacySeedRef = syncTarget.legacySeedBranch ? branchToRef(syncTarget.legacySeedBranch) : "";
 
   const restorePs1 = [
     "$ErrorActionPreference = 'Stop'",
+    "if (Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) { $PSNativeCommandUseErrorActionPreference = $false }",
     `$root = '${quotePowerShell(rootDir)}'`,
     `$remote = '${quotePowerShell(remote)}'`,
-    `$stateBranch = '${quotePowerShell(stateBranch)}'`,
+    `$stateRef = '${quotePowerShell(syncTarget.ref)}'`,
+    `$legacySeedRef = '${quotePowerShell(legacySeedRef)}'`,
     `$tracked = @(${powerShellStringArray(trackedPaths)})`,
     "$status = git -C $root status --porcelain -- $tracked 2>$null",
     "if ($LASTEXITCODE -ne 0) { exit 0 }",
     "if ($status) { Write-Host 'Holistic restore skipped because local Holistic files are dirty.'; exit 0 }",
-    "git -C $root fetch $remote $stateBranch 2>$null",
-    "if ($LASTEXITCODE -ne 0) { Write-Host 'Holistic restore skipped because remote state branch is unavailable.'; exit 0 }",
-    "git -C $root checkout FETCH_HEAD -- $tracked 2>$null | Out-Null",
+    "$restored = $false",
+    "try {",
+    "  git -C $root fetch --quiet $remote $stateRef *> $null",
+    "  if ($LASTEXITCODE -eq 0) {",
+    "    git -C $root checkout FETCH_HEAD -- $tracked 2>$null | Out-Null",
+    "    $restored = $true",
+    "  }",
+    "} catch {",
+    "  $restored = $false",
+    "}",
+    "if (-not $restored -and $legacySeedRef) {",
+    "  try {",
+    "    git -C $root fetch --quiet $remote $legacySeedRef *> $null",
+    "    if ($LASTEXITCODE -eq 0) {",
+    "      git -C $root checkout FETCH_HEAD -- $tracked 2>$null | Out-Null",
+    "      $restored = $true",
+    "    }",
+    "  } catch {",
+    "    $restored = $false",
+    "  }",
+    "}",
+    "if (-not $restored) { Write-Host 'Holistic restore skipped because remote portable state is unavailable.'; exit 0 }",
   ].join("\n");
 
   const syncPs1 = [
@@ -221,7 +291,8 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     "if (Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) { $PSNativeCommandUseErrorActionPreference = $false }",
     `$root = '${quotePowerShell(rootDir)}'`,
     `$remote = '${quotePowerShell(remote)}'`,
-    `$stateBranch = '${quotePowerShell(stateBranch)}'`,
+    `$stateRef = '${quotePowerShell(syncTarget.ref)}'`,
+    `$legacySeedRef = '${quotePowerShell(legacySeedRef)}'`,
     "$branch = git -c core.hooksPath=NUL -C $root rev-parse --abbrev-ref HEAD",
     "if ($LASTEXITCODE -ne 0) { throw 'Unable to determine current branch.' }",
     "git -c core.hooksPath=NUL -C $root push $remote $branch",
@@ -230,17 +301,29 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     "try {",
     "  Push-Location $tmp",
     "  $remoteStateExists = $false",
+    "  $remoteLegacyExists = $false",
     "  try {",
-    "    git -c core.hooksPath=NUL ls-remote --quiet --exit-code --heads $remote $stateBranch *> $null",
+    "    git -c core.hooksPath=NUL ls-remote --quiet --exit-code $remote $stateRef *> $null",
     "    $remoteStateExists = ($LASTEXITCODE -eq 0)",
     "  } catch {",
     "    $remoteStateExists = $false",
     "  }",
-    "  if (-not $remoteStateExists) {",
-    "    git -c core.hooksPath=NUL switch --orphan $stateBranch | Out-Null",
+    "  if (-not $remoteStateExists -and $legacySeedRef) {",
+    "    try {",
+    "      git -c core.hooksPath=NUL ls-remote --quiet --exit-code $remote $legacySeedRef *> $null",
+    "      $remoteLegacyExists = ($LASTEXITCODE -eq 0)",
+    "    } catch {",
+    "      $remoteLegacyExists = $false",
+    "    }",
+    "  }",
+    "  if ($remoteStateExists) {",
+    "    git -c core.hooksPath=NUL fetch --quiet $remote $stateRef *> $null",
+    "    git -c core.hooksPath=NUL switch --detach FETCH_HEAD | Out-Null",
+    "  } elseif ($remoteLegacyExists) {",
+    "    git -c core.hooksPath=NUL fetch --quiet $remote $legacySeedRef *> $null",
+    "    git -c core.hooksPath=NUL switch --detach FETCH_HEAD | Out-Null",
     "  } else {",
-    "    git -c core.hooksPath=NUL fetch --quiet $remote $stateBranch *> $null",
-    "    git -c core.hooksPath=NUL switch -C $stateBranch FETCH_HEAD | Out-Null",
+    `    git -c core.hooksPath=NUL switch --orphan ${TEMP_SYNC_BRANCH} | Out-Null`,
     "  }",
     "  Get-ChildItem -Force | Where-Object { $_.Name -ne '.git' } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue",
     ...buildPowerShellCopyCommands(rootDir, trackedPaths),
@@ -249,7 +332,7 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     "  if ($LASTEXITCODE -ne 0) {",
     "    git -c core.hooksPath=NUL commit -m 'chore(holistic): sync portable state' | Out-Null",
     "  }",
-    "  git -c core.hooksPath=NUL push $remote HEAD:$stateBranch",
+    "  git -c core.hooksPath=NUL push $remote HEAD:$stateRef",
     "} finally {",
     "  Pop-Location",
     "  git -c core.hooksPath=NUL -C $root worktree remove --force $tmp | Out-Null",
@@ -260,23 +343,35 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     "#!/usr/bin/env sh",
     `ROOT='${shellQuote(rootDir)}'`,
     `REMOTE='${shellQuote(remote)}'`,
-    `STATE_BRANCH='${shellQuote(stateBranch)}'`,
+    `STATE_REF='${shellQuote(syncTarget.ref)}'`,
+    `LEGACY_SEED_REF='${shellQuote(legacySeedRef)}'`,
     `if ! git -C "$ROOT" diff --quiet -- ${shellPathList(trackedPaths)} 2>/dev/null; then`,
     "  echo 'Holistic restore skipped because local Holistic files are dirty.'",
     "  exit 0",
     "fi",
-    "if ! git -C \"$ROOT\" fetch \"$REMOTE\" \"$STATE_BRANCH\" 2>/dev/null; then",
-    "  echo 'Holistic restore skipped because remote state branch is unavailable.'",
+    "RESTORED=false",
+    "if git -C \"$ROOT\" fetch \"$REMOTE\" \"$STATE_REF\" >/dev/null 2>&1; then",
+    `  git -C "$ROOT" checkout FETCH_HEAD -- ${shellPathList(trackedPaths)} >/dev/null 2>&1 || true`,
+    "  RESTORED=true",
+    "fi",
+    "if [ \"$RESTORED\" != \"true\" ] && [ -n \"$LEGACY_SEED_REF\" ]; then",
+    "  if git -C \"$ROOT\" fetch \"$REMOTE\" \"$LEGACY_SEED_REF\" >/dev/null 2>&1; then",
+    `    git -C "$ROOT" checkout FETCH_HEAD -- ${shellPathList(trackedPaths)} >/dev/null 2>&1 || true`,
+    "    RESTORED=true",
+    "  fi",
+    "fi",
+    "if [ \"$RESTORED\" != \"true\" ]; then",
+    "  echo 'Holistic restore skipped because remote portable state is unavailable.'",
     "  exit 0",
     "fi",
-    `git -C "$ROOT" checkout FETCH_HEAD -- ${shellPathList(trackedPaths)} 2>/dev/null || true`,
   ].join("\n");
 
   const syncSh = [
     "#!/usr/bin/env sh",
     `ROOT='${shellQuote(rootDir)}'`,
     `REMOTE='${shellQuote(remote)}'`,
-    `STATE_BRANCH='${shellQuote(stateBranch)}'`,
+    `STATE_REF='${shellQuote(syncTarget.ref)}'`,
+    `LEGACY_SEED_REF='${shellQuote(legacySeedRef)}'`,
     "BRANCH=$(git -c core.hooksPath=/dev/null -C \"$ROOT\" rev-parse --abbrev-ref HEAD) || exit 1",
     "git -c core.hooksPath=/dev/null -C \"$ROOT\" push \"$REMOTE\" \"$BRANCH\" || exit 1",
     "TMPDIR=$(mktemp -d 2>/dev/null || mktemp -d -t holistic-state)",
@@ -284,12 +379,30 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     "cleanup() { git -c core.hooksPath=/dev/null -C \"$ROOT\" worktree remove --force \"$TMPDIR\" >/dev/null 2>&1; }",
     "trap cleanup EXIT",
     "cd \"$TMPDIR\" || exit 1",
-    "git -c core.hooksPath=/dev/null switch \"$STATE_BRANCH\" >/dev/null 2>&1 || git -c core.hooksPath=/dev/null switch --orphan \"$STATE_BRANCH\" >/dev/null 2>&1 || exit 1",
+    "REMOTE_STATE_EXISTS=false",
+    "REMOTE_LEGACY_EXISTS=false",
+    "if git -c core.hooksPath=/dev/null ls-remote --quiet --exit-code \"$REMOTE\" \"$STATE_REF\" >/dev/null 2>&1; then",
+    "  REMOTE_STATE_EXISTS=true",
+    "fi",
+    "if [ \"$REMOTE_STATE_EXISTS\" != \"true\" ] && [ -n \"$LEGACY_SEED_REF\" ]; then",
+    "  if git -c core.hooksPath=/dev/null ls-remote --quiet --exit-code \"$REMOTE\" \"$LEGACY_SEED_REF\" >/dev/null 2>&1; then",
+    "    REMOTE_LEGACY_EXISTS=true",
+    "  fi",
+    "fi",
+    "if [ \"$REMOTE_STATE_EXISTS\" = \"true\" ]; then",
+    "  git -c core.hooksPath=/dev/null fetch --quiet \"$REMOTE\" \"$STATE_REF\" >/dev/null 2>&1 || exit 1",
+    "  git -c core.hooksPath=/dev/null switch --detach FETCH_HEAD >/dev/null 2>&1 || exit 1",
+    "elif [ \"$REMOTE_LEGACY_EXISTS\" = \"true\" ]; then",
+    "  git -c core.hooksPath=/dev/null fetch --quiet \"$REMOTE\" \"$LEGACY_SEED_REF\" >/dev/null 2>&1 || exit 1",
+    "  git -c core.hooksPath=/dev/null switch --detach FETCH_HEAD >/dev/null 2>&1 || exit 1",
+    "else",
+    `  git -c core.hooksPath=/dev/null switch --orphan "${TEMP_SYNC_BRANCH}" >/dev/null 2>&1 || exit 1`,
+    "fi",
     "find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +",
     ...buildShellCopyCommands(trackedPaths),
     `git -c core.hooksPath=/dev/null add ${trackedPaths.map((trackedPath) => `"${trackedPath}"`).join(" ")}`,
     "git -c core.hooksPath=/dev/null diff --cached --quiet || git -c core.hooksPath=/dev/null commit -m 'chore(holistic): sync portable state' >/dev/null 2>&1",
-    "git -c core.hooksPath=/dev/null push \"$REMOTE\" HEAD:\"$STATE_BRANCH\"",
+    "git -c core.hooksPath=/dev/null push \"$REMOTE\" HEAD:\"$STATE_REF\"",
   ].join("\n");
 
   const runPs1 = [
@@ -314,9 +427,9 @@ This directory contains generated startup and sync helpers for Holistic.
 
 Files:
 - run-daemon.ps1 / run-daemon.sh: restore the portable state, then start the background daemon
-- restore-state.ps1 / restore-state.sh: pull the portable Holistic state branch into the current worktree when safe
-- sync-state.ps1 / sync-state.sh: push the current branch and mirror Holistic files into the dedicated state branch
-- config in ../config.json defines the remote and portable state branch
+- restore-state.ps1 / restore-state.sh: pull the portable Holistic state ref into the current worktree when safe
+- sync-state.ps1 / sync-state.sh: push the current branch and mirror Holistic files into the portable state ref
+- config in ../config.json defines the remote and portable state target
 `;
 
   fs.writeFileSync(path.join(sysDir, "run-daemon.ps1"), runPs1 + "\n", "utf8");
@@ -465,6 +578,18 @@ function writeClaudeDesktopMcpConfig(rootDir: string, platform: NodeJS.Platform,
   return configPath;
 }
 
+function buildHookCommand(rootDir: string, paths: RuntimePaths): HookCommand {
+  const cliRuntime = runtimeEntryScript("cli");
+  return {
+    nodePath: process.execPath,
+    scriptPath: cliRuntime.scriptPath,
+    useStripTypes: cliRuntime.useStripTypes,
+    stateFilePath: path.relative(rootDir, paths.stateFile).replaceAll("\\", "/"),
+    syncPowerShellPath: path.relative(rootDir, path.join(systemDir(paths), "sync-state.ps1")).replaceAll("\\", "/"),
+    syncShellPath: path.relative(rootDir, path.join(systemDir(paths), "sync-state.sh")).replaceAll("\\", "/"),
+  };
+}
+
 function verifyBootstrapSetup(rootDir: string, result: InitResult, platform: NodeJS.Platform, homeDir: string, configureMcp: boolean): { checks: string[]; mcpConfigFile: string | null } {
   const checks: string[] = [];
 
@@ -502,45 +627,44 @@ function verifyBootstrapSetup(rootDir: string, result: InitResult, platform: Nod
   };
 }
 
+export function refreshHolisticHooks(rootDir: string): GitHookInstallResult {
+  const paths = getRuntimePaths(rootDir);
+  return refreshGitHooks(rootDir, resolveGitDir(rootDir), buildHookCommand(rootDir, paths));
+}
+
 export function initializeHolistic(rootDir: string, options: InitOptions = {}): InitResult {
   const { state, paths } = loadState(rootDir);
   persist(rootDir, state, paths);
 
   const intervalSeconds = options.intervalSeconds ?? 30;
   const remote = options.remote ?? "origin";
-  const stateBranch = options.stateBranch ?? "holistic/state";
-  writeConfig(paths, remote, stateBranch, intervalSeconds);
-  writeSystemArtifacts(rootDir, paths, intervalSeconds, remote, stateBranch);
+  const syncTarget = resolveSyncTarget(options);
+  writeConfig(paths, remote, syncTarget, intervalSeconds);
+  writeSystemArtifacts(rootDir, paths, intervalSeconds, remote, syncTarget);
 
   const platform = options.platform ?? process.platform;
   const homeDir = options.homeDir ?? os.homedir();
   let startupTarget: string | null = null;
   let gitHooksInstalled = false;
   let gitHooks: string[] = [];
+  let gitHookWarnings: string[] = [];
 
   if (options.installDaemon) {
     startupTarget = installDaemon(rootDir, paths, platform, homeDir);
   }
 
   if (options.installGitHooks) {
-    const cliRuntime = runtimeEntryScript("cli");
-    const hookCommand: HookCommand = {
-      nodePath: process.execPath,
-      scriptPath: cliRuntime.scriptPath,
-      useStripTypes: cliRuntime.useStripTypes,
-      stateFilePath: path.relative(rootDir, paths.stateFile).replaceAll("\\", "/"),
-      syncPowerShellPath: path.relative(rootDir, path.join(systemDir(paths), "sync-state.ps1")).replaceAll("\\", "/"),
-      syncShellPath: path.relative(rootDir, path.join(systemDir(paths), "sync-state.sh")).replaceAll("\\", "/"),
-    };
-    const hookResult = installGitHooks(rootDir, resolveGitDir(rootDir), hookCommand);
+    const hookResult = installGitHooks(rootDir, resolveGitDir(rootDir), buildHookCommand(rootDir, paths));
     gitHooksInstalled = hookResult.installed;
     gitHooks = hookResult.hooks;
+    gitHookWarnings = hookResult.warnings;
   }
 
   return {
     installed: Boolean(startupTarget),
     gitHooksInstalled,
     gitHooks,
+    gitHookWarnings,
     platform,
     startupTarget,
     systemDir: systemDir(paths),

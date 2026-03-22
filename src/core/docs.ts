@@ -399,7 +399,7 @@ Use \`holistic watch\` if you want foreground background checkpoints while worki
 1. Run \`holistic handoff\`.
 2. Confirm or edit the drafted summary.
 3. Make sure the next step, impact, and regression risks are accurate.
-4. Let Holistic write the docs and create the handoff commit.\n5. Holistic sync helpers should push the current branch and mirror portable state to the dedicated state branch.\n6. If you continue on another device, pull or restore the latest portable state before starting work.
+4. Let Holistic write the docs and create the handoff commit.\n5. Holistic sync helpers should push the current branch and mirror portable state to the dedicated portable state ref.\n6. If you continue on another device, pull or restore the latest portable state before starting work.
 `;
 }
 
@@ -547,7 +547,7 @@ Zero-touch architecture exists to close the gap between the current protocol and
 ## Machine Layer
 
 - A background Holistic daemon can watch the repo and create passive checkpoints without you manually starting a session.
-- Generated restore scripts can pull the dedicated Holistic state branch into the working tree when it is safe to do so.
+- Generated restore scripts can pull the dedicated Holistic portable state ref into the working tree when it is safe to do so.
 - This is the only realistic way to get close to seamless cross-tool capture when apps do not expose a startup hook.
 - It requires a one-time machine install or service registration outside the repo.
 
@@ -559,7 +559,7 @@ Zero-touch architecture exists to close the gap between the current protocol and
 ## Current Recommendation
 
 - Keep using repo-visible memory as the portable source of truth.
-- Treat the dedicated Holistic state branch as the clean cross-device distribution channel for that memory.
+- Treat the dedicated Holistic portable state ref as the clean cross-device distribution channel for that memory.
 - Add the Holistic daemon as the passive capture layer on devices where you want unattended local capture.
 - Add app-specific integrations when a tool exposes startup hooks or slash-command automation.
 - Holistic should recognize workflow systems, not become one.

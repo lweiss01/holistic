@@ -5,7 +5,7 @@ import { stdin as input, stdout as output } from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { captureRepoSnapshot, clearPendingCommit, writePendingCommit } from './core/git.ts';
 import { writeDerivedDocs } from './core/docs.ts';
-import { bootstrapHolistic, initializeHolistic } from './core/setup.ts';
+import { bootstrapHolistic, initializeHolistic, refreshHolisticHooks } from './core/setup.ts';
 import { printSplash, printSplashError, renderSplash } from './core/splash.ts';
 import { requestAutoSync } from './core/sync.ts';
 import { runDaemonTick } from './daemon.ts';
@@ -92,8 +92,8 @@ function printHelp(): void {
   process.stdout.write(`Holistic CLI
 
 Usage:
-  holistic init [--install-daemon] [--install-hooks] [--platform win32|darwin|linux] [--interval 30] [--remote origin] [--state-branch holistic/state]
-  holistic bootstrap [--platform win32|darwin|linux] [--interval 30] [--remote origin] [--state-branch holistic/state] [--install-daemon false] [--install-hooks false] [--configure-mcp false]
+  holistic init [--install-daemon] [--install-hooks] [--platform win32|darwin|linux] [--interval 30] [--remote origin] [--state-ref refs/holistic/state] [--state-branch holistic/state]
+  holistic bootstrap [--platform win32|darwin|linux] [--interval 30] [--remote origin] [--state-ref refs/holistic/state] [--state-branch holistic/state] [--install-daemon false] [--install-hooks false] [--configure-mcp false]
   holistic start [--agent codex|claude|antigravity|gemini|copilot|cursor|goose|gsd] [--continue] [--json]
   holistic resume [--agent codex|claude|antigravity|gemini|copilot|cursor|goose|gsd] [--continue] [--json]
   holistic checkpoint --reason "<reason>" [--goal "<goal>"] [--status "<status>"] [--plan "<step>"]...
@@ -111,6 +111,17 @@ Usage:
 
 export function renderResumeOutput(body: string): string {
   return `${renderSplash({ message: "loading project recap..." })}${body}`;
+}
+
+function reportHookWarnings(warnings: string[]): void {
+  for (const warning of warnings) {
+    process.stderr.write(`${warning}\n`);
+  }
+}
+
+function refreshHooksBeforeCommand(rootDir: string): void {
+  const hookResult = refreshHolisticHooks(rootDir);
+  reportHookWarnings(hookResult.warnings);
 }
 
 function persistLocked(rootDir: string, state: HolisticState, paths: RuntimePaths): HolisticState {
@@ -340,8 +351,10 @@ async function handleInit(rootDir: string, parsed: ParsedArgs): Promise<number> 
     platform: platform as NodeJS.Platform,
     intervalSeconds,
     remote: firstFlag(parsed.flags, "remote", "origin"),
-    stateBranch: firstFlag(parsed.flags, "state-branch", "holistic/state"),
+    stateRef: firstFlag(parsed.flags, "state-ref"),
+    stateBranch: firstFlag(parsed.flags, "state-branch"),
   });
+  reportHookWarnings(result.gitHookWarnings);
 
   // Show status
   const statusItems: string[] = [];
@@ -389,8 +402,10 @@ async function handleBootstrap(rootDir: string, parsed: ParsedArgs): Promise<num
     platform: platform as NodeJS.Platform,
     intervalSeconds,
     remote: firstFlag(parsed.flags, "remote", "origin"),
-    stateBranch: firstFlag(parsed.flags, "state-branch", "holistic/state"),
+    stateRef: firstFlag(parsed.flags, "state-ref"),
+    stateBranch: firstFlag(parsed.flags, "state-branch"),
   });
+  reportHookWarnings(result.gitHookWarnings);
 
   // Show status
   const statusItems: string[] = [];
@@ -422,6 +437,7 @@ Checks: ${result.checks.join(", ")}
 }
 
 async function handleResume(rootDir: string, parsed: ParsedArgs): Promise<number> {
+  refreshHooksBeforeCommand(rootDir);
   const agent = asAgent(firstFlag(parsed.flags, "agent", "unknown"));
 
   if (firstFlag(parsed.flags, "continue") === "true") {
@@ -448,6 +464,7 @@ async function handleResume(rootDir: string, parsed: ParsedArgs): Promise<number
 }
 
 async function handleCheckpoint(rootDir: string, parsed: ParsedArgs): Promise<number> {
+  refreshHooksBeforeCommand(rootDir);
   const nextState = mutateState(rootDir, (state) => {
     const regressions = listFlag(parsed.flags, "regression");
 
@@ -491,6 +508,7 @@ async function handleCheckpoint(rootDir: string, parsed: ParsedArgs): Promise<nu
 }
 
 async function handleStartNew(rootDir: string, parsed: ParsedArgs): Promise<number> {
+  refreshHooksBeforeCommand(rootDir);
   const agent = asAgent(firstFlag(parsed.flags, "agent", "unknown"));
   const rl = createInterface({ input, output });
 
@@ -509,6 +527,7 @@ async function handleStartNew(rootDir: string, parsed: ParsedArgs): Promise<numb
 }
 
 async function handleHandoff(rootDir: string, parsed: ParsedArgs): Promise<number> {
+  refreshHooksBeforeCommand(rootDir);
   const { state, paths } = loadState(rootDir);
   if (!state.activeSession) {
     process.stderr.write("No active session to hand off.\n");
@@ -594,6 +613,7 @@ async function handleHandoff(rootDir: string, parsed: ParsedArgs): Promise<numbe
 }
 
 async function handleStatus(rootDir: string): Promise<number> {
+  refreshHooksBeforeCommand(rootDir);
   const { state } = loadState(rootDir);
   process.stdout.write(renderStatus(state));
   return 0;
@@ -632,6 +652,7 @@ async function handleDiff(rootDir: string, parsed: ParsedArgs): Promise<number> 
 }
 
 async function handleServe(rootDir: string): Promise<number> {
+  refreshHooksBeforeCommand(rootDir);
   printSplashError({
     message: "starting MCP server on stdio...",
   });
@@ -663,6 +684,7 @@ async function handleMarkCommit(rootDir: string, parsed: ParsedArgs): Promise<nu
 }
 
 async function handleWatch(rootDir: string, parsed: ParsedArgs): Promise<number> {
+  refreshHooksBeforeCommand(rootDir);
   const intervalSeconds = Number.parseInt(firstFlag(parsed.flags, "interval", "60"), 10);
   const agent = asAgent(firstFlag(parsed.flags, "agent", "unknown"));
   process.stdout.write(`Watching repo every ${intervalSeconds}s for checkpoint-worthy changes.\n`);

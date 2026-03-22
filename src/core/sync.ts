@@ -10,6 +10,7 @@ interface SyncConfigShape {
   sync?: {
     strategy?: string;
     remote?: string;
+    stateRef?: string;
     stateBranch?: string;
     syncOnCheckpoint?: boolean;
     syncOnHandoff?: boolean;

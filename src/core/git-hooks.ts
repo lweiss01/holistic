@@ -13,7 +13,15 @@ export interface HookCommand {
 export interface GitHookInstallResult {
   installed: boolean;
   hooks: string[];
+  refreshed: string[];
+  warnings: string[];
 }
+
+type HookName = "post-commit" | "post-checkout" | "pre-push";
+type HookMode = "install" | "refresh";
+
+const HOLISTIC_HOOK_MARKER = "HOLISTIC-MANAGED";
+const SUPPORTED_HOOKS: HookName[] = ["post-commit", "post-checkout", "pre-push"];
 
 function shellQuote(value: string): string {
   return value.replace(/'/g, `'\"'\"'`);
@@ -29,14 +37,21 @@ function commandLine(command: HookCommand, args: string[]): string {
   return parts.join(" ");
 }
 
-export function installGitHooks(rootDir: string, gitDir: string | null, command: HookCommand): GitHookInstallResult {
-  if (!gitDir || !fs.existsSync(gitDir)) {
-    return { installed: false, hooks: [] };
-  }
+function normalizeHookContent(content: string): string {
+  return content.replace(/\r\n/g, "\n");
+}
 
-  const hooksDir = path.join(gitDir, "hooks");
-  fs.mkdirSync(hooksDir, { recursive: true });
+function isHolisticManagedHook(content: string): boolean {
+  return normalizeHookContent(content).includes(HOLISTIC_HOOK_MARKER);
+}
 
+function renderHookHeader(name: HookName): string {
+  return `#!/usr/bin/env sh
+# ${HOLISTIC_HOOK_MARKER} ${name}
+`;
+}
+
+function renderGitHooks(rootDir: string, command: HookCommand): Record<HookName, string> {
   const checkpointCommand = commandLine(command, [
     "checkpoint",
     "--reason",
@@ -51,8 +66,8 @@ export function installGitHooks(rootDir: string, gitDir: string | null, command:
   ]);
   const statusCommand = commandLine(command, ["status"]);
 
-  const postCommit = `#!/usr/bin/env sh
-# Holistic auto-checkpoint after commit
+  return {
+    "post-commit": `${renderHookHeader("post-commit")}# Holistic auto-checkpoint after commit
 
 cd '${shellQuote(rootDir)}' || exit 0
 
@@ -62,10 +77,8 @@ if [ -f "$PWD/${shellQuote(command.stateFilePath)}" ]; then
 fi
 
 exit 0
-`;
-
-  const postCheckout = `#!/usr/bin/env sh
-# Holistic continuity checkpoint after branch switch
+`,
+    "post-checkout": `${renderHookHeader("post-checkout")}# Holistic continuity checkpoint after branch switch
 
 cd '${shellQuote(rootDir)}' || exit 0
 
@@ -74,10 +87,8 @@ if [ -f "$PWD/${shellQuote(command.stateFilePath)}" ] && [ "$3" = "1" ]; then
 fi
 
 exit 0
-`;
-
-  const prePush = `#!/usr/bin/env sh
-# Holistic status reminder before push
+`,
+    "pre-push": `${renderHookHeader("pre-push")}# Holistic status reminder before push
 
 cd '${shellQuote(rootDir)}' || exit 0
 
@@ -93,14 +104,81 @@ if [ -f "$PWD/${shellQuote(command.stateFilePath)}" ]; then
 fi
 
 exit 0
-`;
+`,
+  };
+}
 
-  fs.writeFileSync(path.join(hooksDir, "post-commit"), postCommit, { encoding: "utf8", mode: 0o755 });
-  fs.writeFileSync(path.join(hooksDir, "post-checkout"), postCheckout, { encoding: "utf8", mode: 0o755 });
-  fs.writeFileSync(path.join(hooksDir, "pre-push"), prePush, { encoding: "utf8", mode: 0o755 });
+function writeHookFile(hooksDir: string, hookName: HookName, content: string): void {
+  fs.writeFileSync(path.join(hooksDir, hookName), content, { encoding: "utf8", mode: 0o755 });
+}
+
+function syncGitHooks(rootDir: string, gitDir: string | null, command: HookCommand, mode: HookMode): GitHookInstallResult {
+  if (!gitDir || !fs.existsSync(gitDir)) {
+    return { installed: false, hooks: [], refreshed: [], warnings: [] };
+  }
+
+  const hooksDir = path.join(gitDir, "hooks");
+  fs.mkdirSync(hooksDir, { recursive: true });
+
+  const rendered = renderGitHooks(rootDir, command);
+  const warnings: string[] = [];
+  const refreshed: string[] = [];
+  const managedHooks = new Set<HookName>();
+  let hasManagedExistingHook = false;
+
+  for (const hookName of SUPPORTED_HOOKS) {
+    const hookPath = path.join(hooksDir, hookName);
+    if (!fs.existsSync(hookPath)) {
+      continue;
+    }
+
+    const content = fs.readFileSync(hookPath, "utf8");
+    if (isHolisticManagedHook(content)) {
+      hasManagedExistingHook = true;
+      managedHooks.add(hookName);
+      continue;
+    }
+
+    warnings.push(`Skipped Holistic hook refresh for ${hookName}: existing hook is not Holistic-managed.`);
+  }
+
+  for (const hookName of SUPPORTED_HOOKS) {
+    const hookPath = path.join(hooksDir, hookName);
+    const expected = rendered[hookName];
+
+    if (!fs.existsSync(hookPath)) {
+      if (mode === "install" || hasManagedExistingHook) {
+        writeHookFile(hooksDir, hookName, expected);
+        refreshed.push(hookName);
+        managedHooks.add(hookName);
+      }
+      continue;
+    }
+
+    const current = fs.readFileSync(hookPath, "utf8");
+    if (!isHolisticManagedHook(current)) {
+      continue;
+    }
+
+    managedHooks.add(hookName);
+    if (normalizeHookContent(current) !== normalizeHookContent(expected)) {
+      writeHookFile(hooksDir, hookName, expected);
+      refreshed.push(hookName);
+    }
+  }
 
   return {
-    installed: true,
-    hooks: ["post-commit", "post-checkout", "pre-push"],
+    installed: managedHooks.size > 0,
+    hooks: [...managedHooks],
+    refreshed,
+    warnings,
   };
+}
+
+export function installGitHooks(rootDir: string, gitDir: string | null, command: HookCommand): GitHookInstallResult {
+  return syncGitHooks(rootDir, gitDir, command, "install");
+}
+
+export function refreshGitHooks(rootDir: string, gitDir: string | null, command: HookCommand): GitHookInstallResult {
+  return syncGitHooks(rootDir, gitDir, command, "refresh");
 }
