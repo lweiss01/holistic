@@ -22,6 +22,8 @@ Holistic gives your AI agents shared memory inside the repo itself. When you swi
 
 Open your project repo in PowerShell, Terminal, Command Prompt, or whatever shell you normally use.
 
+Requires Node.js 24+.
+
 Run these two commands:
 
 ```bash
@@ -36,6 +38,8 @@ Before doing any other work, read AGENTS.md and HOLISTIC.md, recap the current s
 ```
 
 That is enough to get the basic Holistic workflow working.
+
+If you want the fuller install and setup details, jump to [Quick start](#quick-start-).
 
 ---
 
