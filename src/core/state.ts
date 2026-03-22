@@ -455,10 +455,20 @@ export function readArchivedSessions(paths: RuntimePaths): SessionRecord[] {
     return [];
   }
 
-  return fs.readdirSync(paths.sessionsDir)
-    .filter((file) => file.endsWith(".json"))
-    .map((file) => JSON.parse(fs.readFileSync(path.join(paths.sessionsDir, file), "utf8")) as SessionRecord)
-    .sort((left, right) => (right.endedAt || right.updatedAt).localeCompare(left.endedAt || left.updatedAt));
+  const sessions: SessionRecord[] = [];
+  for (const file of fs.readdirSync(paths.sessionsDir)) {
+    if (!file.endsWith(".json")) {
+      continue;
+    }
+
+    try {
+      sessions.push(JSON.parse(fs.readFileSync(path.join(paths.sessionsDir, file), "utf8")) as SessionRecord);
+    } catch {
+      // Skip corrupt session files instead of crashing the entire tool.
+    }
+  }
+
+  return sessions.sort((left, right) => (right.endedAt || right.updatedAt).localeCompare(left.endedAt || left.updatedAt));
 }
 
 function buildResumeRecap(state: HolisticState): string[] {
