@@ -82,7 +82,7 @@ This milestone is complete only when all are true:
 - [ ] **S07: Technical Polish & Cross-Platform** `risk:low` `depends:[]`
   > After this: CRLF warnings fixed with proper .gitattributes; npm pack/install tested on Mac/Windows/Linux; error messages are helpful and actionable; bootstrap experience validated on clean machines; same-repo state sync no longer creates confusing GitHub PR/banner prompts for normal project repos
 
-- [ ] **S08: npm Publishing Preparation** `risk:low` `depends:[S06,S07]`
+- [x] **S08: npm Publishing Preparation** `risk:low` `depends:[S06,S07]`
   > After this: CHANGELOG.md exists; package.json has proper keywords; README is npm-ready; global install verified; ready for npm publish as 0.2.0
 
 - [ ] **S09: Launch Communications** `risk:low` `depends:[S08]`
