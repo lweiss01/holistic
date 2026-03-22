@@ -98,9 +98,9 @@ function currentSnapshot(state: HolisticState): {
   }
 
   return {
-    title: state.lastHandoff ? "Resume from last handoff" : "No active session",
-    goal: state.lastHandoff?.nextAction || "Start a new Holistic session.",
-    status: state.lastHandoff?.summary || "No active handoff captured yet.",
+    title: state.lastHandoff ? "Resume from last handoff" : "Ready for work",
+    goal: state.lastHandoff?.nextAction || "Review recent repo activity and decide what to work on.",
+    status: state.lastHandoff?.summary || "Holistic is set up and tracking this repo.",
     tried: [],
     next: state.lastHandoff ? [state.lastHandoff.nextAction] : [],
     assumptions: [],
@@ -175,7 +175,7 @@ function renderHolisticMd(state: HolisticState): string {
   1. Read this file top-to-bottom.
   2. Read AGENTS.md for the setup steps specific to your agent.
   3. Summarise to the user: what was last worked on, what's planned next.
-  4. Ask: "Continue as planned, tweak the plan, or do something different?"
+  4. Ask: "What would you like to work on — continue recent work, or start something new?"
   5. Run \`holistic resume --agent <your-agent-name>\` to open a session.
 
   ⚠️  If you are about to edit a file listed under KNOWN FIXES, STOP and
@@ -204,19 +204,19 @@ ${snapshot.status}
 
 ## What Was Tried
 
-${renderList(snapshot.tried, "No tried items captured yet.")}
+${renderList(snapshot.tried, "Nothing recorded yet.")}
 
 ## What To Try Next
 
-${renderList(snapshot.next, "Run `holistic start-new --goal \"Describe the task\"` to begin capturing work.")}
+${renderList(snapshot.next, "Ask the user what they'd like to work on.")}
 
 ## Active Plan
 
-${renderList(snapshot.plan, "No active plan has been captured yet.")}
+${renderList(snapshot.plan, "None yet — will be set once work begins.")}
 
 ## Overall Impact So Far
 
-${renderList(snapshot.impacts, "No durable impact notes recorded yet.")}
+${renderList(snapshot.impacts, "Nothing recorded yet.")}
 
 ## Regression Watch
 
@@ -224,11 +224,11 @@ ${renderList(otherRegressions, "Review the regression watch document before chan
 
 ## Key Assumptions
 
-${renderList(snapshot.assumptions, "No explicit assumptions recorded yet.")}
+${renderList(snapshot.assumptions, "None recorded.")}
 
 ## Blockers
 
-${renderList(snapshot.blockers, "No blockers recorded.")}
+${renderList(snapshot.blockers, "None.")}
 
 ## Changed Files In Current Session
 
@@ -236,7 +236,7 @@ ${renderList(snapshot.changedFiles, "No repo changes detected for the active ses
 
 ## Pending Work Queue
 
-${pendingPreview.length === 0 ? "- No queued work." : pendingPreview.map((item) => `- ${item.title}: ${item.recommendedNextStep}`).join("\n")}
+${pendingPreview.length === 0 ? "- None." : pendingPreview.map((item) => `- ${item.title}: ${item.recommendedNextStep}`).join("\n")}
 
 ## Long-Term Memory
 
@@ -257,7 +257,7 @@ ${adapterLinks}
 ## Historical Memory
 
 - Last updated: ${state.updatedAt}
-- Last handoff: ${state.lastHandoff ? `${state.lastHandoff.summary}` : "No explicit handoff captured yet."}
+- Last handoff: ${state.lastHandoff ? `${state.lastHandoff.summary}` : "None yet."}
 - Pending sessions remembered: ${state.pendingWork.length}
 `;
 }
@@ -275,7 +275,7 @@ function renderAgentsMd(state: HolisticState): string {
   1. Read HOLISTIC.md in full.
   2. Summarise to the user: what was last worked on, what's planned next,
      and flag any KNOWN FIXES they should be aware of.
-  3. Ask: "Continue as planned, tweak the plan, or do something different?"
+  3. Ask: "What would you like to work on — continue recent work, or start something new?"
   4. Run: holistic resume --agent <your-agent-name>
 
   DO NOT skip step 1. HOLISTIC.md is the source of truth.
