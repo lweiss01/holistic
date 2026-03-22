@@ -1,6 +1,7 @@
 import { pathToFileURL } from "node:url";
 import { captureRepoSnapshot, getGitSnapshot, isPortableHolisticPath } from './core/git.ts';
 import { writeDerivedDocs } from './core/docs.ts';
+import { refreshHolisticHooks } from './core/setup.ts';
 import { requestAutoSync } from './core/sync.ts';
 import {
   buildAutoDraftHandoff,
@@ -249,6 +250,13 @@ async function main(): Promise<number> {
   const intervalSeconds = Number.parseInt(firstFlag(parsed.flags, "interval", "30"), 10);
   const runOnce = firstFlag(parsed.flags, "once") === "true";
   const agent = asAgent(firstFlag(parsed.flags, "agent", "unknown"));
+
+  // Refresh hooks once at daemon startup so hook templates stay current
+  // even if the user updated holistic without running a CLI command.
+  const hookResult = refreshHolisticHooks(rootDir);
+  for (const warning of hookResult.warnings) {
+    process.stderr.write(`${warning}\n`);
+  }
 
   const tick = () => {
     const result = runDaemonTick(rootDir, agent);

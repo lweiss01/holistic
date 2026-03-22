@@ -274,6 +274,13 @@ export function createHolisticMcpServer(rootDir: string): Server {
   );
 
   server.oninitialized = () => {
+    // Refresh hooks on each client connection so templates stay current
+    // across long-lived MCP server processes.
+    const hookResult = refreshHolisticHooks(rootDir);
+    for (const warning of hookResult.warnings) {
+      console.error(warning);
+    }
+
     void sendResumeNotification(server, rootDir, DEFAULT_MCP_AGENT).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`Failed to send Holistic resume notification: ${message}`);
