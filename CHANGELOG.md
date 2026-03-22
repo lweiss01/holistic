@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.3 - 2026-03-22
+
+Stopped teaching agents to visibly fail on missing PATH before recovering.
+
+- Changed generated Holistic docs to recommend repo-local helper commands first in bootstrapped repos.
+- Changed resume output to recommend repo-local commands directly instead of bare `holistic ...` commands.
+- Tightened startup, checkpoint, and handoff guidance so agents use repo-local commands by default.
+- Added regression coverage for the repo-local-first command recommendations.
+
 ## 0.2.2 - 2026-03-22
 
 Improved first-run recovery when Holistic is available in the repo but missing from the current shell PATH.

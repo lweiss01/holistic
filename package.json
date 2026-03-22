@@ -1,6 +1,6 @@
 {
   "name": "holistic",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": false,
   "description": "Repo memory, MCP handoffs, and session continuity for AI coding agents",
   "keywords": [
