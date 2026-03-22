@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.2 - 2026-03-22
+
+Improved first-run recovery when Holistic is available in the repo but missing from the current shell PATH.
+
+- Added generated repo-local CLI fallback wrappers under `.holistic/system/` for Windows and macOS/Linux.
+- Surfaced repo-local fallback commands in bootstrap output, resume output, and generated Holistic docs.
+- Updated the README to document the repo-local fallback command for bootstrapped repos.
+- Added regression coverage for the generated fallback wrappers and startup guidance.
+
 ## 0.2.1 - 2026-03-22
 
 Hardened for real-world use after dogfooding on the project that inspired Holistic.
