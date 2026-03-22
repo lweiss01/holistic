@@ -1,5 +1,6 @@
 ﻿import fs from "node:fs";
 import path from "node:path";
+import { repoLocalCliCommand } from './cli-fallback.ts';
 import { getGitSnapshot, getRecentCommitSubjects, isPortableHolisticPath } from './git.ts';
 import { withLockSync } from './lock.ts';
 import { sanitizeList, sanitizeText } from './redact.ts';
@@ -548,6 +549,7 @@ export function buildStartupGreeting(state: HolisticState, agent: AgentName): st
   if (payload.status === "empty") {
     return null;
   }
+  const fallback = repoLocalCliCommand(state.docIndex.contextDir, payload.recommendedCommand);
 
   const lines: string[] = [];
   lines.push("Holistic resume");
@@ -557,6 +559,7 @@ export function buildStartupGreeting(state: HolisticState, agent: AgentName): st
   lines.push(`Choices: ${payload.choices.join(", ")}`);
   lines.push(`Adapter doc: ${payload.adapterDoc}`);
   lines.push(`Recommended command: ${payload.recommendedCommand}`);
+  lines.push(`CLI fallback if PATH is missing: Windows ${fallback.windows}; macOS/Linux ${fallback.posix}`);
   lines.push(`Long-term history: ${state.docIndex.historyDoc}`);
   lines.push(`Regression watch: ${state.docIndex.regressionDoc}`);
   lines.push(`Zero-touch architecture: ${state.docIndex.zeroTouchDoc}`);

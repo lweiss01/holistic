@@ -118,6 +118,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "system", "restore-state.sh")));
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "system", "sync-state.ps1")));
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "system", "sync-state.sh")));
+      assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "system", "holistic.cmd")));
+      assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "system", "holistic")));
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "zero-touch.md")));
       const attributes = fs.readFileSync(path.join(rootDir, ".gitattributes"), "utf8");
       const config = JSON.parse(fs.readFileSync(path.join(rootDir, ".holistic", "config.json"), "utf8"));
@@ -166,6 +168,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic-local", "state.json")));
       assert.ok(fs.existsSync(path.join(rootDir, "HOLISTIC.local.md")));
       assert.ok(fs.existsSync(path.join(rootDir, "AGENTS.local.md")));
+      assert.ok(fs.existsSync(path.join(rootDir, ".holistic-local", "system", "holistic.cmd")));
+      assert.ok(fs.existsSync(path.join(rootDir, ".holistic-local", "system", "holistic")));
       assert.equal(fs.readFileSync(path.join(rootDir, "HOLISTIC.md"), "utf8"), "public holistic doc\n");
       assert.equal(fs.readFileSync(path.join(rootDir, "AGENTS.md"), "utf8"), "public agents doc\n");
       assert.equal(fs.readFileSync(path.join(rootDir, ".gitattributes"), "utf8"), ".beads/issues.jsonl merge=beads\n");
@@ -218,6 +222,9 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.ok(fs.existsSync(path.join(rootDir, "HOLISTIC.md")));
       assert.ok(fs.existsSync(path.join(rootDir, "AGENTS.md")));
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "state.json")));
+      assert.match(fs.readFileSync(path.join(rootDir, "HOLISTIC.md"), "utf8"), /repo-local helper/);
+      assert.match(fs.readFileSync(path.join(rootDir, "AGENTS.md"), "utf8"), /repo-local Holistic helper/);
+      assert.match(fs.readFileSync(path.join(rootDir, ".holistic", "context", "session-protocol.md"), "utf8"), /repo-local helper/);
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "project-history.md")));
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "regression-watch.md")));
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "zero-touch.md")));
@@ -505,6 +512,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.match(resumedText, /Holistic resume/);
       assert.match(resumedText, /Latest status: Created from MCP/);
       assert.match(resumedText, /Choices: continue, tweak, start-new/);
+      assert.match(resumedText, /CLI fallback if PATH is missing/);
 
       nextState = readState(rootDir);
       assert.equal(nextState.activeSession?.agent, "codex");

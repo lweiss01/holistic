@@ -264,6 +264,7 @@ export const tests = [
       const greeting = buildStartupGreeting(state, "claude");
       assert.ok(greeting);
       assert.match(greeting, /Recommended command: holistic resume --continue/);
+      assert.match(greeting, /CLI fallback if PATH is missing: Windows \.\\\.holistic\\system\\holistic\.cmd resume --continue; macOS\/Linux \.\/\.holistic\/system\/holistic resume --continue/);
     },
   },
 ];

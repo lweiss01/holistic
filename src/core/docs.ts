@@ -1,5 +1,6 @@
 ﻿import fs from "node:fs";
 import path from "node:path";
+import { renderCliFallbackNote } from './cli-fallback.ts';
 import { readArchivedSessions } from './state.ts';
 import type { HolisticState, ImpactNote, RegressionRisk, RuntimePaths, SessionRecord, ValidationItem } from './types.ts';
 
@@ -159,6 +160,7 @@ ${items}
 function renderHolisticMd(state: HolisticState): string {
   const snapshot = currentSnapshot(state);
   const pendingPreview = state.pendingWork.slice(0, 5);
+  const resumeFallbackNote = renderCliFallbackNote(state.docIndex.contextDir, "resume --agent <your-agent-name>");
   const adapterLinks = Object.entries(state.docIndex.adapterDocs)
     .map(([name, target]) => `- ${name}: [${target}](${target})`)
     .join("\n");
@@ -177,6 +179,7 @@ function renderHolisticMd(state: HolisticState): string {
   3. Summarise to the user: what was last worked on, what's planned next.
   4. Ask: "What would you like to work on — continue recent work, or start something new?"
   5. Run \`holistic resume --agent <your-agent-name>\` to open a session.
+  6. If \`holistic\` is not on PATH, use the repo-local helper under \`system/\` for this repo.
 
   ⚠️  If you are about to edit a file listed under KNOWN FIXES, STOP and
      read that fix entry carefully before proceeding.
@@ -185,6 +188,8 @@ function renderHolisticMd(state: HolisticState): string {
 ## Start Here
 
 This repo uses Holistic for cross-agent handoffs. The source of truth is the repo itself: handoff docs, history, and regression memory should be committed and synced so any device can continue. Read this file first, then review the long-term history docs and zero-touch architecture note, then use the adapter doc for your app. The Holistic daemon is optional and only improves passive capture on devices where it is installed.
+
+${resumeFallbackNote}
 
 ## Product North Star
 
@@ -263,6 +268,9 @@ ${adapterLinks}
 }
 
 function renderAgentsMd(state: HolisticState): string {
+  const resumeFallbackNote = renderCliFallbackNote(state.docIndex.contextDir, "resume --agent <your-agent-name>");
+  const checkpointFallbackNote = renderCliFallbackNote(state.docIndex.contextDir, "checkpoint --reason \"<why>\"");
+  const handoffFallbackNote = renderCliFallbackNote(state.docIndex.contextDir, "handoff");
   return `# AGENTS
 
 <!-- ═══════════════════════════════════════════════════════════════════
@@ -277,6 +285,7 @@ function renderAgentsMd(state: HolisticState): string {
      and flag any KNOWN FIXES they should be aware of.
   3. Ask: "What would you like to work on — continue recent work, or start something new?"
   4. Run: holistic resume --agent <your-agent-name>
+  5. If that command is unavailable, use the repo-local Holistic helper for this repo.
 
   DO NOT skip step 1. HOLISTIC.md is the source of truth.
   ══════════════════════════════════════════════════════════════════ -->
@@ -299,6 +308,8 @@ Every agent working in this repo should:
 6. Recap the current state for the user and ask whether to continue, tweak the plan, or start something new.
 7. Record a checkpoint when focus changes, before likely context compaction, and before handoff.
 
+${resumeFallbackNote}
+
 ## Handoff Commands
 
 - \`holistic checkpoint --reason "<why>"\`
@@ -308,6 +319,10 @@ Every agent working in this repo should:
 - \`holistic handoff\`
 - \`holistic start-new --goal "<goal>"\`
 - \`holistic watch\`
+
+Fallbacks when PATH is missing:
+- ${checkpointFallbackNote.slice(3)}
+- ${handoffFallbackNote.slice(3)}
 
 ## Adding a New Agent Adapter
 
@@ -365,7 +380,10 @@ ${renderList(snapshot.refs, "No linked references yet.")}
 `;
 }
 
-function renderProtocol(): string {
+function renderProtocol(state: HolisticState): string {
+  const resumeFallbackNote = renderCliFallbackNote(state.docIndex.contextDir, "resume --agent <app>");
+  const checkpointFallbackNote = renderCliFallbackNote(state.docIndex.contextDir, "checkpoint --reason \"<what changed>\"");
+  const handoffFallbackNote = renderCliFallbackNote(state.docIndex.contextDir, "handoff");
   return `# Session Protocol
 
 ## Product North Star
@@ -383,6 +401,8 @@ The protocol below is the current operating model, not the final ideal. When imp
 5. Recap the work state to the user.
 6. Ask whether to continue as planned, tweak the plan, or start something new.
 
+${resumeFallbackNote}
+
 ## During The Session
 
 Run \`holistic checkpoint\`:
@@ -394,16 +414,23 @@ Run \`holistic checkpoint\`:
 
 Use \`holistic watch\` if you want foreground background checkpoints while working manually.
 
+${checkpointFallbackNote}
+
 ## Handoff
 
 1. Run \`holistic handoff\`.
 2. Confirm or edit the drafted summary.
 3. Make sure the next step, impact, and regression risks are accurate.
 4. Let Holistic write the docs and create the handoff commit.\n5. Holistic sync helpers should push the current branch and mirror portable state to the dedicated portable state ref.\n6. If you continue on another device, pull or restore the latest portable state before starting work.
+
+${handoffFallbackNote}
 `;
 }
 
-function renderAdapter(appName: string, commandName: string): string {
+function renderAdapter(state: HolisticState, appName: string, commandName: string): string {
+  const resumeFallbackNote = renderCliFallbackNote(state.docIndex.contextDir, `resume --agent ${commandName}`);
+  const checkpointFallbackNote = renderCliFallbackNote(state.docIndex.contextDir, "checkpoint --reason \"<what changed>\"");
+  const handoffFallbackNote = renderCliFallbackNote(state.docIndex.contextDir, "handoff");
   return `# ${appName} Adapter
 
 ## Product North Star
@@ -421,6 +448,8 @@ Use this adapter to move toward that outcome: less manual setup, less re-briefin
 5. Recap the current state for the user in the first 30 seconds.
 6. Ask: continue as planned, tweak the plan, or start something new.
 
+${resumeFallbackNote}
+
 ## Checkpoint Contract
 
 Run \`holistic checkpoint\` when:
@@ -432,10 +461,14 @@ Run \`holistic checkpoint\` when:
 
 Include impact notes and regression risks when they matter.
 
+${checkpointFallbackNote}
+
 ## Handoff Contract
 
 - Preferred: map your session-end workflow to \`holistic handoff\`
 - Fallback: ask the user to run \`holistic handoff\` before leaving the session
+
+${handoffFallbackNote}
 `;
 }
 
@@ -580,6 +613,7 @@ function renderRootAgentDoc(agentName: string, commandName: string): string {
 3. Summarise to the user: what was last worked on, what's planned next, and any known fixes to protect.
 4. Ask: "Continue as planned, tweak the plan, or do something different?"
 5. Run \`holistic resume --agent ${commandName}\` to register the session.
+6. If \`holistic\` is not on PATH, use \`./.holistic/system/holistic resume --agent ${commandName}\` on macOS/Linux or \`.\\.holistic\\system\\holistic.cmd resume --agent ${commandName}\` on Windows.
 
 **After significant work or on any git commit (hook fires automatically):**
 - Run \`holistic checkpoint --reason '<what you just did>'\`
@@ -643,14 +677,14 @@ export function writeDerivedDocs(paths: RuntimePaths, state: HolisticState): voi
   fs.writeFileSync(paths.masterDoc, renderHolisticMd(state), "utf8");
   fs.writeFileSync(paths.agentsDoc, renderAgentsMd(state), "utf8");
   fs.writeFileSync(paths.currentPlanDoc, renderCurrentPlan(state), "utf8");
-  fs.writeFileSync(paths.protocolDoc, renderProtocol(), "utf8");
+  fs.writeFileSync(paths.protocolDoc, renderProtocol(state), "utf8");
   fs.writeFileSync(paths.historyDoc, renderProjectHistory(paths, state), "utf8");
   fs.writeFileSync(paths.regressionDoc, renderRegressionWatch(paths, state), "utf8");
   fs.writeFileSync(paths.zeroTouchDoc, renderZeroTouchDoc(state), "utf8");
   fs.writeFileSync(`${paths.contextDir}/README.md`, renderContextReadme(state), "utf8");
-  fs.writeFileSync(`${paths.adaptersDir}/codex.md`, renderAdapter("Codex", "codex"), "utf8");
-  fs.writeFileSync(`${paths.adaptersDir}/claude-cowork.md`, renderAdapter("Claude/Cowork", "claude"), "utf8");
-  fs.writeFileSync(`${paths.adaptersDir}/antigravity.md`, renderAdapter("Antigravity", "antigravity"), "utf8");
+  fs.writeFileSync(`${paths.adaptersDir}/codex.md`, renderAdapter(state, "Codex", "codex"), "utf8");
+  fs.writeFileSync(`${paths.adaptersDir}/claude-cowork.md`, renderAdapter(state, "Claude/Cowork", "claude"), "utf8");
+  fs.writeFileSync(`${paths.adaptersDir}/antigravity.md`, renderAdapter(state, "Antigravity", "antigravity"), "utf8");
   if (paths.rootClaudeDoc) {
     fs.writeFileSync(paths.rootClaudeDoc, renderRootAgentDoc("Claude/Cowork", "claude"), "utf8");
   }

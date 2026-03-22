@@ -166,7 +166,7 @@ holistic bootstrap --install-daemon false --configure-mcp false
 - `.holistic/sessions/` - session history files
 
 **What NOT to commit:**
-- `.holistic/system/*.sh` and `.holistic/system/*.ps1` - machine-local scripts with absolute paths (already in `.gitignore`)
+- `.holistic/system/` - machine-local helper scripts and wrappers with absolute paths (already in `.gitignore`)
 
 The portable repo memory is meant to be committed and synced. Machine-local helper scripts are generated for each machine and stay local.
 
@@ -194,6 +194,11 @@ holistic status
 holistic checkpoint --reason "..."
 holistic handoff
 ```
+
+If `holistic` is not on `PATH` in a given shell, every bootstrapped repo also has a repo-local fallback:
+
+- Windows: `.\.holistic\system\holistic.cmd <command>`
+- macOS/Linux: `./.holistic/system/holistic <command>`
 
 ---
 
@@ -245,7 +250,7 @@ my-project/
       `- adapters/
 ```
 
-The portable repo memory (config, state, context, sessions) is meant to be committed and synced. Machine-local helper scripts under `.holistic/system/` are generated for each machine and stay local (already in `.gitignore`).
+The portable repo memory (config, state, context, sessions) is meant to be committed and synced. Machine-local helper scripts and repo-local CLI fallbacks under `.holistic/system/` are generated for each machine and stay local (already in `.gitignore`).
 
 ---
 

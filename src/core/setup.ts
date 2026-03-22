@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { repoLocalCliPaths } from './cli-fallback.ts';
 import { writeDerivedDocs } from './docs.ts';
 import { captureRepoSnapshot, resolveGitDir } from './git.ts';
 import { installGitHooks, refreshGitHooks, type GitHookInstallResult, type HookCommand } from './git-hooks.ts';
@@ -314,12 +315,16 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
   fs.mkdirSync(sysDir, { recursive: true });
   const trackedPaths = paths.trackedPaths;
   const nodePath = process.execPath;
+  const cliRuntime = runtimeEntryScript("cli");
+  const cliPath = cliRuntime.scriptPath;
   const daemonRuntime = runtimeEntryScript("daemon");
   const daemonPath = daemonRuntime.scriptPath;
   const restorePs1Path = path.join(sysDir, "restore-state.ps1");
   const syncPs1Path = path.join(sysDir, "sync-state.ps1");
   const restoreShPath = path.join(sysDir, "restore-state.sh");
   const syncShPath = path.join(sysDir, "sync-state.sh");
+  const localCliCmdPath = path.join(sysDir, "holistic.cmd");
+  const localCliShPath = path.join(sysDir, "holistic");
   const legacySeedRef = syncTarget.legacySeedBranch ? branchToRef(syncTarget.legacySeedBranch) : "";
 
   const restorePs1 = [
@@ -492,17 +497,37 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     `'${shellQuote(nodePath)}' ${daemonRuntime.useStripTypes ? "--experimental-strip-types " : ""}'${shellQuote(daemonPath)}' --interval ${intervalSeconds} --agent unknown`,
   ].join("\n");
 
+  const localCliCmd = [
+    "@echo off",
+    `\"${nodePath}\" ${cliRuntime.useStripTypes ? "--experimental-strip-types " : ""}\"${cliPath}\" %*`,
+  ].join("\r\n");
+
+  const localCliSh = [
+    "#!/usr/bin/env sh",
+    `exec '${shellQuote(nodePath)}' ${cliRuntime.useStripTypes ? "--experimental-strip-types " : ""}'${shellQuote(cliPath)}' "$@"`,
+  ].join("\n");
+
+  const cliFallback = repoLocalCliPaths(relativePath(rootDir, paths.contextDir) ?? ".holistic/context");
+
   const readme = `# Holistic System Setup
 
 This directory contains generated startup and sync helpers for Holistic.
 
 Files:
+- holistic / holistic.cmd: repo-local CLI fallback when \`holistic\` is not on PATH
 - run-daemon.ps1 / run-daemon.sh: restore the portable state, then start the background daemon
 - restore-state.ps1 / restore-state.sh: pull the portable Holistic state ref into the current worktree when safe
 - sync-state.ps1 / sync-state.sh: push the current branch and mirror Holistic files into the portable state ref
 - config in ../config.json defines the remote and portable state target
+
+If the global \`holistic\` command is unavailable in this shell:
+- Windows: \`${cliFallback.windows}\`
+- macOS/Linux: \`${cliFallback.posix}\`
 `;
 
+  fs.writeFileSync(localCliCmdPath, localCliCmd + "\r\n", "utf8");
+  fs.writeFileSync(localCliShPath, localCliSh + "\n", "utf8");
+  fs.chmodSync(localCliShPath, 0o755);
   fs.writeFileSync(path.join(sysDir, "run-daemon.ps1"), runPs1 + "\n", "utf8");
   fs.writeFileSync(path.join(sysDir, "run-daemon.sh"), runSh + "\n", "utf8");
   fs.writeFileSync(restorePs1Path, restorePs1 + "\n", "utf8");
