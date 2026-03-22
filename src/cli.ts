@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { createInterface, type Interface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
@@ -88,8 +89,19 @@ function printJson(payload: unknown): void {
   process.stdout.write(JSON.stringify(payload, null, 2) + "\n");
 }
 
+function getVersion(): string {
+  const currentFile = fileURLToPath(import.meta.url);
+  const packagePath = path.resolve(path.dirname(currentFile), "..", "package.json");
+  try {
+    const pkg = JSON.parse(fs.readFileSync(packagePath, "utf8")) as { version?: string };
+    return pkg.version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 function printHelp(): void {
-  process.stdout.write(`Holistic CLI
+  process.stdout.write(`Holistic CLI v${getVersion()}
 
 Usage:
   holistic init [--install-daemon] [--install-hooks] [--platform win32|darwin|linux] [--interval 30] [--remote origin] [--state-ref refs/holistic/state] [--state-branch holistic/state]
@@ -712,6 +724,11 @@ async function main(): Promise<number> {
   const rootDir = process.cwd();
 
   switch (parsed.command) {
+    case "version":
+    case "--version":
+    case "-v":
+      process.stdout.write(`${getVersion()}\n`);
+      return 0;
     case "init":
       return handleInit(rootDir, parsed);
     case "bootstrap":
