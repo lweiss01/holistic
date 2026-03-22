@@ -20,8 +20,9 @@ Requirements:
 Install and verify:
 
 ```bash
+npm install
 node --version
-node --experimental-strip-types tests/run-tests.ts
+npm test
 ```
 
 ## Project structure
@@ -34,16 +35,18 @@ node --experimental-strip-types tests/run-tests.ts
 | `src/core/docs.ts` | generated repo-visible memory docs |
 | `src/core/setup.ts` | repo init and system helper generation |
 | `tests/run-tests.ts` | end-to-end regression harness |
-| `.holistic/` | generated local Holistic state for the current repo |
+| `.holistic-local/` | ignored local Holistic runtime for this public product repo |
 
 ## Dogfooding Holistic in this repo
 
-This repo should use Holistic on itself.
+This public product repo is a special case.
 
-Initialize the repo-local Holistic state:
+Holistic dogfooding here must stay local-only and untracked. The repo-level override redirects runtime state into `.holistic-local/`, `HOLISTIC.local.md`, and `AGENTS.local.md` instead of tracked public runtime files.
+
+Recommended local setup for working on Holistic itself:
 
 ```bash
-node --experimental-strip-types src/cli.ts init --remote origin --state-branch holistic/state
+node --experimental-strip-types src/cli.ts bootstrap --install-daemon false --configure-mcp false --install-hooks false
 ```
 
 Common local flows:
@@ -54,7 +57,9 @@ node --experimental-strip-types src/cli.ts checkpoint --reason "milestone"
 node --experimental-strip-types src/cli.ts handoff
 ```
 
-The generated files in `.holistic/`, `HOLISTIC.md`, and `AGENTS.md` are intentionally ignored in git for the product repo. They are local runtime/project memory, not source code.
+Do not initialize tracked `.holistic/` runtime state in this repo, and do not use a visible `holistic/state` branch here for self-dogfooding.
+
+For normal user repos, tracked `.holistic/` runtime plus the hidden portable state ref (`refs/holistic/state`) is the standard path. This product repo itself should stay public, clean, and main-only.
 
 ## Contribution guidelines
 
@@ -96,7 +101,8 @@ When possible, add tests around the user-visible workflow:
 
 Before opening a PR:
 
-- run `node --experimental-strip-types tests/run-tests.ts`
+- run `npm test`
+- run `npm run build`
 - verify the README and docs still match the behavior
 - think through whether your change improves or harms cross-agent portability
 - call out any new risks around regression memory, secrecy, or sync

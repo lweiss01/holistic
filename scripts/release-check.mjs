@@ -6,7 +6,6 @@ import { fileURLToPath } from "node:url";
 
 const currentFile = fileURLToPath(import.meta.url);
 const repoRoot = path.resolve(path.dirname(currentFile), "..");
-const cliBin = path.join(repoRoot, "bin", "holistic.js");
 const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
 const packageJson = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
 const packageName = packageJson.name;
@@ -56,11 +55,31 @@ function installedPackagePath(rootDir, scopedName) {
   return path.join(rootDir, "node_modules", ...scopedName.split("/"));
 }
 
-function main() {
-  const helpResult = run(process.execPath, [cliBin, "--help"]);
-  ensureIncludes(helpResult.stdout, "holistic bootstrap", "CLI help output");
+function globalBinaryPath(prefixDir) {
+  if (process.platform === "win32") {
+    return path.join(prefixDir, "holistic.cmd");
+  }
 
-  const packDir = fs.mkdtempSync(path.join(os.tmpdir(), "holistic-pack-"));
+  return path.join(prefixDir, "bin", "holistic");
+}
+
+function runInstalledBinary(binaryPath, args, options = {}) {
+  if (process.platform === "win32") {
+    const shell = process.env.ComSpec ?? "cmd.exe";
+    const commandLine = [binaryPath, ...args].map(quoteCmdArg).join(" ");
+    return run(shell, ["/d", "/s", "/c", commandLine], options);
+  }
+
+  return run(binaryPath, args, options);
+}
+
+function main() {
+  runNpm(["run", "clean"]);
+  runNpm(["run", "build"]);
+  runNpm(["test"]);
+  runNpm(["run", "test:smoke"]);
+
+  const packDir = fs.mkdtempSync(path.join(os.tmpdir(), "holistic-release-pack-"));
   const packResult = runNpm(["pack", "--json", "--ignore-scripts", "--pack-destination", packDir]);
   const packPayload = JSON.parse(packResult.stdout.trim());
   const packageInfo = Array.isArray(packPayload) ? packPayload[0] : packPayload;
@@ -75,35 +94,35 @@ function main() {
   ensureIncludes(packagedFiles, "dist/cli.js", "packed files");
   ensureIncludes(packagedFiles, "bin/holistic.js", "packed files");
   ensureIncludes(packagedFiles, "README.md", "packed files");
+  ensureIncludes(packagedFiles, "LICENSE", "packed files");
   ensureIncludes(packagedFiles, "CHANGELOG.md", "packed files");
 
   const tarballPath = path.join(packDir, packageInfo.filename);
-  const installRoot = fs.mkdtempSync(path.join(os.tmpdir(), "holistic-install-"));
-  fs.writeFileSync(path.join(installRoot, "package.json"), JSON.stringify({
-    name: "holistic-smoke-install",
-    private: true,
-  }, null, 2) + "\n", "utf8");
+  const prefixDir = fs.mkdtempSync(path.join(os.tmpdir(), "holistic-global-prefix-"));
+  runNpm(["install", "-g", "--ignore-scripts", "--prefix", prefixDir, tarballPath]);
 
-  runNpm(["install", "--ignore-scripts", tarballPath], { cwd: installRoot });
-
-  const installedBin = path.join(installedPackagePath(installRoot, packageName), "bin", "holistic.js");
-  if (!fs.existsSync(installedBin)) {
-    throw new Error("Installed package is missing bin/holistic.js.");
+  const binaryPath = globalBinaryPath(prefixDir);
+  if (!fs.existsSync(binaryPath)) {
+    throw new Error(`Global binary was not installed at ${binaryPath}.`);
   }
 
-  const installedHelp = run(process.execPath, [installedBin, "--help"], { cwd: installRoot });
-  ensureIncludes(installedHelp.stdout, "holistic bootstrap", "installed CLI help output");
+  const helpResult = runInstalledBinary(binaryPath, ["--help"]);
+  ensureIncludes(helpResult.stdout, "holistic bootstrap", "global help output");
 
-  const repoUnderTest = fs.mkdtempSync(path.join(os.tmpdir(), "holistic-smoke-repo-"));
+  const installedBin = path.join(installedPackagePath(prefixDir, packageName), "bin", "holistic.js");
+  if (!fs.existsSync(installedBin)) {
+    throw new Error("Installed global package is missing bin/holistic.js.");
+  }
+
+  const repoUnderTest = fs.mkdtempSync(path.join(os.tmpdir(), "holistic-release-repo-"));
   run("git", ["init"], { cwd: repoUnderTest });
-  run("git", ["config", "user.name", "Holistic Smoke"], { cwd: repoUnderTest });
-  run("git", ["config", "user.email", "smoke@example.com"], { cwd: repoUnderTest });
-  fs.writeFileSync(path.join(repoUnderTest, "README.md"), "# smoke repo\n", "utf8");
+  run("git", ["config", "user.name", "Holistic Release"], { cwd: repoUnderTest });
+  run("git", ["config", "user.email", "release@example.com"], { cwd: repoUnderTest });
+  fs.writeFileSync(path.join(repoUnderTest, "README.md"), "# release repo\n", "utf8");
   run("git", ["add", "README.md"], { cwd: repoUnderTest });
   run("git", ["commit", "-m", "init"], { cwd: repoUnderTest });
 
-  run(process.execPath, [
-    installedBin,
+  runInstalledBinary(binaryPath, [
     "bootstrap",
     "--install-daemon",
     "false",
@@ -118,17 +137,8 @@ function main() {
 
   const attributes = fs.readFileSync(path.join(repoUnderTest, ".gitattributes"), "utf8");
   ensureIncludes(attributes, "BEGIN HOLISTIC MANAGED ATTRIBUTES", ".gitattributes");
-  ensureIncludes(attributes, ".holistic/**/*.ps1 text eol=crlf", ".gitattributes");
 
-  const hookPath = path.join(repoUnderTest, ".git", "hooks", "post-commit");
-  if (!fs.existsSync(hookPath)) {
-    throw new Error("Bootstrap did not install the Holistic post-commit hook.");
-  }
-
-  const statusResult = run(process.execPath, [installedBin, "status"], { cwd: repoUnderTest });
-  ensureIncludes(statusResult.stdout, "Holistic Status", "status output");
-
-  console.log("PASS: packaged CLI installs and bootstraps a clean repo successfully");
+  console.log("PASS: release preflight completed successfully");
 }
 
 main();

@@ -86,18 +86,30 @@ The next agent picks up without a long re-explanation
 Requires Node.js 24+.
 
 ```bash
+npm install -g holistic
+```
+
+Then verify the CLI is available:
+
+```bash
+holistic --help
+```
+
+For contributors or local source installs:
+
+```bash
 git clone https://github.com/lweiss01/holistic.git
 cd holistic
+npm install
 npm run build
 npm pack
 npm install -g ./holistic-*.tgz
 ```
 
-For local development:
+For local development without a packaged tarball:
 
 ```bash
-git clone https://github.com/lweiss01/holistic.git
-cd holistic
+npm install
 npm link
 ```
 
@@ -308,6 +320,7 @@ Holistic gives you:
 ## Quick links
 
 - [Walkthrough](./docs/handoff-walkthrough.md)
+- [Changelog](./CHANGELOG.md)
 - [Contributing](./CONTRIBUTING.md)
 - [License](./LICENSE)
 

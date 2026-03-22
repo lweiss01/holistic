@@ -271,9 +271,9 @@ You don't need to migrate existing sessions. The system handles both formats:
 ## Example: Real-World Structured Handoff
 
 ```typescript
-// Hypothetical handoff for implementing daemon sync
+// Hypothetical handoff for implementing portable state sync
 {
-  summary: "Implemented cross-device state sync via dedicated holistic/state branch",
+  summary: "Implemented cross-device state sync via dedicated portable state ref",
   severity: "high",
   outcomeStatus: "success",
   affectedAreas: ["sync", "git-integration", "daemon"],
@@ -281,7 +281,7 @@ You don't need to migrate existing sessions. The system handles both formats:
   
   impactsStructured: [
     {
-      description: "Handoff commits now auto-push to holistic/state branch",
+      description: "Portable state now syncs through refs/holistic/state",
       severity: "high",
       affectedAreas: ["sync", "git-integration"],
       outcome: "success"
@@ -296,19 +296,19 @@ You don't need to migrate existing sessions. The system handles both formats:
   
   regressionsStructured: [
     {
-      description: "State branch must never merge into main/working branch",
+      description: "Portable state ref must stay isolated from the main working branch history",
       severity: "critical",
       affectedAreas: ["sync", "git-integration"],
       validationChecklist: [
         {
-          description: "Verify state branch is orphan with no common history",
-          command: "git log --oneline holistic/state | head -5",
-          expectedOutcome: "Only contains holistic state commits, no project commits"
+          description: "Verify the remote portable state ref exists",
+          command: "git ls-remote origin refs/holistic/state",
+          expectedOutcome: "A ref named refs/holistic/state is present on the remote"
         },
         {
-          description: "Verify restore script uses checkout, not merge",
-          command: "grep -n 'git merge' .holistic/system/restore-state.sh",
-          expectedOutcome: "No matches - should use checkout or read-tree"
+          description: "Verify restore script fetches the portable state ref explicitly",
+          command: "grep -n 'refs/holistic/state' .holistic/system/restore-state.sh",
+          expectedOutcome: "Restore helper references refs/holistic/state directly"
         }
       ]
     },
@@ -319,13 +319,13 @@ You don't need to migrate existing sessions. The system handles both formats:
       validationChecklist: [
         {
           description: "Create handoff on device A",
-          command: "holistic handoff && git push origin holistic/state",
-          expectedOutcome: "State branch updated with device A handoff"
+          command: "holistic handoff && ./.holistic/system/sync-state.sh",
+          expectedOutcome: "Portable state ref updated with device A handoff"
         },
         {
           description: "Create different handoff on device B before pulling A",
           command: "holistic handoff",
-          expectedOutcome: "Local state branch has device B handoff"
+          expectedOutcome: "Local portable state has device B handoff"
         },
         {
           description: "Pull and verify both handoffs are preserved",
