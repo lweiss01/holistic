@@ -9,6 +9,39 @@ function sleepSync(durationMs: number): void {
   Atomics.wait(view, 0, 0, durationMs);
 }
 
+function isProcessRunning(pid: number): boolean {
+  try {
+    // Sending signal 0 tests whether the process exists without killing it.
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function tryRecoverStaleLock(lockPath: string): boolean {
+  try {
+    const content = fs.readFileSync(lockPath, "utf8").trim();
+    const pid = Number.parseInt(content, 10);
+    if (Number.isNaN(pid) || pid <= 0) {
+      // Corrupt lock file — safe to remove.
+      fs.unlinkSync(lockPath);
+      return true;
+    }
+
+    if (!isProcessRunning(pid)) {
+      // The process that held the lock is gone — stale lock from a crash.
+      fs.unlinkSync(lockPath);
+      return true;
+    }
+
+    return false;
+  } catch {
+    // If we can't read or remove the lock, let the normal timeout path handle it.
+    return false;
+  }
+}
+
 export function withLockSync<T>(lockPath: string, fn: () => T): T {
   const startedAt = Date.now();
 
@@ -25,6 +58,10 @@ export function withLockSync<T>(lockPath: string, fn: () => T): T {
       }
 
       if (Date.now() - startedAt >= LOCK_TIMEOUT_MS) {
+        // Before giving up, check if the lock holder crashed.
+        if (tryRecoverStaleLock(lockPath)) {
+          continue;
+        }
         throw new Error(`Failed to acquire Holistic state lock within ${LOCK_TIMEOUT_MS}ms.`);
       }
 
