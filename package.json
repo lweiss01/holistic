@@ -26,20 +26,18 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/lweiss01/holistic.git"
+    "url": "git+https://github.com/lweiss01/holistic.git"
   },
   "bugs": {
     "url": "https://github.com/lweiss01/holistic/issues"
   },
   "homepage": "https://github.com/lweiss01/holistic#readme",
   "type": "module",
-  "bin": {
-    "holistic": "./bin/holistic.js"
-  },
+  "bin": "bin/holistic.js",
   "scripts": {
     "build": "node scripts/build.mjs",
     "clean": "node scripts/clean.mjs",
-    "prepublishOnly": "npm run release:check",
+    "prepublishOnly": "npm run clean && npm run build && npm test",
     "holistic": "node --experimental-strip-types ./src/cli.ts",
     "daemon": "node --experimental-strip-types ./src/daemon.ts",
     "release:check": "node scripts/release-check.mjs",
