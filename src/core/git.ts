@@ -56,10 +56,29 @@ export function isPortableHolisticPath(file: string): boolean {
   return file.startsWith(".holistic/") || file.startsWith(".holistic-local/") || HOLISTIC_PORTABLE_PATHS.has(file);
 }
 
+// Directories that are always large, generated, and irrelevant to
+// Holistic's change-detection. Skipping them avoids stat-ing tens of
+// thousands of files on every checkpoint and daemon tick.
+const SKIP_DIRS = new Set([
+  ".git",
+  "node_modules",
+  ".next",
+  "dist",
+  "build",
+  "__pycache__",
+  ".venv",
+  "venv",
+  "target",
+  "vendor",
+  "coverage",
+  ".cache",
+  ".tmp-tests",
+]);
+
 function walkRepoFiles(rootDir: string, currentDir: string, results: string[]): void {
   const entries = fs.readdirSync(currentDir, { withFileTypes: true });
   for (const entry of entries) {
-    if (entry.name === ".git") {
+    if (SKIP_DIRS.has(entry.name)) {
       continue;
     }
 
