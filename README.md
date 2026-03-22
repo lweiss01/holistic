@@ -12,33 +12,27 @@ Your repo remembers, so your next agent doesn't have to guess.
 Shared memory for AI agents, built into your repo.
 ```
 
-### One command. Every agent. Zero re-explaining.
+### One command. Every agent. Zero re-explaining. ✨
 
 Holistic gives your AI agents shared memory inside the repo itself. When you switch from Claude to Codex to Gemini, the next agent can see what happened last time, what not to break, and what should happen next.
 
-## Public repo hygiene
-
-The Holistic product repo is a special case when it dogfoods itself.
-
-Normal user repos may commit portable Holistic runtime files and sync them through a dedicated portable git ref. This public repo should not ship a contributor's personal session history, handoff state, or live dogfooding runtime files. Self-dogfooding on this repo is redirected to ignored local files instead.
-
 ---
 
-## The problem
+## The problem 😵
 
 If you use more than one AI coding assistant, the workflow usually falls apart:
 
-- You re-explain the project every session.
-- Bugs come back because the next agent does not know what was already fixed.
-- Progress gets lost when context windows end.
-- Agents undo each other because there is no durable handoff.
-- It is hard to tell what is actually done.
+- 🔁 You re-explain the project every session.
+- 🐞 Bugs come back because the next agent does not know what was already fixed.
+- 🧠 Progress gets lost when context windows end.
+- 💥 Agents undo each other because there is no durable handoff.
+- 🌫️ It is hard to tell what is actually done.
 
 Holistic fixes that by making the repo the source of truth.
 
 ---
 
-## What it feels like now
+## What it feels like now 🌿
 
 Run one setup command on a machine:
 
@@ -59,7 +53,7 @@ Most days, you do not need to run `npm start`, keep a terminal process open, or 
 
 ---
 
-## How it works
+## How it works 🧭
 
 ```text
 holistic bootstrap
@@ -79,9 +73,9 @@ The next agent picks up without a long re-explanation
 
 ---
 
-## Quick start
+## Quick start 🚀
 
-### Install
+### Install 📦
 
 Requires Node.js 24+.
 
@@ -113,7 +107,7 @@ npm install
 npm link
 ```
 
-### Set up a repo
+### Set up a repo 🛠️
 
 ```bash
 cd my-project
@@ -161,7 +155,7 @@ That is enough for normal repo-first continuity.
 
 ---
 
-## Daily workflow
+## Daily workflow 🔄
 
 One-time machine setup:
 
@@ -186,7 +180,7 @@ holistic handoff
 
 ---
 
-## Regression protection
+## Regression protection 🛡️
 
 When an agent fixes something delicate, lock it in:
 
@@ -201,7 +195,7 @@ Future agents will see that warning in the repo docs before they touch the risky
 
 ---
 
-## Works with multiple agent apps
+## Works with multiple agent apps 🤝
 
 Holistic is model-agnostic. It works through repo files first, and can also expose a thin MCP server where supported.
 
@@ -215,7 +209,7 @@ Holistic is model-agnostic. It works through repo files first, and can also expo
 
 ---
 
-## What lives in your repo
+## What lives in your repo 🗂️
 
 ```text
 my-project/

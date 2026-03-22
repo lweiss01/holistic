@@ -37,19 +37,28 @@ npm test
 | `tests/run-tests.ts` | end-to-end regression harness |
 | `.holistic-local/` | ignored local Holistic runtime for this public product repo |
 
-## Dogfooding Holistic in this repo
+## Working On This Repo
 
-This public product repo is a special case.
+This repository is the public Holistic product repo. That makes it a special case.
 
-Holistic dogfooding here must stay local-only and untracked. The repo-level override redirects runtime state into `.holistic-local/`, `HOLISTIC.local.md`, and `AGENTS.local.md` instead of tracked public runtime files.
+Normal user repos are expected to commit portable Holistic runtime files such as `.holistic/` and sync them through the hidden portable state ref. This repo should not publish a contributor's live runtime state, handoff history, or local dogfooding artifacts.
 
-Recommended local setup for working on Holistic itself:
+### Repo-specific dogfooding rules
+
+- Keep self-dogfooding runtime local-only and untracked.
+- Use `.holistic-local/`, `HOLISTIC.local.md`, and `AGENTS.local.md` for repo-local runtime state.
+- Do not initialize tracked `.holistic/` runtime state in this repo.
+- Do not use a visible `holistic/state` branch for self-dogfooding here.
+
+### Recommended local setup
+
+If you want Holistic active while working on Holistic itself, use this non-invasive local setup:
 
 ```bash
 node --experimental-strip-types src/cli.ts bootstrap --install-daemon false --configure-mcp false --install-hooks false
 ```
 
-Common local flows:
+### Common local flows
 
 ```bash
 node --experimental-strip-types src/cli.ts resume --agent codex
@@ -57,9 +66,7 @@ node --experimental-strip-types src/cli.ts checkpoint --reason "milestone"
 node --experimental-strip-types src/cli.ts handoff
 ```
 
-Do not initialize tracked `.holistic/` runtime state in this repo, and do not use a visible `holistic/state` branch here for self-dogfooding.
-
-For normal user repos, tracked `.holistic/` runtime plus the hidden portable state ref (`refs/holistic/state`) is the standard path. This product repo itself should stay public, clean, and main-only.
+For normal user repos, tracked `.holistic/` runtime plus the hidden portable state ref (`refs/holistic/state`) remains the standard path.
 
 ## Contribution guidelines
 
