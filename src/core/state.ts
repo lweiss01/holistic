@@ -79,6 +79,15 @@ export function getRuntimePaths(rootDir: string): RuntimePaths {
   const rootGeminiDoc = writeRootAgentDocs
     ? path.join(rootDir, runtime.rootGeminiDoc ?? "GEMINI.md")
     : null;
+  const rootCursorRulesDoc = writeRootAgentDocs
+    ? path.join(rootDir, ".cursorrules")
+    : null;
+  const rootWindsurfRulesDoc = writeRootAgentDocs
+    ? path.join(rootDir, ".windsurfrules")
+    : null;
+  const rootCopilotInstructionsDoc = writeRootAgentDocs
+    ? path.join(rootDir, ".github", "copilot-instructions.md")
+    : null;
 
   const trackedPaths = [
     relativeToRoot(rootDir, masterDoc),
@@ -86,6 +95,9 @@ export function getRuntimePaths(rootDir: string): RuntimePaths {
     rootHistoryDoc ? relativeToRoot(rootDir, rootHistoryDoc) : null,
     rootClaudeDoc ? relativeToRoot(rootDir, rootClaudeDoc) : null,
     rootGeminiDoc ? relativeToRoot(rootDir, rootGeminiDoc) : null,
+    rootCursorRulesDoc ? relativeToRoot(rootDir, rootCursorRulesDoc) : null,
+    rootWindsurfRulesDoc ? relativeToRoot(rootDir, rootWindsurfRulesDoc) : null,
+    rootCopilotInstructionsDoc ? relativeToRoot(rootDir, rootCopilotInstructionsDoc) : null,
     relativeToRoot(rootDir, holisticDir),
   ].filter((value, index, list): value is string => Boolean(value) && list.indexOf(value) === index);
 
@@ -101,6 +113,9 @@ export function getRuntimePaths(rootDir: string): RuntimePaths {
     rootHistoryDoc,
     rootClaudeDoc,
     rootGeminiDoc,
+    rootCursorRulesDoc,
+    rootWindsurfRulesDoc,
+    rootCopilotInstructionsDoc,
     currentPlanDoc: path.join(contextDir, "current-plan.md"),
     protocolDoc: path.join(contextDir, "session-protocol.md"),
     historyDoc: path.join(contextDir, "project-history.md"),
@@ -718,6 +733,7 @@ export function checkpointState(rootDir: string, state: HolisticState, input: Ch
     ...nextState,
     activeSession: session,
     pendingCommit: null,
+    lastAutoCheckpoint: now(),
   };
 }
 

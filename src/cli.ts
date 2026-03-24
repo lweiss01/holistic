@@ -629,10 +629,50 @@ async function handleHandoff(rootDir: string, parsed: ParsedArgs): Promise<numbe
   }
 }
 
+function renderSyncStatus(rootDir: string): string {
+  const syncLogPath = path.join(rootDir, ".holistic", "system", "sync.log");
+  if (!fs.existsSync(syncLogPath)) {
+    return "Sync log: not found (run holistic init to configure auto-sync)\n";
+  }
+
+  const lines: string[] = [];
+  try {
+    const content = fs.readFileSync(syncLogPath, "utf8");
+    const logLines = content.split("\n").filter(Boolean);
+
+    // Find the last non-error line as a proxy for last successful sync timestamp
+    const lastLine = logLines.at(-1) ?? "";
+    const recentErrors = logLines
+      .slice(-50)
+      .filter((l) => /error|fatal|failed/i.test(l));
+
+    if (lastLine) {
+      lines.push(`Sync log last entry: ${lastLine.slice(0, 120)}`);
+    } else {
+      lines.push("Sync log: empty");
+    }
+
+    if (recentErrors.length > 0) {
+      lines.push(`Sync errors (last 50 lines): ${recentErrors.length} error(s) found`);
+      for (const err of recentErrors.slice(-3)) {
+        lines.push(`  ${err.slice(0, 120)}`);
+      }
+    } else {
+      lines.push("Sync errors: none detected in recent log");
+    }
+  } catch {
+    lines.push("Sync log: unable to read");
+  }
+
+  return lines.join("\n") + "\n";
+}
+
 async function handleStatus(rootDir: string): Promise<number> {
   refreshHooksBeforeCommand(rootDir);
   const { state } = loadState(rootDir);
   process.stdout.write(renderStatus(state));
+  process.stdout.write("\n");
+  process.stdout.write(renderSyncStatus(rootDir));
   return 0;
 }
 

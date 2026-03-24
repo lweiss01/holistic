@@ -117,13 +117,17 @@ export function requestAutoSync(rootDir: string, trigger: AutoSyncTrigger, platf
   }
 
   try {
+    const syncLogPath = path.join(getRuntimePaths(rootDir).holisticDir, "system", "sync.log");
+    const stderrFd = fs.openSync(syncLogPath, "a");
     const child = spawn(plan.command, plan.args, {
       cwd: rootDir,
-      stdio: "ignore",
+      stdio: ["ignore", "ignore", stderrFd],
       detached: true,
       windowsHide: true,
     });
     child.unref();
+    // Close the fd in the parent process after the child has inherited it
+    fs.closeSync(stderrFd);
     return plan;
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);

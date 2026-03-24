@@ -4,6 +4,13 @@ import { renderCliFallbackNote } from './cli-fallback.ts';
 import { readArchivedSessions } from './state.ts';
 import type { HolisticState, ImpactNote, RegressionRisk, RuntimePaths, SessionRecord, ValidationItem } from './types.ts';
 
+function renderSessionCloseBlock(hasMcp: boolean): string {
+  if (hasMcp) {
+    return `## Before ending this session\n\nCall \`holistic_handoff\` with a summary of what you did and what should happen next. This keeps repo memory current for the next agent.\n`;
+  }
+  return `## Before ending this session\n\nRun:\n\`\`\`\nholistic handoff --summary "..." --next "..."\n\`\`\`\nThis keeps repo memory current for the next agent.\n`;
+}
+
 function renderList(items: string[], emptyText: string): string {
   if (items.length === 0) {
     return `- ${emptyText}`;
@@ -321,6 +328,9 @@ ${resumeFallbackNote}
 - ${startNewNote.slice(3)}
 - ${watchNote.slice(3)}
 
+## Before Ending a Session
+
+${renderSessionCloseBlock(false)}
 ## Adding a New Agent Adapter
 
 To add instructions for a new agent, create a file at:
@@ -424,7 +434,7 @@ ${handoffFallbackNote}
 `;
 }
 
-function renderAdapter(state: HolisticState, appName: string, commandName: string): string {
+function renderAdapter(state: HolisticState, appName: string, commandName: string, hasMcp: boolean): string {
   const resumeFallbackNote = renderCliFallbackNote(state.docIndex.contextDir, `resume --agent ${commandName}`);
   const checkpointFallbackNote = renderCliFallbackNote(state.docIndex.contextDir, "checkpoint --reason \"<what changed>\"");
   const handoffFallbackNote = renderCliFallbackNote(state.docIndex.contextDir, "handoff");
@@ -466,7 +476,8 @@ ${checkpointFallbackNote}
 - Fallback: ask the user to run the repo-local Holistic helper with \`handoff\` before leaving the session
 
 ${handoffFallbackNote}
-`;
+
+${renderSessionCloseBlock(hasMcp)}`;
 }
 
 function renderProjectHistory(paths: RuntimePaths, state: HolisticState): string {
@@ -601,7 +612,54 @@ Updated: ${state.updatedAt}
 `;
 }
 
-function renderRootAgentDoc(agentName: string, commandName: string): string {
+function renderIdeCursorRulesContent(state: HolisticState): string {
+  const snapshot = currentSnapshot(state);
+  const { fixes, other: otherRegressions } = parseKnownFixes(snapshot.regressions);
+  const resumeCmd = renderCliFallbackNote(state.docIndex.contextDir, "resume --agent cursor");
+  const handoffCmd = renderCliFallbackNote(state.docIndex.contextDir, "handoff");
+
+  const fixLines = fixes.length > 0
+    ? `## Do Not Regress — Known Fixes\n\n${fixes.map((f) => `- ${f}`).join("\n")}\n`
+    : "";
+  const regressionLines = otherRegressions.length > 0
+    ? `## Regression Watch\n\n${otherRegressions.map((r) => `- ${r}`).join("\n")}\n`
+    : "";
+
+  return `# Holistic — ${state.projectName}
+
+## Session Start
+
+At the start of every session, before doing anything else:
+1. Read \`HOLISTIC.md\` in full.
+2. Read \`AGENTS.md\`.
+3. Summarise to the user: what was last worked on, what's planned next, and any known fixes to protect.
+4. Ask: "Continue as planned, tweak the plan, or do something different?"
+5. ${resumeCmd}
+
+## Current Objective
+
+${snapshot.goal}
+
+## Latest Status
+
+${snapshot.status}
+
+${fixLines}${regressionLines}${renderSessionCloseBlock(false)}`;
+}
+
+function renderCursorRules(state: HolisticState): string {
+  return renderIdeCursorRulesContent(state);
+}
+
+function renderWindsurfRules(state: HolisticState): string {
+  return renderIdeCursorRulesContent(state);
+}
+
+function renderCopilotInstructions(state: HolisticState): string {
+  return renderIdeCursorRulesContent(state);
+}
+
+function renderRootAgentDoc(agentName: string, commandName: string, hasMcp: boolean): string {
   return `## Holistic — cross-agent session tracking
 
 **At the start of every session, before doing anything else:**
@@ -620,7 +678,8 @@ function renderRootAgentDoc(agentName: string, commandName: string): string {
 - Then commit: \`git add HOLISTIC.md AGENTS.md CLAUDE.md GEMINI.md HISTORY.md .holistic/ && git commit -m 'docs(holistic): handoff'\`
 
 **Never touch files listed in the KNOWN FIXES section of HOLISTIC.md without reading that section first.**
-`;
+
+${renderSessionCloseBlock(hasMcp)}`;
 }
 
 function renderRootHistoryMd(paths: RuntimePaths, state: HolisticState): string {
@@ -678,16 +737,26 @@ export function writeDerivedDocs(paths: RuntimePaths, state: HolisticState): voi
   fs.writeFileSync(paths.regressionDoc, renderRegressionWatch(paths, state), "utf8");
   fs.writeFileSync(paths.zeroTouchDoc, renderZeroTouchDoc(state), "utf8");
   fs.writeFileSync(`${paths.contextDir}/README.md`, renderContextReadme(state), "utf8");
-  fs.writeFileSync(`${paths.adaptersDir}/codex.md`, renderAdapter(state, "Codex", "codex"), "utf8");
-  fs.writeFileSync(`${paths.adaptersDir}/claude-cowork.md`, renderAdapter(state, "Claude/Cowork", "claude"), "utf8");
-  fs.writeFileSync(`${paths.adaptersDir}/antigravity.md`, renderAdapter(state, "Antigravity", "antigravity"), "utf8");
+  fs.writeFileSync(`${paths.adaptersDir}/codex.md`, renderAdapter(state, "Codex", "codex", false), "utf8");
+  fs.writeFileSync(`${paths.adaptersDir}/claude-cowork.md`, renderAdapter(state, "Claude/Cowork", "claude", true), "utf8");
+  fs.writeFileSync(`${paths.adaptersDir}/antigravity.md`, renderAdapter(state, "Antigravity", "antigravity", false), "utf8");
   if (paths.rootClaudeDoc) {
-    fs.writeFileSync(paths.rootClaudeDoc, renderRootAgentDoc("Claude/Cowork", "claude"), "utf8");
+    fs.writeFileSync(paths.rootClaudeDoc, renderRootAgentDoc("Claude/Cowork", "claude", true), "utf8");
   }
   if (paths.rootGeminiDoc) {
-    fs.writeFileSync(paths.rootGeminiDoc, renderRootAgentDoc("Antigravity/Gemini", "antigravity"), "utf8");
+    fs.writeFileSync(paths.rootGeminiDoc, renderRootAgentDoc("Antigravity/Gemini", "antigravity", false), "utf8");
   }
   if (paths.rootHistoryDoc) {
     fs.writeFileSync(paths.rootHistoryDoc, renderRootHistoryMd(paths, state), "utf8");
+  }
+  if (paths.rootCursorRulesDoc) {
+    fs.writeFileSync(paths.rootCursorRulesDoc, renderCursorRules(state), "utf8");
+  }
+  if (paths.rootWindsurfRulesDoc) {
+    fs.writeFileSync(paths.rootWindsurfRulesDoc, renderWindsurfRules(state), "utf8");
+  }
+  if (paths.rootCopilotInstructionsDoc) {
+    fs.mkdirSync(path.dirname(paths.rootCopilotInstructionsDoc), { recursive: true });
+    fs.writeFileSync(paths.rootCopilotInstructionsDoc, renderCopilotInstructions(state), "utf8");
   }
 }

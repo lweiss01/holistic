@@ -8,6 +8,7 @@ export interface HookCommand {
   stateFilePath: string;
   syncPowerShellPath: string;
   syncShellPath: string;
+  syncLogPath: string;
 }
 
 export interface GitHookInstallResult {
@@ -88,19 +89,13 @@ fi
 
 exit 0
 `,
-    "pre-push": `${renderHookHeader("pre-push")}# Holistic status reminder before push
+    "pre-push": `${renderHookHeader("pre-push")}# Holistic checkpoint and state sync before push
 
 cd '${shellQuote(rootDir)}' || exit 0
 
 if [ -f "$PWD/${shellQuote(command.stateFilePath)}" ]; then
-  echo ""
-  echo "Holistic Status:"
-  ${statusCommand} || true
-  echo ""
-  echo "Run the generated sync helper to update Holistic state:"
-  echo "  Windows (PowerShell): powershell -NoProfile -ExecutionPolicy Bypass -File ./${shellQuote(command.syncPowerShellPath)}"
-  echo "  macOS/Linux: ./${shellQuote(command.syncShellPath)}"
-  echo ""
+  ${checkpointCommand} --reason 'pre-push snapshot' 2>>"$PWD/${shellQuote(command.syncLogPath)}" || true
+  sh "$PWD/${shellQuote(command.syncShellPath)}" 2>>"$PWD/${shellQuote(command.syncLogPath)}" || true
 fi
 
 exit 0
