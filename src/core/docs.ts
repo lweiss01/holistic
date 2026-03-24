@@ -601,6 +601,58 @@ Updated: ${state.updatedAt}
 `;
 }
 
+function renderIdeCursorRulesContent(state: HolisticState): string {
+  const snapshot = currentSnapshot(state);
+  const { fixes, other: otherRegressions } = parseKnownFixes(snapshot.regressions);
+  const resumeCmd = renderCliFallbackNote(state.docIndex.contextDir, "resume --agent cursor");
+  const handoffCmd = renderCliFallbackNote(state.docIndex.contextDir, "handoff");
+
+  const fixLines = fixes.length > 0
+    ? `## Do Not Regress — Known Fixes\n\n${fixes.map((f) => `- ${f}`).join("\n")}\n`
+    : "";
+  const regressionLines = otherRegressions.length > 0
+    ? `## Regression Watch\n\n${otherRegressions.map((r) => `- ${r}`).join("\n")}\n`
+    : "";
+
+  return `# Holistic — ${state.projectName}
+
+## Session Start
+
+At the start of every session, before doing anything else:
+1. Read \`HOLISTIC.md\` in full.
+2. Read \`AGENTS.md\`.
+3. Summarise to the user: what was last worked on, what's planned next, and any known fixes to protect.
+4. Ask: "Continue as planned, tweak the plan, or do something different?"
+5. ${resumeCmd}
+
+## Current Objective
+
+${snapshot.goal}
+
+## Latest Status
+
+${snapshot.status}
+
+${fixLines}${regressionLines}## Session End
+
+Before ending this session, run:
+- ${handoffCmd}
+- Then commit: \`git add HOLISTIC.md AGENTS.md .cursorrules .windsurfrules .github/copilot-instructions.md .holistic/ && git commit -m 'docs(holistic): handoff'\`
+`;
+}
+
+function renderCursorRules(state: HolisticState): string {
+  return renderIdeCursorRulesContent(state);
+}
+
+function renderWindsurfRules(state: HolisticState): string {
+  return renderIdeCursorRulesContent(state);
+}
+
+function renderCopilotInstructions(state: HolisticState): string {
+  return renderIdeCursorRulesContent(state);
+}
+
 function renderRootAgentDoc(agentName: string, commandName: string): string {
   return `## Holistic — cross-agent session tracking
 
@@ -689,5 +741,15 @@ export function writeDerivedDocs(paths: RuntimePaths, state: HolisticState): voi
   }
   if (paths.rootHistoryDoc) {
     fs.writeFileSync(paths.rootHistoryDoc, renderRootHistoryMd(paths, state), "utf8");
+  }
+  if (paths.rootCursorRulesDoc) {
+    fs.writeFileSync(paths.rootCursorRulesDoc, renderCursorRules(state), "utf8");
+  }
+  if (paths.rootWindsurfRulesDoc) {
+    fs.writeFileSync(paths.rootWindsurfRulesDoc, renderWindsurfRules(state), "utf8");
+  }
+  if (paths.rootCopilotInstructionsDoc) {
+    fs.mkdirSync(path.dirname(paths.rootCopilotInstructionsDoc), { recursive: true });
+    fs.writeFileSync(paths.rootCopilotInstructionsDoc, renderCopilotInstructions(state), "utf8");
   }
 }

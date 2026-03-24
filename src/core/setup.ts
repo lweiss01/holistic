@@ -164,6 +164,18 @@ function renderHolisticGitAttributes(paths: RuntimePaths): string {
   if (rootGemini) {
     lines.push(`${rootGemini} text eol=lf`);
   }
+  const cursorRules = relativePath(paths.rootDir, paths.rootCursorRulesDoc);
+  if (cursorRules) {
+    lines.push(`${cursorRules} text eol=lf`);
+  }
+  const windsurfRules = relativePath(paths.rootDir, paths.rootWindsurfRulesDoc);
+  if (windsurfRules) {
+    lines.push(`${windsurfRules} text eol=lf`);
+  }
+  const copilotInstructions = relativePath(paths.rootDir, paths.rootCopilotInstructionsDoc);
+  if (copilotInstructions) {
+    lines.push(`${copilotInstructions} text eol=lf`);
+  }
   if (holisticDir) {
     lines.push(`${holisticDir}/**/*.md text eol=lf`);
     lines.push(`${holisticDir}/**/*.json text eol=lf`);
@@ -369,6 +381,7 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     `$remote = '${quotePowerShell(remote)}'`,
     `$stateRef = '${quotePowerShell(syncTarget.ref)}'`,
     `$legacySeedRef = '${quotePowerShell(legacySeedRef)}'`,
+    "if (-not $remote) { Write-Error 'holistic sync-state: ERROR: no remote configured. Re-run holistic init --remote <remote>.'; exit 1 }",
     "$branch = git -c core.hooksPath=NUL -C $root rev-parse --abbrev-ref HEAD",
     "if ($LASTEXITCODE -ne 0) { throw 'Unable to determine current branch.' }",
     "git -c core.hooksPath=NUL -C $root push $remote $branch",
@@ -448,6 +461,7 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     `REMOTE='${shellQuote(remote)}'`,
     `STATE_REF='${shellQuote(syncTarget.ref)}'`,
     `LEGACY_SEED_REF='${shellQuote(legacySeedRef)}'`,
+    "if [ -z \"$REMOTE\" ]; then echo 'holistic sync-state: ERROR: no remote configured. Re-run holistic init --remote <remote>.' >&2; exit 1; fi",
     "BRANCH=$(git -c core.hooksPath=/dev/null -C \"$ROOT\" rev-parse --abbrev-ref HEAD) || exit 1",
     "git -c core.hooksPath=/dev/null -C \"$ROOT\" push \"$REMOTE\" \"$BRANCH\" || exit 1",
     "TMPDIR=$(mktemp -d 2>/dev/null || mktemp -d -t holistic-state)",
@@ -616,6 +630,122 @@ WantedBy=default.target
   return target;
 }
 
+function holisticCmdForPlatform(repoRoot: string, platform: NodeJS.Platform): string {
+  const sysDir = path.join(repoRoot, ".holistic", "system");
+  if (platform === "win32") {
+    return path.join(sysDir, "holistic.cmd");
+  }
+  return path.join(sysDir, "holistic");
+}
+
+interface ClaudeSessionStartHook {
+  type: string;
+  command: string;
+}
+
+interface ClaudeHookGroup {
+  hooks: ClaudeSessionStartHook[];
+}
+
+interface ClaudeHooksBlock {
+  SessionStart?: ClaudeHookGroup[];
+  [key: string]: unknown;
+}
+
+function isHolisticCommand(command: string): boolean {
+  return /\bholistic(?:\.cmd)?\b/.test(command);
+}
+
+export function installClaudeCodeHooks(repoRoot: string, holisticCmd: string): void {
+  const claudeDir = path.join(repoRoot, ".claude");
+  const settingsPath = path.join(claudeDir, "settings.json");
+
+  fs.mkdirSync(claudeDir, { recursive: true });
+
+  const existing = readJsonObject(settingsPath);
+  const existingHooks = existing.hooks && typeof existing.hooks === "object"
+    ? existing.hooks as ClaudeHooksBlock
+    : {} as ClaudeHooksBlock;
+
+  const newCommand = `${holisticCmd} resume --agent claude-code`;
+
+  const existingSessionStart: ClaudeHookGroup[] = Array.isArray(existingHooks.SessionStart)
+    ? existingHooks.SessionStart as ClaudeHookGroup[]
+    : [];
+
+  // Check if any existing SessionStart hook group has a holistic command
+  let replaced = false;
+  const updatedSessionStart: ClaudeHookGroup[] = existingSessionStart.map((group) => {
+    if (!group || !Array.isArray(group.hooks)) {
+      return group;
+    }
+    const hasHolistic = group.hooks.some(
+      (h) => h && typeof h.command === "string" && isHolisticCommand(h.command),
+    );
+    if (!hasHolistic) {
+      return group;
+    }
+    replaced = true;
+    return {
+      ...group,
+      hooks: group.hooks.map((h) => {
+        if (h && typeof h.command === "string" && isHolisticCommand(h.command)) {
+          return { ...h, type: "command", command: newCommand };
+        }
+        return h;
+      }),
+    };
+  });
+
+  if (!replaced) {
+    updatedSessionStart.push({
+      hooks: [{ type: "command", command: newCommand }],
+    });
+  }
+
+  const next = {
+    ...existing,
+    hooks: {
+      ...existingHooks,
+      SessionStart: updatedSessionStart,
+    },
+  };
+
+  fs.writeFileSync(settingsPath, JSON.stringify(next, null, 2) + "\n", "utf8");
+}
+
+export function refreshClaudeCodeHooks(repoRoot: string, platform: NodeJS.Platform): boolean {
+  const settingsPath = path.join(repoRoot, ".claude", "settings.json");
+  if (!fs.existsSync(settingsPath)) {
+    return false;
+  }
+
+  const existing = readJsonObject(settingsPath);
+  const existingHooks = existing.hooks && typeof existing.hooks === "object"
+    ? existing.hooks as ClaudeHooksBlock
+    : {} as ClaudeHooksBlock;
+
+  const sessionStart = existingHooks.SessionStart;
+  if (!Array.isArray(sessionStart)) {
+    return false;
+  }
+
+  const hasHolistic = (sessionStart as ClaudeHookGroup[]).some(
+    (group) =>
+      group &&
+      Array.isArray(group.hooks) &&
+      group.hooks.some((h) => h && typeof h.command === "string" && isHolisticCommand(h.command)),
+  );
+
+  if (!hasHolistic) {
+    return false;
+  }
+
+  const holisticCmd = holisticCmdForPlatform(repoRoot, platform);
+  installClaudeCodeHooks(repoRoot, holisticCmd);
+  return true;
+}
+
 function installDaemon(rootDir: string, paths: RuntimePaths, platform: NodeJS.Platform, homeDir: string): string | null {
   switch (platform) {
     case "win32":
@@ -683,6 +813,7 @@ function buildHookCommand(rootDir: string, paths: RuntimePaths): HookCommand {
     stateFilePath: path.relative(rootDir, paths.stateFile).replaceAll("\\", "/"),
     syncPowerShellPath: path.relative(rootDir, path.join(systemDir(paths), "sync-state.ps1")).replaceAll("\\", "/"),
     syncShellPath: path.relative(rootDir, path.join(systemDir(paths), "sync-state.sh")).replaceAll("\\", "/"),
+    syncLogPath: path.relative(rootDir, path.join(systemDir(paths), "sync.log")).replaceAll("\\", "/"),
   };
 }
 
@@ -781,6 +912,16 @@ export function bootstrapHolistic(rootDir: string, options: BootstrapOptions = {
     installDaemon: options.installDaemon !== false,
     installGitHooks: options.installGitHooks !== false,
   });
+
+  // Slice 1: detect Claude Code environment
+  const claudeCodePresent = fs.existsSync(path.join(rootDir, ".claude"));
+
+  // Slice 3 & 4: install or refresh Claude Code SessionStart hook
+  if (claudeCodePresent) {
+    const holisticCmd = holisticCmdForPlatform(rootDir, platform);
+    installClaudeCodeHooks(rootDir, holisticCmd);
+    console.log("\u2713 Claude Code SessionStart hook installed");
+  }
 
   const configuredMcpPath = configureMcp
     ? writeClaudeDesktopMcpConfig(rootDir, platform, homeDir)

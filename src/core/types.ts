@@ -154,6 +154,9 @@ export interface RuntimePaths {
   rootHistoryDoc: string | null;
   rootClaudeDoc: string | null;
   rootGeminiDoc: string | null;
+  rootCursorRulesDoc: string | null;
+  rootWindsurfRulesDoc: string | null;
+  rootCopilotInstructionsDoc: string | null;
   currentPlanDoc: string;
   protocolDoc: string;
   historyDoc: string;
