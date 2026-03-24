@@ -33,7 +33,9 @@
   },
   "homepage": "https://github.com/lweiss01/holistic#readme",
   "type": "module",
-  "bin": "bin/holistic.js",
+  "bin": {
+    "holistic": "bin/holistic.js"
+  },
   "scripts": {
     "build": "node scripts/build.mjs",
     "clean": "node scripts/clean.mjs",
