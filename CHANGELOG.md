@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0 - 2026-03-24
+
+Closed the injection and write-back reliability gaps for Claude Code and the full agent adapter matrix.
+
+- Added Claude Code `SessionStart` hook installation during `bootstrap` — context is now auto-injected before the first message with no prompt discipline required.
+- Added Claude Code `UserPromptSubmit` hook with 15-minute debounce — non-commit work (planning, research, architectural decisions) is now periodically snapshotted automatically.
+- Added `.cursorrules`, `.windsurfrules`, and `.github/copilot-instructions.md` generation on `bootstrap` — Cursor, Windsurf, and GitHub Copilot now get automatic context injection alongside Claude and Gemini.
+- Fixed auto-sync reliability — the pre-push hook now actually pushes the state ref instead of just showing instructions; sync errors are logged to `.holistic/system/sync.log`; `holistic status` surfaces last sync activity and recent failures.
+- Baked session-end handoff instructions into every generated adapter file — MCP-capable agents get a `holistic_handoff` tool call reminder, CLI-only agents get the equivalent shell command.
+- Fixed em-dash encoding in generated docs causing garbled output in PowerShell terminals.
+
 ## 0.2.3 - 2026-03-22
 
 Stopped teaching agents to visibly fail on missing PATH before recovering.
