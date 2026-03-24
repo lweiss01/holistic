@@ -539,6 +539,55 @@ If the global \`holistic\` command is unavailable in this shell:
 - macOS/Linux: \`${cliFallback.posix}\`
 `;
 
+  const autoCheckpointShPath = path.join(sysDir, "auto-checkpoint.sh");
+  const autoCheckpointPs1Path = path.join(sysDir, "auto-checkpoint.ps1");
+
+  const autoCheckpointSh = [
+    "#!/bin/sh",
+    "# HOLISTIC-MANAGED auto-checkpoint debounce script",
+    `STATE_FILE="$PWD/.holistic/state.json"`,
+    `HOLISTIC_CMD="$PWD/.holistic/system/holistic"`,
+    "THRESHOLD=900  # 15 minutes in seconds",
+    "",
+    `if [ ! -f "$STATE_FILE" ]; then exit 0; fi`,
+    "",
+    `LAST=$(node -e "try{const s=JSON.parse(require('fs').readFileSync('$STATE_FILE','utf8'));process.stdout.write(s.lastAutoCheckpoint||'')}catch(e){}")`,
+    `if [ -z "$LAST" ]; then`,
+    `  "$HOLISTIC_CMD" checkpoint --reason "auto periodic snapshot" 2>/dev/null || true`,
+    "  exit 0",
+    "fi",
+    "",
+    "NOW=$(date +%s)",
+    `LAST_S=$(node -e "process.stdout.write(String(Math.floor(new Date('$LAST').getTime()/1000)))")`,
+    "DIFF=$((NOW - LAST_S))",
+    `if [ "$DIFF" -ge "$THRESHOLD" ]; then`,
+    `  "$HOLISTIC_CMD" checkpoint --reason "auto periodic snapshot" 2>/dev/null || true`,
+    "fi",
+  ].join("\n");
+
+  const autoCheckpointPs1 = [
+    "# HOLISTIC-MANAGED auto-checkpoint debounce script",
+    `$stateFile = Join-Path $PWD ".holistic\\state.json"`,
+    `$holisticCmd = Join-Path $PWD ".holistic\\system\\holistic.cmd"`,
+    "$threshold = 900",
+    "",
+    "if (-not (Test-Path $stateFile)) { exit 0 }",
+    "",
+    "$state = Get-Content $stateFile -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue",
+    "$last = $state.lastAutoCheckpoint",
+    "if (-not $last) {",
+    `    & $holisticCmd checkpoint --reason "auto periodic snapshot" 2>$null`,
+    "    exit 0",
+    "}",
+    "",
+    "$now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()",
+    "$lastS = [DateTimeOffset]::Parse($last).ToUnixTimeSeconds()",
+    "$diff = $now - $lastS",
+    "if ($diff -ge $threshold) {",
+    `    & $holisticCmd checkpoint --reason "auto periodic snapshot" 2>$null`,
+    "}",
+  ].join("\n");
+
   fs.writeFileSync(localCliCmdPath, localCliCmd + "\r\n", "utf8");
   fs.writeFileSync(localCliShPath, localCliSh + "\n", "utf8");
   fs.chmodSync(localCliShPath, 0o755);
@@ -548,6 +597,9 @@ If the global \`holistic\` command is unavailable in this shell:
   fs.writeFileSync(syncPs1Path, syncPs1 + "\n", "utf8");
   fs.writeFileSync(restoreShPath, restoreSh + "\n", "utf8");
   fs.writeFileSync(syncShPath, syncSh + "\n", "utf8");
+  fs.writeFileSync(autoCheckpointShPath, autoCheckpointSh + "\n", "utf8");
+  fs.chmodSync(autoCheckpointShPath, 0o755);
+  fs.writeFileSync(autoCheckpointPs1Path, autoCheckpointPs1 + "\n", "utf8");
   fs.writeFileSync(path.join(sysDir, "README.md"), readme, "utf8");
 }
 
@@ -649,6 +701,7 @@ interface ClaudeHookGroup {
 
 interface ClaudeHooksBlock {
   SessionStart?: ClaudeHookGroup[];
+  UserPromptSubmit?: ClaudeHookGroup[];
   [key: string]: unknown;
 }
 
@@ -656,7 +709,21 @@ function isHolisticCommand(command: string): boolean {
   return /\bholistic(?:\.cmd)?\b/.test(command);
 }
 
-export function installClaudeCodeHooks(repoRoot: string, holisticCmd: string): void {
+function isAutoCheckpointCommand(command: string): boolean {
+  return /\bauto-checkpoint\b/.test(command);
+}
+
+function autoCheckpointCommand(repoRoot: string, platform: NodeJS.Platform): string {
+  const sysDir = path.join(repoRoot, ".holistic", "system");
+  if (platform === "win32") {
+    const scriptPath = path.join(sysDir, "auto-checkpoint.ps1");
+    return `powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptPath}"`;
+  }
+  const scriptPath = path.join(sysDir, "auto-checkpoint.sh");
+  return `sh "${scriptPath}"`;
+}
+
+export function installClaudeCodeHooks(repoRoot: string, holisticCmd: string, platform: NodeJS.Platform = process.platform): void {
   const claudeDir = path.join(repoRoot, ".claude");
   const settingsPath = path.join(claudeDir, "settings.json");
 
@@ -703,11 +770,49 @@ export function installClaudeCodeHooks(repoRoot: string, holisticCmd: string): v
     });
   }
 
+  // Build the UserPromptSubmit hook command for this platform
+  const autoCheckpointCmd = autoCheckpointCommand(repoRoot, platform);
+
+  const existingUserPromptSubmit: ClaudeHookGroup[] = Array.isArray(existingHooks.UserPromptSubmit)
+    ? existingHooks.UserPromptSubmit as ClaudeHookGroup[]
+    : [];
+
+  // Check if any existing UserPromptSubmit hook group has an auto-checkpoint command
+  let replacedAutoCheckpoint = false;
+  const updatedUserPromptSubmit: ClaudeHookGroup[] = existingUserPromptSubmit.map((group) => {
+    if (!group || !Array.isArray(group.hooks)) {
+      return group;
+    }
+    const hasAutoCheckpoint = group.hooks.some(
+      (h) => h && typeof h.command === "string" && isAutoCheckpointCommand(h.command),
+    );
+    if (!hasAutoCheckpoint) {
+      return group;
+    }
+    replacedAutoCheckpoint = true;
+    return {
+      ...group,
+      hooks: group.hooks.map((h) => {
+        if (h && typeof h.command === "string" && isAutoCheckpointCommand(h.command)) {
+          return { ...h, type: "command", command: autoCheckpointCmd };
+        }
+        return h;
+      }),
+    };
+  });
+
+  if (!replacedAutoCheckpoint) {
+    updatedUserPromptSubmit.push({
+      hooks: [{ type: "command", command: autoCheckpointCmd }],
+    });
+  }
+
   const next = {
     ...existing,
     hooks: {
       ...existingHooks,
       SessionStart: updatedSessionStart,
+      UserPromptSubmit: updatedUserPromptSubmit,
     },
   };
 
@@ -742,7 +847,7 @@ export function refreshClaudeCodeHooks(repoRoot: string, platform: NodeJS.Platfo
   }
 
   const holisticCmd = holisticCmdForPlatform(repoRoot, platform);
-  installClaudeCodeHooks(repoRoot, holisticCmd);
+  installClaudeCodeHooks(repoRoot, holisticCmd, platform);
   return true;
 }
 
@@ -919,7 +1024,7 @@ export function bootstrapHolistic(rootDir: string, options: BootstrapOptions = {
   // Slice 3 & 4: install or refresh Claude Code SessionStart hook
   if (claudeCodePresent) {
     const holisticCmd = holisticCmdForPlatform(rootDir, platform);
-    installClaudeCodeHooks(rootDir, holisticCmd);
+    installClaudeCodeHooks(rootDir, holisticCmd, platform);
     console.log("\u2713 Claude Code SessionStart hook installed");
   }
 

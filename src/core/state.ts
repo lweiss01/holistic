@@ -733,6 +733,7 @@ export function checkpointState(rootDir: string, state: HolisticState, input: Ch
     ...nextState,
     activeSession: session,
     pendingCommit: null,
+    lastAutoCheckpoint: now(),
   };
 }
 

@@ -140,6 +140,7 @@ export interface HolisticState {
     message: string;
     files: string[];
   } | null;
+  lastAutoCheckpoint?: string;
 }
 
 export interface RuntimePaths {
