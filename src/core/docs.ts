@@ -155,7 +155,7 @@ function renderKnownFixes(fixes: string[]): string {
     }
     return entry;
   }).join("\n");
-  return `## Known Fixes — Do Not Regress
+  return `## Known Fixes - Do Not Regress
 
 ⚠️  If you are about to edit a file listed here, STOP and read the fix entry first.
 
@@ -178,13 +178,13 @@ function renderHolisticMd(state: HolisticState): string {
   return `# HOLISTIC
 
 <!-- ═══════════════════════════════════════════════════════════════════════
-     AGENT INSTRUCTIONS — READ THIS ENTIRE FILE BEFORE DOING ANYTHING ELSE
+     AGENT INSTRUCTIONS - READ THIS ENTIRE FILE BEFORE DOING ANYTHING ELSE
      ═══════════════════════════════════════════════════════════════════════
 
   1. Read this file top-to-bottom.
   2. Read AGENTS.md for the setup steps specific to your agent.
   3. Summarise to the user: what was last worked on, what's planned next.
-  4. Ask: "What would you like to work on — continue recent work, or start something new?"
+  4. Ask: "What would you like to work on - continue recent work, or start something new?"
   5. Open the session with the repo-local Holistic helper for this repo.
 
   ⚠️  If you are about to edit a file listed under KNOWN FIXES, STOP and
@@ -223,7 +223,7 @@ ${renderList(snapshot.next, "Ask the user what they'd like to work on.")}
 
 ## Active Plan
 
-${renderList(snapshot.plan, "None yet — will be set once work begins.")}
+${renderList(snapshot.plan, "None yet - will be set once work begins.")}
 
 ## Overall Impact So Far
 
@@ -292,7 +292,7 @@ function renderAgentsMd(state: HolisticState): string {
   1. Read HOLISTIC.md in full.
   2. Summarise to the user: what was last worked on, what's planned next,
      and flag any KNOWN FIXES they should be aware of.
-  3. Ask: "What would you like to work on — continue recent work, or start something new?"
+  3. Ask: "What would you like to work on - continue recent work, or start something new?"
   4. Open the session with the repo-local Holistic helper for this repo.
 
   DO NOT skip step 1. HOLISTIC.md is the source of truth.
@@ -338,7 +338,7 @@ To add instructions for a new agent, create a file at:
 \`${state.docIndex.contextDir}/adapters/<agent-name>.md\`
 
 Copy any existing adapter as a template and customise the agent name and startup steps.
-Do not edit Holistic source files to register agents — adapters are data, not code.
+Do not edit Holistic source files to register agents - adapters are data, not code.
 `;
 }
 
@@ -619,13 +619,13 @@ function renderIdeCursorRulesContent(state: HolisticState): string {
   const handoffCmd = renderCliFallbackNote(state.docIndex.contextDir, "handoff");
 
   const fixLines = fixes.length > 0
-    ? `## Do Not Regress — Known Fixes\n\n${fixes.map((f) => `- ${f}`).join("\n")}\n`
+    ? `## Do Not Regress - Known Fixes\n\n${fixes.map((f) => `- ${f}`).join("\n")}\n`
     : "";
   const regressionLines = otherRegressions.length > 0
     ? `## Regression Watch\n\n${otherRegressions.map((r) => `- ${r}`).join("\n")}\n`
     : "";
 
-  return `# Holistic — ${state.projectName}
+  return `# Holistic - ${state.projectName}
 
 ## Session Start
 
@@ -660,11 +660,11 @@ function renderCopilotInstructions(state: HolisticState): string {
 }
 
 function renderRootAgentDoc(agentName: string, commandName: string, hasMcp: boolean): string {
-  return `## Holistic — cross-agent session tracking
+  return `## Holistic - cross-agent session tracking
 
 **At the start of every session, before doing anything else:**
 1. Read \`HOLISTIC.md\` in full.
-2. Read \`AGENTS.md\` — find the section for your agent and follow its setup steps.
+2. Read \`AGENTS.md\` - find the section for your agent and follow its setup steps.
 3. Summarise to the user: what was last worked on, what's planned next, and any known fixes to protect.
 4. Ask: "Continue as planned, tweak the plan, or do something different?"
 5. Use \`./.holistic/system/holistic resume --agent ${commandName}\` on macOS/Linux or \`.\\.holistic\\system\\holistic.cmd resume --agent ${commandName}\` on Windows to register the session.
@@ -674,7 +674,7 @@ function renderRootAgentDoc(agentName: string, commandName: string, hasMcp: bool
 - To record a fix that must not regress: \`holistic checkpoint --fixed '<bug>' --fix-files '<file>' --fix-risk '<what reintroduces it>'\`
 
 **At the end of every session:**
-- Run \`holistic handoff\` — this opens a dialog to capture the summary.
+- Run \`holistic handoff\` - this opens a dialog to capture the summary.
 - Then commit: \`git add HOLISTIC.md AGENTS.md CLAUDE.md GEMINI.md HISTORY.md .holistic/ && git commit -m 'docs(holistic): handoff'\`
 
 **Never touch files listed in the KNOWN FIXES section of HOLISTIC.md without reading that section first.**
@@ -687,7 +687,7 @@ function renderRootHistoryMd(paths: RuntimePaths, state: HolisticState): string 
     ? [state.activeSession, ...readArchivedSessions(paths)]
     : readArchivedSessions(paths);
 
-  const header = `# History — ${state.projectName}
+  const header = `# History - ${state.projectName}
 
 _Append-only log of every Holistic session. Newest entries at the bottom._
 
