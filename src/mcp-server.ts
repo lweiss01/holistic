@@ -33,6 +33,7 @@ function asAgent(value: unknown, fallback: AgentName = "unknown"): AgentName {
     "cursor",
     "goose",
     "gsd",
+    "gsd2",
   ];
 
   if (typeof value === "string" && validAgents.includes(value as AgentName)) {
@@ -122,7 +123,7 @@ export function listHolisticTools(): ListToolsResult {
           properties: {
             agent: {
               type: "string",
-              enum: ["codex", "claude", "antigravity", "gemini", "copilot", "cursor", "goose", "gsd"],
+              enum: ["codex", "claude", "antigravity", "gemini", "copilot", "cursor", "goose", "gsd", "gsd2"],
               description: "Agent name for context retrieval (optional, defaults to claude)",
             },
             continue: {
@@ -140,7 +141,7 @@ export function listHolisticTools(): ListToolsResult {
           properties: {
             agent: {
               type: "string",
-              enum: ["codex", "claude", "antigravity", "gemini", "copilot", "cursor", "goose", "gsd"],
+              enum: ["codex", "claude", "antigravity", "gemini", "copilot", "cursor", "goose", "gsd", "gsd2"],
               description: "Agent name (optional, defaults to claude)",
             },
           },

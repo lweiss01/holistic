@@ -229,6 +229,12 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "project-history.md")));
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "regression-watch.md")));
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "zero-touch.md")));
+      assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "adapters", "gemini.md")));
+      assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "adapters", "copilot.md")));
+      assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "adapters", "cursor.md")));
+      assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "adapters", "goose.md")));
+      assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "adapters", "gsd.md")));
+      assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "adapters", "gsd2.md")));
     },
   },
   {
@@ -707,10 +713,14 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.match(syncPs1, /ls-remote --quiet --exit-code \$remote \$stateRef/);
       assert.match(syncPs1, /ls-remote --quiet --exit-code \$remote \$legacySeedRef/);
       assert.match(syncPs1, /switch --detach FETCH_HEAD/);
+      assert.doesNotMatch(syncPs1, /push \$remote \$branch/);
+      assert.doesNotMatch(syncPs1, /rev-parse --abbrev-ref HEAD/);
       assert.doesNotMatch(syncPs1, /switch -C \$stateBranch FETCH_HEAD/);
       assert.match(syncSh, /core\.hooksPath=\/dev\/null/);
       assert.match(syncSh, /STATE_REF='refs\/holistic\/state'/);
       assert.match(syncSh, /LEGACY_SEED_REF='refs\/heads\/holistic\/state'/);
+      assert.doesNotMatch(syncSh, /push \"\$REMOTE\" \"\$BRANCH\"/);
+      assert.doesNotMatch(syncSh, /rev-parse --abbrev-ref HEAD/);
     },
   },
   {

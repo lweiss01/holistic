@@ -46,7 +46,7 @@ function firstFlag(flags: Record<string, string[]>, name: string, fallback = "")
 }
 
 function asAgent(value: string): AgentName {
-  if (value === "codex" || value === "claude" || value === "antigravity" || value === "gemini" || value === "copilot" || value === "cursor" || value === "goose" || value === "gsd") {
+  if (value === "codex" || value === "claude" || value === "antigravity" || value === "gemini" || value === "copilot" || value === "cursor" || value === "goose" || value === "gsd" || value === "gsd2") {
     return value;
   }
   return "unknown";

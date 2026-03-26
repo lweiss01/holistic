@@ -140,6 +140,7 @@ function defaultDocIndex(paths: RuntimePaths): DocIndex {
       cursor: relativeToRoot(paths.rootDir, path.join(paths.adaptersDir, "cursor.md")),
       goose: relativeToRoot(paths.rootDir, path.join(paths.adaptersDir, "goose.md")),
       gsd: relativeToRoot(paths.rootDir, path.join(paths.adaptersDir, "gsd.md")),
+      gsd2: relativeToRoot(paths.rootDir, path.join(paths.adaptersDir, "gsd2.md")),
     },
     currentPlanDoc: relativeToRoot(paths.rootDir, paths.currentPlanDoc),
     protocolDoc: relativeToRoot(paths.rootDir, paths.protocolDoc),

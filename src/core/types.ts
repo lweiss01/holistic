@@ -7,6 +7,7 @@
   | "cursor"
   | "goose"
   | "gsd"
+  | "gsd2"
   | "unknown";
 
 export type SessionStatus = "active" | "handed_off" | "superseded";

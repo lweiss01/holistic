@@ -77,6 +77,7 @@ function asAgent(value: string): AgentName {
     "cursor",
     "goose",
     "gsd",
+    "gsd2",
   ];
 
   if (validAgents.includes(value as AgentName)) {
@@ -107,8 +108,8 @@ function printHelp(): void {
 Usage:
   holistic init [--install-daemon] [--install-hooks] [--platform win32|darwin|linux] [--interval 30] [--remote origin] [--state-ref refs/holistic/state] [--state-branch holistic/state]
   holistic bootstrap [--platform win32|darwin|linux] [--interval 30] [--remote origin] [--state-ref refs/holistic/state] [--state-branch holistic/state] [--install-daemon false] [--install-hooks false] [--configure-mcp false]
-  holistic start [--agent codex|claude|antigravity|gemini|copilot|cursor|goose|gsd] [--continue] [--json]
-  holistic resume [--agent codex|claude|antigravity|gemini|copilot|cursor|goose|gsd] [--continue] [--json]
+  holistic start [--agent codex|claude|antigravity|gemini|copilot|cursor|goose|gsd|gsd2] [--continue] [--json]
+  holistic resume [--agent codex|claude|antigravity|gemini|copilot|cursor|goose|gsd|gsd2] [--continue] [--json]
   holistic checkpoint --reason "<reason>" [--goal "<goal>"] [--status "<status>"] [--plan "<step>"]...
   holistic checkpoint --fixed "<bug>" [--fix-files "<file>"] [--fix-risk "<what reintroduces it>"]
   holistic handoff [--draft] [--summary "<summary>"] [--next "<step>"]...
@@ -116,7 +117,7 @@ Usage:
   holistic status
   holistic diff --from "<session-id>" --to "<session-id>" [--format text|json]
   holistic serve
-  holistic watch [--agent codex|claude|antigravity|gemini|copilot|cursor|goose|gsd] [--interval 60]
+  holistic watch [--agent codex|claude|antigravity|gemini|copilot|cursor|goose|gsd|gsd2] [--interval 60]
 
   'holistic start' is an alias for 'holistic resume'.
 `);

@@ -30,6 +30,7 @@ function makeTestState(overrides?: Partial<HolisticState>): HolisticState {
         cursor: ".holistic/context/adapters/cursor.md",
         goose: ".holistic/context/adapters/goose.md",
         gsd: ".holistic/context/adapters/gsd.md",
+        gsd2: ".holistic/context/adapters/gsd2.md",
       },
       currentPlanDoc: ".holistic/context/current-plan.md",
       protocolDoc: ".holistic/context/session-protocol.md",
@@ -134,7 +135,7 @@ export const tests = [
       const state = makeTestState({
         activeSession: {
           id: "session-test",
-          agent: "gsd",
+          agent: "gsd2",
           branch: "main",
           startedAt: "2026-03-21T12:00:00.000Z",
           updatedAt: "2026-03-21T12:00:00.000Z",
@@ -159,9 +160,9 @@ export const tests = [
         },
       });
 
-      const greeting = buildStartupGreeting(state, "gsd");
+      const greeting = buildStartupGreeting(state, "gsd2");
       assert.ok(greeting);
-      assert.match(greeting, /Adapter doc: \.holistic\/context\/adapters\/gsd\.md/);
+      assert.match(greeting, /Adapter doc: \.holistic\/context\/adapters\/gsd2\.md/);
     },
   },
   {

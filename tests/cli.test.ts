@@ -43,6 +43,22 @@ test("resume payload starts empty and writes visible docs", () => {
   assert.ok(fs.existsSync(path.join(rootDir, "HOLISTIC.md")));
   assert.ok(fs.existsSync(path.join(rootDir, "AGENTS.md")));
   assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "state.json")));
+  assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "adapters", "gemini.md")));
+  assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "adapters", "copilot.md")));
+  assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "adapters", "cursor.md")));
+  assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "adapters", "goose.md")));
+  assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "adapters", "gsd.md")));
+  assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "adapters", "gsd2.md")));
+
+  const copilotAdapter = fs.readFileSync(path.join(rootDir, ".holistic", "context", "adapters", "copilot.md"), "utf8");
+  const cursorAdapter = fs.readFileSync(path.join(rootDir, ".holistic", "context", "adapters", "cursor.md"), "utf8");
+  const gsdAdapter = fs.readFileSync(path.join(rootDir, ".holistic", "context", "adapters", "gsd.md"), "utf8");
+  const gsd2Adapter = fs.readFileSync(path.join(rootDir, ".holistic", "context", "adapters", "gsd2.md"), "utf8");
+
+  assert.match(copilotAdapter, /\.github\/copilot-instructions\.md/);
+  assert.match(cursorAdapter, /\.cursorrules/);
+  assert.match(gsdAdapter, /distinct workflow surface|GSD has its own planning and workflow artifacts|Holistic should complement/);
+  assert.match(gsd2Adapter, /not an alias of GSD|distinct workflow surface/);
 });
 
 test("checkpoint and resume preserve current objective and next steps", () => {

@@ -437,7 +437,18 @@ ${handoffFallbackNote}
 `;
 }
 
-function renderAdapter(state: HolisticState, appName: string, commandName: string, hasMcp: boolean): string {
+interface AdapterProfile {
+  appName: string;
+  commandName: string;
+  hasMcp: boolean;
+  toolingNotes: string[];
+  startupNotes: string[];
+  checkpointNotes: string[];
+  handoffNotes: string[];
+}
+
+function renderAdapter(state: HolisticState, profile: AdapterProfile): string {
+  const { appName, commandName, hasMcp, toolingNotes, startupNotes, checkpointNotes, handoffNotes } = profile;
   const resumeFallbackNote = renderCliFallbackNote(state.docIndex.contextDir, `resume --agent ${commandName}`);
   const checkpointFallbackNote = renderCliFallbackNote(state.docIndex.contextDir, "checkpoint --reason \"<what changed>\"");
   const handoffFallbackNote = renderCliFallbackNote(state.docIndex.contextDir, "handoff");
@@ -449,6 +460,10 @@ Open repo, start working, Holistic quietly keeps continuity alive.
 
 Use this adapter to move toward that outcome: less manual setup, less re-briefing, and more continuity preserved by default.
 
+## Tool-Specific Notes
+
+${renderList(toolingNotes, "No tool-specific notes recorded.")}
+
 ## Startup Contract
 
 1. Read \`HOLISTIC.md\`.
@@ -457,6 +472,10 @@ Use this adapter to move toward that outcome: less manual setup, less re-briefin
 4. Use the repo-local Holistic helper when you need an explicit recap or recovery flow.
 5. Recap the current state for the user in the first 30 seconds.
 6. Ask: continue as planned, tweak the plan, or start something new.
+
+### Startup Notes For ${appName}
+
+${renderList(startupNotes, "Use the default startup contract.")}
 
 ${resumeFallbackNote}
 
@@ -471,6 +490,10 @@ Use the repo-local Holistic helper for checkpoints in this repo when:
 
 Include impact notes and regression risks when they matter.
 
+### Checkpoint Notes For ${appName}
+
+${renderList(checkpointNotes, "Use the default checkpoint contract.")}
+
 ${checkpointFallbackNote}
 
 ## Handoff Contract
@@ -478,10 +501,180 @@ ${checkpointFallbackNote}
 - Preferred: map your session-end workflow to the repo-local Holistic helper with \`handoff\`
 - Fallback: ask the user to run the repo-local Holistic helper with \`handoff\` before leaving the session
 
+### Handoff Notes For ${appName}
+
+${renderList(handoffNotes, "Use the default handoff contract.")}
+
 ${handoffFallbackNote}
 
 ${renderSessionCloseBlock(hasMcp)}`;
 }
+
+const ADAPTER_PROFILES: AdapterProfile[] = [
+  {
+    appName: "Codex",
+    commandName: "codex",
+    hasMcp: false,
+    toolingNotes: [
+      "Codex is usually repo-instruction driven, so the first prompt matters more than custom app hooks.",
+      "Prefer explicit Holistic recap commands before large context shifts or fresh chat starts.",
+    ],
+    startupNotes: [
+      "Use the repo-local resume helper early in a fresh Codex chat so the recap lands before implementation starts.",
+      "If the chat is already deep, checkpoint first before asking Codex to compact or pivot.",
+    ],
+    checkpointNotes: [
+      "Checkpoint before asking Codex to refactor broadly or touch multiple subsystems in one pass.",
+    ],
+    handoffNotes: [
+      "Treat the handoff as the durable replacement for a long final Codex recap message.",
+    ],
+  },
+  {
+    appName: "Claude/Cowork",
+    commandName: "claude",
+    hasMcp: true,
+    toolingNotes: [
+      "Claude/Cowork can use Holistic through MCP-style tool calls when available.",
+      "When MCP is active, prefer Holistic tools over free-form summaries for startup and session close.",
+    ],
+    startupNotes: [
+      "Use \`holistic_resume\` or the mapped startup hook instead of manually reconstructing prior work.",
+      "Let the initial recap shape the first answer before editing code.",
+    ],
+    checkpointNotes: [
+      "Checkpoint after meaningful implementation slices, especially before asking Claude to branch into analysis-heavy discussion.",
+    ],
+    handoffNotes: [
+      "Prefer \`holistic_handoff\` when the tool is available so the handoff fields stay structured.",
+    ],
+  },
+  {
+    appName: "Antigravity",
+    commandName: "antigravity",
+    hasMcp: false,
+    toolingNotes: [
+      "Antigravity sessions tend to benefit from concise startup context and explicit next-step framing.",
+    ],
+    startupNotes: [
+      "Read the Holistic recap before steering Antigravity toward a new plan or implementation pass.",
+    ],
+    checkpointNotes: [
+      "Checkpoint before switching from exploration to execution so the inferred next step stays current.",
+    ],
+    handoffNotes: [
+      "Keep handoffs concrete: summary, next step, and regression risk are more useful than a long narrative.",
+    ],
+  },
+  {
+    appName: "Gemini",
+    commandName: "gemini",
+    hasMcp: false,
+    toolingNotes: [
+      "Gemini should use repo-visible docs first: \`HOLISTIC.md\`, \`GEMINI.md\`, and the Holistic context folder.",
+      "Treat \`GEMINI.md\` as the app-local companion to the shared Holistic memory.",
+    ],
+    startupNotes: [
+      "Open with the shared Holistic recap, then align Gemini-specific behavior from \`GEMINI.md\`.",
+    ],
+    checkpointNotes: [
+      "Checkpoint when Gemini is about to pivot from research to edits or from one subsystem to another.",
+    ],
+    handoffNotes: [
+      "Use the handoff to leave a crisp resume point for the next non-Gemini agent too, not just Gemini.",
+    ],
+  },
+  {
+    appName: "GitHub Copilot",
+    commandName: "copilot",
+    hasMcp: false,
+    toolingNotes: [
+      "Copilot should pick up repo guidance from \`.github/copilot-instructions.md\` alongside the shared Holistic docs.",
+      "Keep Holistic as the continuity layer and Copilot instructions as the tool-specific behavior layer.",
+    ],
+    startupNotes: [
+      "Review \`.github/copilot-instructions.md\` after the Holistic recap so Copilot gets both continuity and local coding rules.",
+    ],
+    checkpointNotes: [
+      "Checkpoint after multi-file edits so Copilot sessions do not lose why a change set exists.",
+    ],
+    handoffNotes: [
+      "End with a real handoff instead of relying on editor chat history surviving between Copilot sessions.",
+    ],
+  },
+  {
+    appName: "Cursor",
+    commandName: "cursor",
+    hasMcp: false,
+    toolingNotes: [
+      "Cursor should combine Holistic repo memory with project-level editor rules from \`.cursorrules\`.",
+      "Use Holistic for continuity and \`.cursorrules\` for Cursor-specific operating guidance.",
+    ],
+    startupNotes: [
+      "Read the Holistic recap before acting on workspace-wide Cursor suggestions or agent mode plans.",
+    ],
+    checkpointNotes: [
+      "Checkpoint before large agent-mode edits so the repo keeps a durable explanation of intent.",
+    ],
+    handoffNotes: [
+      "Do not assume Cursor chat history is enough; finish with a Holistic handoff when ending the session.",
+    ],
+  },
+  {
+    appName: "Goose",
+    commandName: "goose",
+    hasMcp: false,
+    toolingNotes: [
+      "Goose is terminal-first, so explicit repo-local commands fit naturally here.",
+      "Prefer concrete CLI invocations over implicit editor state when refreshing continuity.",
+    ],
+    startupNotes: [
+      "Run the repo-local resume helper early in the shell session so Goose starts from the shared recap.",
+    ],
+    checkpointNotes: [
+      "Checkpoint after command-driven milestones, especially before longer shell sequences or tool handoffs.",
+    ],
+    handoffNotes: [
+      "Use the handoff before closing the shell or moving to another machine so command history is not the only trace.",
+    ],
+  },
+  {
+    appName: "GSD",
+    commandName: "gsd",
+    hasMcp: false,
+    toolingNotes: [
+      "GSD has its own planning and workflow artifacts; Holistic should complement them, not replace them.",
+      "Use Holistic for cross-agent continuity and GSD for execution structure inside a session.",
+    ],
+    startupNotes: [
+      "Start from the Holistic recap, then align against any active GSD milestone, slice, or task files.",
+    ],
+    checkpointNotes: [
+      "Checkpoint when a GSD slice changes direction or when work crosses from one task context into another.",
+    ],
+    handoffNotes: [
+      "Keep the handoff focused on what the next agent needs to resume, even if fuller detail exists in GSD artifacts.",
+    ],
+  },
+  {
+    appName: "GSD2",
+    commandName: "gsd2",
+    hasMcp: false,
+    toolingNotes: [
+      "GSD2 should be treated as a distinct workflow surface, not an alias of GSD.",
+      "Use Holistic as the shared continuity layer across GSD2 sessions and across non-GSD2 agents touching the same repo.",
+    ],
+    startupNotes: [
+      "Load Holistic context first, then reconcile it with any GSD2-native state or workflow entrypoint.",
+    ],
+    checkpointNotes: [
+      "Checkpoint when GSD2 changes execution mode, task boundary, or planned next step.",
+    ],
+    handoffNotes: [
+      "Write handoffs for the next agent, not just for the next GSD2 runtime instance.",
+    ],
+  },
+];
 
 function renderProjectHistory(paths: RuntimePaths, state: HolisticState): string {
   const sessions = state.activeSession ? [state.activeSession, ...readArchivedSessions(paths)] : readArchivedSessions(paths);
@@ -677,8 +870,8 @@ function renderRootAgentDoc(agentName: string, commandName: string, hasMcp: bool
 - To record a fix that must not regress: \`holistic checkpoint --fixed '<bug>' --fix-files '<file>' --fix-risk '<what reintroduces it>'\`
 
 **At the end of every session:**
-- Run \`holistic handoff\` - this opens a dialog to capture the summary.
-- Then commit: \`git add HOLISTIC.md AGENTS.md CLAUDE.md GEMINI.md HISTORY.md .holistic/ && git commit -m 'docs(holistic): handoff'\`
+- Run \`holistic handoff\` - this opens a dialog to capture the summary and prepares a pending handoff commit.
+- If you want the Holistic files committed, make that git commit explicitly.
 
 **Never touch files listed in the KNOWN FIXES section of HOLISTIC.md without reading that section first.**
 
@@ -740,14 +933,15 @@ export function writeDerivedDocs(paths: RuntimePaths, state: HolisticState): voi
   fs.writeFileSync(paths.regressionDoc, renderRegressionWatch(paths, state), "utf8");
   fs.writeFileSync(paths.zeroTouchDoc, renderZeroTouchDoc(state), "utf8");
   fs.writeFileSync(`${paths.contextDir}/README.md`, renderContextReadme(state), "utf8");
-  fs.writeFileSync(`${paths.adaptersDir}/codex.md`, renderAdapter(state, "Codex", "codex", false), "utf8");
-  fs.writeFileSync(`${paths.adaptersDir}/claude-cowork.md`, renderAdapter(state, "Claude/Cowork", "claude", true), "utf8");
-  fs.writeFileSync(`${paths.adaptersDir}/antigravity.md`, renderAdapter(state, "Antigravity", "antigravity", false), "utf8");
+  for (const profile of ADAPTER_PROFILES) {
+    const fileName = profile.commandName === "claude" ? "claude-cowork.md" : `${profile.commandName}.md`;
+    fs.writeFileSync(path.join(paths.adaptersDir, fileName), renderAdapter(state, profile), "utf8");
+  }
   if (paths.rootClaudeDoc) {
     fs.writeFileSync(paths.rootClaudeDoc, renderRootAgentDoc("Claude/Cowork", "claude", true), "utf8");
   }
   if (paths.rootGeminiDoc) {
-    fs.writeFileSync(paths.rootGeminiDoc, renderRootAgentDoc("Antigravity/Gemini", "antigravity", false), "utf8");
+    fs.writeFileSync(paths.rootGeminiDoc, renderRootAgentDoc("Gemini", "gemini", false), "utf8");
   }
   if (paths.rootHistoryDoc) {
     fs.writeFileSync(paths.rootHistoryDoc, renderRootHistoryMd(paths, state), "utf8");
