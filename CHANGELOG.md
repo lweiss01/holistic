@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.1 - 2026-03-26
+
+Polished the public README language and improved how Holistic surfaces top-level command failures.
+
+- Renamed the README section to `What it feels like with HOLISTIC` and removed the stray `npm start` wording from the day-to-day workflow description.
+- Improved the CLI top-level failure path so commands show a clearer `Holistic command failed.` banner before printing the underlying error.
+- Kept stack traces available when present so debugging detail is still visible after the friendlier error header.
+
 ## 0.4.0 - 2026-03-26
 
 Stopped Holistic from auto-pushing the working branch during sync, filled out the missing adapter matrix, and gave each supported tool a more specific operating guide.
