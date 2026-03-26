@@ -143,7 +143,7 @@ git add .holistic/context/
 git commit -m "feat: add holistic"
 ```
 
-By default, Holistic now syncs portable state through a hidden git ref (`refs/holistic/state`) to avoid GitHub branch noise.
+By default, Holistic now syncs portable state through a hidden git ref (`refs/holistic/state`) to avoid GitHub branch noise. That sync mirrors Holistic state only - it does not auto-push your working branch.
 
 Advanced overrides:
 
@@ -223,9 +223,14 @@ Holistic is model-agnostic. It works through repo files first, and can also expo
 
 | App | Reads | Startup experience |
 |---|---|---|
-| Claude Desktop | `CLAUDE.md` and repo docs | automatic plus MCP support |
+| Claude Desktop / Cowork | `CLAUDE.md` and repo docs | automatic plus MCP support |
 | Codex | `AGENTS.md` and repo docs | automatic |
-| Gemini / Antigravity | `GEMINI.md` and repo docs | automatic |
+| Antigravity | `GEMINI.md` and repo docs | automatic |
+| Gemini | `GEMINI.md` and repo docs | automatic |
+| Cursor | `.cursorrules` and repo docs | automatic in repo-aware workflows |
+| GitHub Copilot | `.github/copilot-instructions.md` and repo docs | automatic in supported editors |
+| Goose | `AGENTS.md` and repo docs | terminal-first, CLI-friendly |
+| GSD / GSD2 | `AGENTS.md` and repo docs | workflow-aware, repo-first |
 | Other VS Code forks | `AGENTS.md` and repo docs | usually automatic |
 | Web tools | repo docs pasted manually | manual |
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0 - 2026-03-26
+
+Stopped Holistic from auto-pushing the working branch during sync, filled out the missing adapter matrix, and gave each supported tool a more specific operating guide.
+
+- Stopped checkpoint and handoff auto-sync helpers from pushing the current working branch; they now mirror only the portable Holistic state ref.
+- Updated generated handoff guidance so Holistic prepares a pending handoff commit instead of implying that it will commit or push code automatically.
+- Added/generated missing adapters for Gemini, GitHub Copilot, Cursor, Goose, GSD, and GSD2.
+- Added `gsd2` as a distinct supported agent instead of treating it as an alias of `gsd`.
+- Made generated adapter docs tool-specific so Copilot references `.github/copilot-instructions.md`, Cursor references `.cursorrules`, Gemini references `GEMINI.md`, Goose is CLI-first, and GSD/GSD2 describe their distinct workflow expectations.
+- Fixed Claude Code hook installation to register the supported `claude` agent name.
+- Added regression coverage for the sync behavior change and the expanded adapter matrix.
+
 ## 0.3.0 - 2026-03-24
 
 Closed the injection and write-back reliability gaps for Claude Code and the full agent adapter matrix.
