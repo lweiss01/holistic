@@ -382,9 +382,6 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     `$stateRef = '${quotePowerShell(syncTarget.ref)}'`,
     `$legacySeedRef = '${quotePowerShell(legacySeedRef)}'`,
     "if (-not $remote) { Write-Error 'holistic sync-state: ERROR: no remote configured. Re-run holistic init --remote <remote>.'; exit 1 }",
-    "$branch = git -c core.hooksPath=NUL -C $root rev-parse --abbrev-ref HEAD",
-    "if ($LASTEXITCODE -ne 0) { throw 'Unable to determine current branch.' }",
-    "git -c core.hooksPath=NUL -C $root push $remote $branch",
     "$tmp = Join-Path $env:TEMP ('holistic-state-' + [guid]::NewGuid().ToString())",
     "git -c core.hooksPath=NUL -C $root worktree add --force $tmp | Out-Null",
     "try {",
@@ -462,8 +459,6 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     `STATE_REF='${shellQuote(syncTarget.ref)}'`,
     `LEGACY_SEED_REF='${shellQuote(legacySeedRef)}'`,
     "if [ -z \"$REMOTE\" ]; then echo 'holistic sync-state: ERROR: no remote configured. Re-run holistic init --remote <remote>.' >&2; exit 1; fi",
-    "BRANCH=$(git -c core.hooksPath=/dev/null -C \"$ROOT\" rev-parse --abbrev-ref HEAD) || exit 1",
-    "git -c core.hooksPath=/dev/null -C \"$ROOT\" push \"$REMOTE\" \"$BRANCH\" || exit 1",
     "TMPDIR=$(mktemp -d 2>/dev/null || mktemp -d -t holistic-state)",
     "git -c core.hooksPath=/dev/null -C \"$ROOT\" worktree add --force \"$TMPDIR\" >/dev/null 2>&1 || exit 1",
     "cleanup() { git -c core.hooksPath=/dev/null -C \"$ROOT\" worktree remove --force \"$TMPDIR\" >/dev/null 2>&1; }",
@@ -531,7 +526,7 @@ Files:
 - holistic / holistic.cmd: repo-local CLI fallback when \`holistic\` is not on PATH
 - run-daemon.ps1 / run-daemon.sh: restore the portable state, then start the background daemon
 - restore-state.ps1 / restore-state.sh: pull the portable Holistic state ref into the current worktree when safe
-- sync-state.ps1 / sync-state.sh: push the current branch and mirror Holistic files into the portable state ref
+- sync-state.ps1 / sync-state.sh: mirror Holistic files into the portable state ref without pushing the working branch
 - config in ../config.json defines the remote and portable state target
 
 If the global \`holistic\` command is unavailable in this shell:
@@ -734,7 +729,7 @@ export function installClaudeCodeHooks(repoRoot: string, holisticCmd: string, pl
     ? existing.hooks as ClaudeHooksBlock
     : {} as ClaudeHooksBlock;
 
-  const newCommand = `${holisticCmd} resume --agent claude-code`;
+  const newCommand = `${holisticCmd} resume --agent claude`;
 
   const existingSessionStart: ClaudeHookGroup[] = Array.isArray(existingHooks.SessionStart)
     ? existingHooks.SessionStart as ClaudeHookGroup[]
