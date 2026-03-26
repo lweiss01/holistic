@@ -810,8 +810,17 @@ if (isEntrypoint) {
   main().then((code) => {
     process.exit(code);
   }).catch((error: unknown) => {
-    const message = error instanceof Error ? error.stack || error.message : String(error);
+    const message = error instanceof Error ? error.message : String(error);
+
+    printSplashError({
+      message: "Holistic command failed.",
+    });
     process.stderr.write(`${message}\n`);
+
+    if (error instanceof Error && error.stack && error.stack !== message) {
+      process.stderr.write(`${error.stack}\n`);
+    }
+
     process.exit(1);
   });
 }

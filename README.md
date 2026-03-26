@@ -72,7 +72,7 @@ Then daily use is mostly:
 3. Ask the agent to read `AGENTS.md` and `HOLISTIC.md`.
 4. Let Holistic carry continuity through checkpoints, handoffs, and repo memory.
 
-Most days, you do not need to run `npm start`, keep a terminal process open, or manually re-brief the agent.
+Most days, you do not need to keep a terminal process open or manually re-brief the agent.
 
 `holistic bootstrap` is a machine setup command, not just a repo setup command. By default it can install local startup helpers and configure Claude Desktop MCP on that machine.
 
