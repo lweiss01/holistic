@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.2 - 2026-03-26
+
+Published the README heading fix that should have landed with the prior patch release.
+
+- Renamed the README section heading from `What it feels like now` to `What it feels like with HOLISTIC` so the public docs match the intended wording.
+- Re-published the package so npm and GitHub both reflect the corrected README copy.
+
 ## 0.4.1 - 2026-03-26
 
 Polished the public README language and improved how Holistic surfaces top-level command failures.
