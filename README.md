@@ -57,7 +57,7 @@ Holistic fixes that by making the repo the source of truth.
 
 ---
 
-## What it feels like now 🌿
+## What it feels like with HOLISTIC 🌿
 
 Run one setup command on a machine:
 
