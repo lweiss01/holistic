@@ -1,6 +1,4 @@
-# S06: Real-World Dogfooding
-
-**Goal:** ---
+---
 id: S06
 parent: M001
 milestone: M001
@@ -82,10 +80,3 @@ S07 should address three concrete rough edges found here: noisy unmanaged-hook w
 - `.gsd/milestones/M001/slices/S06/tasks/T01-SUMMARY.md` — Captured first dogfooding pass findings in Holistic repo using live CLI flow.
 - `.gsd/milestones/M001/slices/S06/tasks/T02-SUMMARY.md` — Captured second dogfooding pass findings in Paydirt repo and version-skew behavior.
 - `.gsd/milestones/M001/slices/S06/tasks/T03-SUMMARY.md` — Captured cross-repo synthesis and follow-up rough-edge backlog.
-
-**Demo:** After this: Holistic validated in 2-3 different repos (newsthread Android app, others); rough edges identified and documented; confidence that "set and forget" works in practice with real workflows
-
-## Tasks
-- [x] **T01: Validated core Holistic CLI dogfooding flow in the Holistic repo and captured rough-edge findings.** — 
-- [x] **T02: Validated dogfooding flow in paydirt and captured version-skew + handoff UX rough edges.** — 
-- [x] **T03: Completed cross-repo dogfooding synthesis and captured actionable rough-edge backlog for polish.** — 
