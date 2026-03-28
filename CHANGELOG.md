@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.1 - 2026-03-28
+
+Shipped the S04 edge-case health diagnostics slice and released it as `holistic@0.5.1`.
+
+- Added a daemon-health diagnostics evaluator with two warning classes:
+  - stale checkpoint warning when no checkpoint is recorded for 3+ days
+  - unusual pattern warning when 50+ files are changed without checkpoint evidence
+- Integrated diagnostics into startup surfaces through shared greeting formatting so MCP startup notifications and `/holistic` output stay in parity.
+- Added boundary and regression coverage for 3-day and 50-file thresholds, below-threshold negatives, and diagnostic (non-blaming) warning language.
+- Published npm package `holistic@0.5.1` and created GitHub tag/release `v0.5.1`.
+
 ## 0.4.2 - 2026-03-26
 
 Published the README heading fix that should have landed with the prior patch release.
