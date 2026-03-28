@@ -110,6 +110,7 @@ function syncGitHooks(rootDir: string, gitDir: string | null, command: HookComma
   const warnings: string[] = [];
   const refreshed: string[] = [];
   const managedHooks = new Set<HookName>();
+  const skippedCustomHooks: HookName[] = [];
   let hasManagedExistingHook = false;
 
   for (const hookName of SUPPORTED_HOOKS) {
@@ -125,7 +126,13 @@ function syncGitHooks(rootDir: string, gitDir: string | null, command: HookComma
       continue;
     }
 
-    warnings.push(`Skipped Holistic hook refresh for ${hookName}: existing hook is not Holistic-managed.`);
+    skippedCustomHooks.push(hookName);
+  }
+
+  if (skippedCustomHooks.length > 0) {
+    warnings.push(
+      `Skipped Holistic hook refresh for ${skippedCustomHooks.join(", ")}: existing hook(s) are user-managed.`,
+    );
   }
 
   for (const hookName of SUPPORTED_HOOKS) {
