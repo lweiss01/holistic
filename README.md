@@ -219,20 +219,24 @@ Future agents will see that warning in the repo docs before they touch the risky
 
 ## Works with multiple agent apps 🤝
 
-Holistic is model-agnostic. It works through repo files first, and can also expose a thin MCP server where supported.
+Holistic is model-agnostic. It works through repo files first, and can expose a thin MCP server where supported.
 
-| App | Reads | Startup experience |
-|---|---|---|
-| Claude Desktop / Cowork | `CLAUDE.md` and repo docs | automatic plus MCP support |
-| Codex | `AGENTS.md` and repo docs | automatic |
-| Antigravity | `GEMINI.md` and repo docs | automatic |
-| Gemini | `GEMINI.md` and repo docs | automatic |
-| Cursor | `.cursorrules` and repo docs | automatic in repo-aware workflows |
-| GitHub Copilot | `.github/copilot-instructions.md` and repo docs | automatic in supported editors |
-| Goose | `AGENTS.md` and repo docs | terminal-first, CLI-friendly |
-| GSD / GSD2 | `AGENTS.md` and repo docs | workflow-aware, repo-first |
-| Other VS Code forks | `AGENTS.md` and repo docs | usually automatic |
-| Web tools | repo docs pasted manually | manual |
+### Startup parity matrix
+
+Use this table to decide whether startup should be automatic (MCP/tooling hook) or manual (`/holistic` / `holistic_resume`).
+
+| App / Surface | Reads | MCP auto-start | Startup action |
+|---|---|---|---|
+| Claude Desktop / Cowork | `CLAUDE.md` and repo docs | ✅ Yes | Usually automatic after `holistic bootstrap`; if context is stale, run `holistic_resume` |
+| Codex | `AGENTS.md` and repo docs | ❌ No | Run `/holistic` (or repo-local `holistic resume --continue`) at conversation start |
+| Antigravity | `GEMINI.md` and repo docs | ❌ No | Run `/holistic` at conversation start |
+| Gemini | `GEMINI.md` and repo docs | ❌ No | Run `/holistic` at conversation start |
+| Cursor | `.cursorrules` and repo docs | ❌ No | Run `/holistic` at conversation start for deterministic recap |
+| GitHub Copilot | `.github/copilot-instructions.md` and repo docs | ❌ No | Run `/holistic` at conversation start |
+| Goose | `AGENTS.md` and repo docs | ❌ No | Run repo-local `holistic resume --continue` in the shell session |
+| GSD / GSD2 | `AGENTS.md` and repo docs | ❌ No | Run `/holistic` or `holistic_resume` before first implementation step |
+| Other VS Code forks | `AGENTS.md` and repo docs | ❌ No | Treat as manual-start and run `/holistic` |
+| Web tools | repo docs pasted manually | ❌ No | Manual copy/paste recap from Holistic docs |
 
 ---
 
