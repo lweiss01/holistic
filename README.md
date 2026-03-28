@@ -277,7 +277,16 @@ The portable repo memory (config, state, context, sessions) is meant to be commi
 | `holistic serve` | Runs the thin MCP server and prints a startup banner to `stderr` |
 | `holistic watch` | Foreground daemon mode for automatic checkpoints |
 
-### Non-interactive handoff
+### Slash command helper text (agent-facing)
+
+When your agent UI supports slash shortcuts, use these helper mappings:
+
+| Slash | Helper text | CLI equivalent |
+|---|---|---|
+| `/holistic` | Load repo recap and confirm: continue, tweak, or start new. | `holistic resume --continue` |
+| `/checkpoint` | Save a structured checkpoint at a natural breakpoint. | `holistic checkpoint --reason "..."` |
+| `/handoff` | Finalize session handoff with summary, next steps, blockers, and regression risks. | `holistic handoff` |
+
 
 ```bash
 holistic handoff \

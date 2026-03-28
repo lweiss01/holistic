@@ -31,6 +31,16 @@ When a tool does not auto-start via MCP, agents should explicitly run Holistic s
 - If no carryover exists, state that clearly and offer to start a new session.
 - Treat startup warnings as system-health diagnostics (not user blame).
 
+## Slash command helper text
+
+Use these helper labels where an agent UI supports slash aliases:
+
+- `/holistic` — Load Holistic recap for this repo and ask: continue, tweak, or start new.
+- `/checkpoint` — Save a structured progress checkpoint at a natural breakpoint (tests green, bug fixed, feature complete, or focus change).
+- `/handoff` — Finalize current session with summary, next steps, blockers, and regression risks for the next agent.
+
+If slash aliases are not available, use CLI equivalents (`holistic resume --continue`, `holistic checkpoint --reason "..."`, `holistic handoff`).
+
 ## Self-Dogfooding On This Repo
 
 The Holistic repo is a special case.
