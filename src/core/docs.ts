@@ -920,40 +920,127 @@ _Append-only log of every Holistic session. Newest entries at the bottom._
   return header + entries.join("\n---\n\n") + "\n";
 }
 
-export function writeDerivedDocs(paths: RuntimePaths, state: HolisticState): void {
+export interface WriteDerivedDocsOptions {
+  mode?: "full" | "runtime";
+}
+
+interface RepoConfigShape {
+  sync?: {
+    trackedPaths?: string[];
+  };
+}
+
+function normalizeRelativePath(value: string): string {
+  return value.replaceAll("\\", "/");
+}
+
+function relativeToRoot(paths: RuntimePaths, absolutePath: string): string {
+  return normalizeRelativePath(path.relative(paths.rootDir, absolutePath));
+}
+
+function readConfiguredTrackedPaths(paths: RuntimePaths): string[] | null {
+  const configPath = path.join(paths.holisticDir, "config.json");
+  if (!fs.existsSync(configPath)) {
+    return null;
+  }
+
+  try {
+    const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as RepoConfigShape;
+    const trackedPaths = config.sync?.trackedPaths;
+    if (!Array.isArray(trackedPaths) || trackedPaths.length === 0) {
+      return null;
+    }
+    return trackedPaths.map((trackedPath) => normalizeRelativePath(String(trackedPath)));
+  } catch {
+    return null;
+  }
+}
+
+function runtimeWriteSurface(paths: RuntimePaths): string[] {
+  const configured = readConfiguredTrackedPaths(paths);
+  if (configured && configured.length > 0) {
+    return configured;
+  }
+
+  const defaults = [
+    relativeToRoot(paths, paths.masterDoc),
+    relativeToRoot(paths, paths.holisticDir),
+  ];
+
+  if (paths.rootHistoryDoc) {
+    defaults.push(relativeToRoot(paths, paths.rootHistoryDoc));
+  }
+
+  return defaults;
+}
+
+function shouldWritePath(paths: RuntimePaths, absolutePath: string, mode: "full" | "runtime"): boolean {
+  if (mode === "full") {
+    return true;
+  }
+
+  const relativePath = relativeToRoot(paths, absolutePath);
+  const surface = runtimeWriteSurface(paths);
+  return surface.some((trackedPath) => relativePath === trackedPath || relativePath.startsWith(`${trackedPath}/`));
+}
+
+function writeTextFileIfChanged(filePath: string, content: string): void {
+  if (fs.existsSync(filePath)) {
+    try {
+      if (fs.readFileSync(filePath, "utf8") === content) {
+        return;
+      }
+    } catch {
+      // Fall through and rewrite if the existing file can't be read.
+    }
+  }
+
+  fs.writeFileSync(filePath, content, "utf8");
+}
+
+function writeDerivedDoc(paths: RuntimePaths, filePath: string, content: string, mode: "full" | "runtime"): void {
+  if (!shouldWritePath(paths, filePath, mode)) {
+    return;
+  }
+
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  writeTextFileIfChanged(filePath, content);
+}
+
+export function writeDerivedDocs(paths: RuntimePaths, state: HolisticState, options: WriteDerivedDocsOptions = {}): void {
+  const mode = options.mode ?? "full";
   fs.mkdirSync(paths.holisticDir, { recursive: true });
   fs.mkdirSync(paths.contextDir, { recursive: true });
   fs.mkdirSync(paths.adaptersDir, { recursive: true });
   fs.mkdirSync(paths.sessionsDir, { recursive: true });
-  fs.writeFileSync(paths.masterDoc, renderHolisticMd(state), "utf8");
-  fs.writeFileSync(paths.agentsDoc, renderAgentsMd(state), "utf8");
-  fs.writeFileSync(paths.currentPlanDoc, renderCurrentPlan(state), "utf8");
-  fs.writeFileSync(paths.protocolDoc, renderProtocol(state), "utf8");
-  fs.writeFileSync(paths.historyDoc, renderProjectHistory(paths, state), "utf8");
-  fs.writeFileSync(paths.regressionDoc, renderRegressionWatch(paths, state), "utf8");
-  fs.writeFileSync(paths.zeroTouchDoc, renderZeroTouchDoc(state), "utf8");
-  fs.writeFileSync(`${paths.contextDir}/README.md`, renderContextReadme(state), "utf8");
+  writeDerivedDoc(paths, paths.masterDoc, renderHolisticMd(state), mode);
+  writeDerivedDoc(paths, paths.agentsDoc, renderAgentsMd(state), mode);
+  writeDerivedDoc(paths, paths.currentPlanDoc, renderCurrentPlan(state), mode);
+  writeDerivedDoc(paths, paths.protocolDoc, renderProtocol(state), mode);
+  writeDerivedDoc(paths, paths.historyDoc, renderProjectHistory(paths, state), mode);
+  writeDerivedDoc(paths, paths.regressionDoc, renderRegressionWatch(paths, state), mode);
+  writeDerivedDoc(paths, paths.zeroTouchDoc, renderZeroTouchDoc(state), mode);
+  writeDerivedDoc(paths, `${paths.contextDir}/README.md`, renderContextReadme(state), mode);
   for (const profile of ADAPTER_PROFILES) {
     const fileName = profile.commandName === "claude" ? "claude-cowork.md" : `${profile.commandName}.md`;
-    fs.writeFileSync(path.join(paths.adaptersDir, fileName), renderAdapter(state, profile), "utf8");
+    writeDerivedDoc(paths, path.join(paths.adaptersDir, fileName), renderAdapter(state, profile), mode);
   }
   if (paths.rootClaudeDoc) {
-    fs.writeFileSync(paths.rootClaudeDoc, renderRootAgentDoc("Claude/Cowork", "claude", true), "utf8");
+    writeDerivedDoc(paths, paths.rootClaudeDoc, renderRootAgentDoc("Claude/Cowork", "claude", true), mode);
   }
   if (paths.rootGeminiDoc) {
-    fs.writeFileSync(paths.rootGeminiDoc, renderRootAgentDoc("Gemini", "gemini", false), "utf8");
+    writeDerivedDoc(paths, paths.rootGeminiDoc, renderRootAgentDoc("Gemini", "gemini", false), mode);
   }
   if (paths.rootHistoryDoc) {
-    fs.writeFileSync(paths.rootHistoryDoc, renderRootHistoryMd(paths, state), "utf8");
+    writeDerivedDoc(paths, paths.rootHistoryDoc, renderRootHistoryMd(paths, state), mode);
   }
   if (paths.rootCursorRulesDoc) {
-    fs.writeFileSync(paths.rootCursorRulesDoc, renderCursorRules(state), "utf8");
+    writeDerivedDoc(paths, paths.rootCursorRulesDoc, renderCursorRules(state), mode);
   }
   if (paths.rootWindsurfRulesDoc) {
-    fs.writeFileSync(paths.rootWindsurfRulesDoc, renderWindsurfRules(state), "utf8");
+    writeDerivedDoc(paths, paths.rootWindsurfRulesDoc, renderWindsurfRules(state), mode);
   }
   if (paths.rootCopilotInstructionsDoc) {
-    fs.mkdirSync(path.dirname(paths.rootCopilotInstructionsDoc), { recursive: true });
-    fs.writeFileSync(paths.rootCopilotInstructionsDoc, renderCopilotInstructions(state), "utf8");
+    writeDerivedDoc(paths, paths.rootCopilotInstructionsDoc, renderCopilotInstructions(state), mode);
   }
 }

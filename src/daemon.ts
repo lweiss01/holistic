@@ -87,7 +87,7 @@ function isSameDraft(left: DraftHandoff | null, right: DraftHandoff | null): boo
 }
 
 function persistLocked(rootDir: string, state: HolisticState, paths: RuntimePaths): HolisticState {
-  writeDerivedDocs(paths, state);
+  writeDerivedDocs(paths, state, { mode: "runtime" });
   state.repoSnapshot = captureRepoSnapshot(rootDir);
   saveState(paths, state, { locked: true });
   return state;

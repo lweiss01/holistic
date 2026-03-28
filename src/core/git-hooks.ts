@@ -53,11 +53,6 @@ function renderHookHeader(name: HookName): string {
 }
 
 function renderGitHooks(rootDir: string, command: HookCommand): Record<HookName, string> {
-  const checkpointCommand = commandLine(command, [
-    "checkpoint",
-    "--reason",
-    "post-commit",
-  ]);
   const branchSwitchCommand = commandLine(command, [
     "checkpoint",
     "--reason",
@@ -65,17 +60,14 @@ function renderGitHooks(rootDir: string, command: HookCommand): Record<HookName,
     "--status",
     "Detected branch switch; review the new branch context.",
   ]);
-  const statusCommand = commandLine(command, ["status"]);
 
   return {
-    "post-commit": `${renderHookHeader("post-commit")}# Holistic auto-checkpoint after commit
+    "post-commit": `${renderHookHeader("post-commit")}# Holistic hook placeholder after commit
 
 cd '${shellQuote(rootDir)}' || exit 0
 
-if [ -f "$PWD/${shellQuote(command.stateFilePath)}" ]; then
-  COMMIT_SUBJECT=$(git -C "$PWD" log -1 --pretty=%s 2>/dev/null || echo post-commit)
-  ${checkpointCommand} --status "Committed: $COMMIT_SUBJECT" >/dev/null 2>&1 || true
-fi
+# Intentionally do not create a new checkpoint here.
+# The user may have just committed Holistic state and expects the tree to stay clean.
 
 exit 0
 `,
@@ -89,12 +81,11 @@ fi
 
 exit 0
 `,
-    "pre-push": `${renderHookHeader("pre-push")}# Holistic checkpoint and state sync before push
+    "pre-push": `${renderHookHeader("pre-push")}# Holistic portable state sync before push
 
 cd '${shellQuote(rootDir)}' || exit 0
 
 if [ -f "$PWD/${shellQuote(command.stateFilePath)}" ]; then
-  ${checkpointCommand} --reason 'pre-push snapshot' 2>>"$PWD/${shellQuote(command.syncLogPath)}" || true
   sh "$PWD/${shellQuote(command.syncShellPath)}" 2>>"$PWD/${shellQuote(command.syncLogPath)}" || true
 fi
 

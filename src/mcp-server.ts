@@ -56,7 +56,7 @@ function textResult(text: string, isError = false): CallToolResult {
 }
 
 function persistLocked(rootDir: string, state: HolisticState, paths: RuntimePaths): HolisticState {
-  writeDerivedDocs(paths, state);
+  writeDerivedDocs(paths, state, { mode: "runtime" });
   state.repoSnapshot = captureRepoSnapshot(rootDir);
   saveState(paths, state, { locked: true });
   return state;
