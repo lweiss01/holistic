@@ -1,7 +1,7 @@
 ﻿import fs from "node:fs";
 import path from "node:path";
 import { renderCliFallbackNote } from './cli-fallback.ts';
-import { readArchivedSessions } from './state.ts';
+import { readAllSessions } from './state.ts';
 import type { HolisticState, ImpactNote, RegressionRisk, RuntimePaths, SessionRecord, ValidationItem } from './types.ts';
 
 function renderSessionCloseBlock(hasMcp: boolean): string {
@@ -685,7 +685,7 @@ const ADAPTER_PROFILES: AdapterProfile[] = [
 ];
 
 function renderProjectHistory(paths: RuntimePaths, state: HolisticState): string {
-  const sessions = state.activeSession ? [state.activeSession, ...readArchivedSessions(paths)] : readArchivedSessions(paths);
+  const sessions = state.activeSession ? [state.activeSession, ...readAllSessions(paths)] : readAllSessions(paths);
   const body = sessions.length === 0
     ? "No archived sessions yet. Use handoffs to build durable project history."
     : sessions.map((session) => {
@@ -730,7 +730,7 @@ function renderProjectHistory(paths: RuntimePaths, state: HolisticState): string
 }
 
 function renderRegressionWatch(paths: RuntimePaths, state: HolisticState): string {
-  const sessions = (state.activeSession ? [state.activeSession, ...readArchivedSessions(paths)] : readArchivedSessions(paths))
+  const sessions = (state.activeSession ? [state.activeSession, ...readAllSessions(paths)] : readAllSessions(paths))
     .filter((session) => session.regressionRisks.length > 0 || session.regressionRisksStructured?.length || session.impactNotes.length > 0 || session.impactNotesStructured?.length || session.workDone.length > 0);
   const body = sessions.length === 0
     ? "No regression watch items yet. Add them during checkpoints and handoffs when a change must stay fixed."
@@ -891,8 +891,8 @@ ${renderSessionCloseBlock(hasMcp)}`;
 
 function renderRootHistoryMd(paths: RuntimePaths, state: HolisticState): string {
   const sessions = state.activeSession
-    ? [state.activeSession, ...readArchivedSessions(paths)]
-    : readArchivedSessions(paths);
+    ? [state.activeSession, ...readAllSessions(paths)]
+    : readAllSessions(paths);
 
   const header = `# History - ${state.projectName}
 
@@ -1024,6 +1024,7 @@ export function writeDerivedDocs(paths: RuntimePaths, state: HolisticState, opti
   fs.mkdirSync(paths.contextDir, { recursive: true });
   fs.mkdirSync(paths.adaptersDir, { recursive: true });
   fs.mkdirSync(paths.sessionsDir, { recursive: true });
+  fs.mkdirSync(paths.archiveSessionsDir, { recursive: true });
   writeDerivedDoc(paths, paths.masterDoc, renderHolisticMd(state), mode);
   writeDerivedDoc(paths, paths.agentsDoc, renderAgentsMd(state), mode);
   writeDerivedDoc(paths, paths.currentPlanDoc, renderCurrentPlan(state), mode);

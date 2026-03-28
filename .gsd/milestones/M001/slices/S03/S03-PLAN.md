@@ -1,80 +1,115 @@
 # S03: Automatic Memory Hygiene
 
 **Goal:** Introduce automatic session-memory hygiene so stale, unreferenced sessions move into `.holistic/sessions/archive/` without losing project history, and explicit reuse brings them back to active storage automatically.
-**Demo:** After this: sessions >30 days old AND unreferenced move to `.holistic/sessions/archive/` automatically; archived sessions move back to active when used in diff, handoff, or exact-id session search; archive checks run on session start and periodically in the daemon.
+**Demo:** After this: sessions >30 days old AND unreferenced move to .holistic/sessions/archive/ automatically; archived sessions move back to active when used in diff/handoff/reference; archive check runs on session start and periodically in daemon
+
+## Tasks
+- [x] **T01: Added explicit archive session storage and kept derived history/regression docs reading merged stored sessions.** — Build the filesystem contract that the rest of S03 depends on.
+
+## Failure Modes
+
+| Dependency | On error | On timeout | On malformed response |
+|------------|----------|-----------|----------------------|
+| Local filesystem under `.holistic/sessions/**` | Leave the current session state untouched, fail the write/read path deterministically, and keep tests exercising the error boundary. | Not applicable for local sync filesystem access. | Skip corrupt session JSON exactly as current readers do instead of crashing the entire tool. |
+| Derived docs renderers in `src/core/docs.ts` | Keep history/regression generation reading a merged session list so storage refactors cannot silently hide prior work. | Not applicable. | Treat malformed archived entries as skipped records, not a fatal docs render error. |
+
+## Load Profile
+
+- **Shared resources**: `.holistic/sessions/` directory listings and per-session JSON files.
+- **Per-operation cost**: O(number of stored session files) directory scans and JSON parses.
+- **10x breakpoint**: Repeated full-directory reads become the first cost center, so helper boundaries should stay centralized and reusable.
+
+## Negative Tests
+
+- **Malformed inputs**: corrupt JSON file in active or archive storage is skipped without breaking the rest of the read.
+- **Error paths**: empty archive directory and mixed active/archive session sets still render derived docs successfully.
+- **Boundary conditions**: active-only history, archive-only history, and newest-first ordering across both directories.
+
+## Steps
+
+1. Add an explicit archive runtime path (for example `archiveSessionsDir`) and ensure Holistic creates it alongside the existing sessions directory.
+2. Replace the misleading single-directory `readArchivedSessions()` behavior with explicit active/archive/all-session helpers while keeping the current `SessionRecord` shape unchanged.
+3. Update history/regression/current-context doc renderers to consume the merged reader so archived sessions remain visible after the storage split.
+4. Extend `tests/run-tests.ts` with assertions that archived sessions live under `.holistic/sessions/archive/` and still appear in derived docs/history output.
 
 ## Must-Haves
 
-- Sessions stored under `.holistic/sessions/` split cleanly into active files and archived files under `.holistic/sessions/archive/` while keeping the current `SessionRecord` JSON shape.
-- A merged reader keeps derived history/regression docs complete after the directory split.
-- Hygiene archives only sessions older than 30 days that are not referenced by active work, pending work, last handoff, or recent stored sessions.
-- Session start/resume paths and daemon ticks both run the same hygiene helper instead of duplicating archiving logic.
-- Archived sessions reactivate automatically when explicitly used by `holistic diff`, exact session-id references in handoff input, or `holistic search --id <session-id>`.
+- [ ] `RuntimePaths` exposes the archive directory explicitly.
+- [ ] Docs/history readers no longer assume every stored session lives directly in `.holistic/sessions/`.
+- [ ] Existing corrupt-session tolerance is preserved across both directories.
+  - Estimate: 1.5h
+  - Files: src/core/types.ts, src/core/state.ts, src/core/docs.ts, tests/run-tests.ts
+  - Verify: npm test -- --grep "archived sessions|history"
+- [ ] **T02: Archive stale unreferenced sessions during session start and daemon ticks** — Implement the actual hygiene policy once the storage contract exists.
 
-## Threat Surface
+## Failure Modes
 
-- **Abuse**: Broad substring matching could move unrelated archived sessions back to active storage or churn files repeatedly; reactivation should therefore use exact session-id matches for handoff/search surfaces.
-- **Data exposure**: No new external data leaves the repo, but archived session history remains durable project memory and must not disappear from derived docs after the directory split.
-- **Input trust**: CLI flags and handoff reference arrays are untrusted inputs that can trigger filesystem reads/moves; all path resolution must stay under Holistic runtime directories.
+| Dependency | On error | On timeout | On malformed response |
+|------------|----------|-----------|----------------------|
+| Session-history files discovered by the state layer | Abort that archive move, leave the session in active storage, and surface the failure through deterministic tests instead of partially moving files. | Not applicable for local sync filesystem access. | Ignore malformed records when computing candidates so one bad file cannot archive the wrong sessions. |
+| `runDaemonTick()` shared lock + checkpoint flow | Run hygiene before normal passive-capture logic and preserve the current checkpoint behavior if no archive work is needed. | Daemon tick should return without repeated loops or extra checkpoints. | If candidate metadata is incomplete, treat the session as referenced and do not archive it. |
 
-## Requirement Impact
+## Load Profile
 
-- **Requirements touched**: R008, R009.
-- **Re-verify**: Derived history/regression docs, daemon auto-checkpoint behavior, `holistic diff`, handoff application, and the new exact-id `holistic search` flow all need regression coverage after shipping.
-- **Decisions revisited**: D008.
+- **Shared resources**: session directory listings, daemon state lock, and derived-reference scans across recent sessions.
+- **Per-operation cost**: one archive-candidate scan per session start/tick, plus file move/write work for each archived session.
+- **10x breakpoint**: repeated scans of very large session histories; candidate logic should stay conservative and single-pass.
 
-## Proof Level
+## Negative Tests
 
-- This slice proves: operational
-- Real runtime required: yes
-- Human/UAT required: no
+- **Malformed inputs**: missing `endedAt`, invalid timestamps, or incomplete reference metadata should not archive the session.
+- **Error paths**: daemon tick with no candidates leaves passive checkpoint behavior unchanged.
+- **Boundary conditions**: exactly 30 days old, just under 30 days, referenced old sessions, and multiple stale candidates in one pass.
 
-## Verification
+## Steps
 
-- `npm test` passes with new assertions added in `tests/run-tests.ts` covering archive placement, merged history reads, stale-vs-referenced hygiene, daemon/session-start hygiene hooks, diff reactivation, handoff reactivation, and exact-id search reactivation.
-- `npm run build` passes after the new archive/search helpers are wired into runtime entrypoints.
+1. Add a shared helper in `src/core/state.ts` that identifies archive candidates older than 30 days and excludes anything referenced by active session state, pending work, last handoff, or recent stored sessions.
+2. Invoke that helper from session-start/resume entrypoints and from `runDaemonTick()` before passive checkpoint decisions, reusing one codepath instead of duplicating policy.
+3. Preserve or expose enough runtime state for tests to prove when hygiene ran and which files moved.
+4. Extend `tests/run-tests.ts` to cover stale-session archiving, reference exemptions, and daemon/session-start integration without regressing existing proactive-checkpoint tests.
 
-## Observability / Diagnostics
+## Must-Haves
 
-- Runtime signals: session file moves between `.holistic/sessions/` and `.holistic/sessions/archive/`, plus passive-capture timestamps used to prove when hygiene ran.
-- Inspection surfaces: filesystem state under `.holistic/sessions/**`, `holistic diff`, `holistic search --id`, and derived docs generated from `src/core/docs.ts`.
-- Failure visibility: missing session files, sessions that fail to move on hygiene/reactivation, or history docs that omit archived sessions should be directly visible in tests and runtime file layout.
-- Redaction constraints: session JSON stays repo-local; do not broaden what is rendered beyond current session-history content.
+- [ ] One shared hygiene helper owns the archive policy.
+- [ ] Session start/resume and daemon tick both exercise the same policy path.
+- [ ] Referenced old sessions remain active until they truly become stale and unused.
+  - Estimate: 2h
+  - Files: src/core/state.ts, src/daemon.ts, tests/run-tests.ts
+  - Verify: npm test -- --grep "30 days|daemon tick"
+- [ ] **T03: Reactivate archived sessions on diff, exact handoff references, and exact-id search** — Close R009 by making explicit session reuse pull archived history back into active storage.
 
-## Integration Closure
+## Failure Modes
 
-- Upstream surfaces consumed: `src/core/state.ts`, `src/core/docs.ts`, `src/daemon.ts`, `src/cli.ts`, `tests/run-tests.ts`.
-- New wiring introduced in this slice: session storage split, shared hygiene pass invoked from session-start and daemon entrypoints, and explicit reactivation wiring for diff/handoff/search surfaces.
-- What remains before the milestone is truly usable end-to-end: nothing for S03 once the runtime paths, daemon flow, and CLI surfaces above are verified together.
+| Dependency | On error | On timeout | On malformed response |
+|------------|----------|-----------|----------------------|
+| CLI session-id inputs for diff/search | Fail the command with a clear missing-session error and leave unrelated archived files untouched. | Not applicable for local sync filesystem access. | Reject malformed or non-existent ids without broadening the match set. |
+| Handoff reference arrays | Reactivate only exact session-id matches; leave free-form notes/readme references untouched. | Not applicable. | Treat malformed reference entries as inert text, not as archive-move triggers. |
 
-## Tasks
+## Load Profile
 
-- [ ] **T01: Split active vs archived session storage and preserve merged history reads** `est:1.5h`
-  - Why: The slice cannot archive or reactivate safely until the filesystem contract is explicit and derived docs stop assuming one flat sessions directory.
-  - Files: `src/core/types.ts`, `src/core/state.ts`, `src/core/docs.ts`, `tests/run-tests.ts`
-  - Do: Add an explicit archive runtime path, replace the misleading flat-directory reader with explicit active/archive/all-session helpers while keeping `SessionRecord` unchanged, and update derived docs to read the merged history so archived sessions stay visible.
-  - Verify: `npm test -- --grep "archived sessions|history"`
-  - Done when: archived session fixtures are written under `.holistic/sessions/archive/`, corrupt-session tolerance still works, and derived history/regression docs still include archived sessions.
+- **Shared resources**: archive directory lookups and single-session file moves.
+- **Per-operation cost**: O(number of stored sessions) lookup unless an index helper is added; at most one move per explicitly used session id.
+- **10x breakpoint**: repeated broad search would cause unnecessary directory scans, so this task should keep search exact-id scoped.
 
-- [ ] **T02: Archive stale unreferenced sessions during session start and daemon ticks** `est:2h`
-  - Why: R008 is only satisfied when the 30-day archive policy runs automatically at the real runtime entrypoints, not just through a helper.
-  - Files: `src/core/state.ts`, `src/daemon.ts`, `tests/run-tests.ts`
-  - Do: Implement one shared hygiene helper that archives sessions older than 30 days only when they are not referenced by active work, pending work, last handoff, or recent stored sessions, then invoke it from session-start/resume and daemon-tick flows.
-  - Verify: `npm test -- --grep "30 days|daemon tick"`
-  - Done when: stale sessions archive automatically, referenced sessions stay active, and daemon passive-checkpoint behavior still passes regression coverage.
+## Negative Tests
 
-- [ ] **T03: Reactivate archived sessions on diff, exact handoff references, and exact-id search** `est:2h`
-  - Why: R009 requires relevance-based reactivation, and this task closes the user-facing reuse loop instead of leaving archived sessions stranded.
-  - Files: `src/core/state.ts`, `src/cli.ts`, `tests/run-tests.ts`
-  - Do: Add a shared reactivation helper, wire it into `holistic diff`, exact session-id handoff references, and a minimal `holistic search --id` command, and keep matching exact so reuse is predictable.
-  - Verify: `npm test -- --grep "diff|handoff|search"`
-  - Done when: explicit reuse moves the targeted archived session back under active storage, unrelated sessions remain archived, and missing-session errors stay clear.
+- **Malformed inputs**: empty `--id`, unknown ids, and free-form handoff references that merely mention similar text should not reactivate anything.
+- **Error paths**: diff/search for a missing session still exits cleanly with an error.
+- **Boundary conditions**: one archived diff endpoint, both archived diff endpoints, exact-id handoff references, and exact-id search reactivating only the targeted session.
 
-## Files Likely Touched
+## Steps
 
-- `src/core/types.ts`
-- `src/core/state.ts`
-- `src/core/docs.ts`
-- `src/daemon.ts`
-- `src/cli.ts`
-- `tests/run-tests.ts`
+1. Add a mutating reactivation helper in `src/core/state.ts` that loads a session by id and moves it from archive storage back into active storage when the caller explicitly opts in.
+2. Wire `holistic diff --from/--to` to use that helper so archived sessions become active again as soon as they are compared.
+3. During `applyHandoff()`, detect exact session-id matches in `references` or `relatedSessions` and reactivate those sessions without using substring matching.
+4. Add a minimal `holistic search --id "<session-id>" [--format text|json]` command that resolves an archived session by exact id and reactivates it, satisfying the searched-session requirement without fuzzy archive churn.
+5. Extend `tests/run-tests.ts` to cover diff reactivation, handoff reactivation, exact-id search reactivation, and the non-reactivating negative cases.
+
+## Must-Haves
+
+- [ ] Reactivation is explicit and exact-match based outside the guaranteed `diff` flow.
+- [ ] `holistic diff`, handoff application, and `holistic search --id` all reuse the same state-layer reactivation helper.
+- [ ] Missing-session errors remain clear and do not mutate unrelated files.
+  - Estimate: 2h
+  - Files: src/core/state.ts, src/cli.ts, tests/run-tests.ts
+  - Verify: npm test -- --grep "diff|handoff|search"

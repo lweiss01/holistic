@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exported_at": "2026-03-28T03:15:43.658Z",
+  "exported_at": "2026-03-28T03:24:55.624Z",
   "milestones": [
     {
       "id": "M001",
@@ -838,19 +838,27 @@
       "milestone_id": "M001",
       "slice_id": "S03",
       "id": "T01",
-      "title": "Split active vs archived session storage and preserve merged history reads",
-      "status": "pending",
-      "one_liner": "",
-      "narrative": "",
-      "verification_result": "",
+      "title": "Added explicit archive session storage and kept derived history/regression docs reading merged stored sessions.",
+      "status": "complete",
+      "one_liner": "Added explicit archive session storage and kept derived history/regression docs reading merged stored sessions.",
+      "narrative": "Updated Holistic’s session-storage contract so archived session records now have an explicit runtime home under `.holistic/sessions/archive/` instead of sharing the flat active sessions directory. Added centralized stored-session readers for archive-only and merged-history use, preserved corrupt-session skip behavior across both directories, rewired derived history/regression/root-history docs to consume the merged reader, and extended the regression harness to prove archive placement plus merged history visibility.",
+      "verification_result": "Task-specific verification passed via `npm test -- --grep \"archived sessions|history\"`, proving archive placement, merged history rendering, and corrupt-session tolerance across active/archive directories. Slice-level build verification also passed via `npm run build`. Full `npm test` remains partially failing because of pre-existing hook-management expectations outside this task’s archive/history scope.",
       "duration": "",
-      "completed_at": null,
+      "completed_at": "2026-03-28T03:24:55.535Z",
       "blocker_discovered": false,
-      "deviations": "",
-      "known_issues": "",
-      "key_files": [],
-      "key_decisions": [],
-      "full_summary_md": "",
+      "deviations": "None.",
+      "known_issues": "`npm test` still fails in three unrelated hook-management tests: `repo runtime override keeps self-dogfooding files local-only`, `init can install git hooks and generate portable hook scripts`, and `managed hook refresh heals stale hooks and preserves custom hooks`. `npm run build` passes, and the task-specific archive/history verification passes.",
+      "key_files": [
+        "src/core/types.ts",
+        "src/core/state.ts",
+        "src/core/docs.ts",
+        "tests/run-tests.ts"
+      ],
+      "key_decisions": [
+        "Expose `archiveSessionsDir` explicitly in `RuntimePaths` so archived-session storage is a first-class runtime boundary.",
+        "Keep derived docs on a merged stored-session reader (`readAllSessions`) so archive placement changes cannot silently hide history or regression memory."
+      ],
+      "full_summary_md": "---\nid: T01\nparent: S03\nmilestone: M001\nkey_files:\n  - src/core/types.ts\n  - src/core/state.ts\n  - src/core/docs.ts\n  - tests/run-tests.ts\nkey_decisions:\n  - Expose `archiveSessionsDir` explicitly in `RuntimePaths` so archived-session storage is a first-class runtime boundary.\n  - Keep derived docs on a merged stored-session reader (`readAllSessions`) so archive placement changes cannot silently hide history or regression memory.\nduration: \"\"\nverification_result: mixed\ncompleted_at: 2026-03-28T03:24:55.537Z\nblocker_discovered: false\n---\n\n# T01: Added explicit archive session storage and kept derived history/regression docs reading merged stored sessions.\n\n**Added explicit archive session storage and kept derived history/regression docs reading merged stored sessions.**\n\n## What Happened\n\nUpdated Holistic’s session-storage contract so archived session records now have an explicit runtime home under `.holistic/sessions/archive/` instead of sharing the flat active sessions directory. Added centralized stored-session readers for archive-only and merged-history use, preserved corrupt-session skip behavior across both directories, rewired derived history/regression/root-history docs to consume the merged reader, and extended the regression harness to prove archive placement plus merged history visibility.\n\n## Verification\n\nTask-specific verification passed via `npm test -- --grep \"archived sessions|history\"`, proving archive placement, merged history rendering, and corrupt-session tolerance across active/archive directories. Slice-level build verification also passed via `npm run build`. Full `npm test` remains partially failing because of pre-existing hook-management expectations outside this task’s archive/history scope.\n\n## Verification Evidence\n\n| # | Command | Exit Code | Verdict | Duration |\n|---|---------|-----------|---------|----------|\n| 1 | `npm test -- --grep \"archived sessions|history\"` | 0 | ✅ pass | 1099ms |\n| 2 | `npm test` | 1 | ❌ fail | 1623ms |\n| 3 | `npm run build` | 0 | ✅ pass | 2716ms |\n\n\n## Deviations\n\nNone.\n\n## Known Issues\n\n`npm test` still fails in three unrelated hook-management tests: `repo runtime override keeps self-dogfooding files local-only`, `init can install git hooks and generate portable hook scripts`, and `managed hook refresh heals stale hooks and preserves custom hooks`. `npm run build` passes, and the task-specific archive/history verification passes.\n\n## Files Created/Modified\n\n- `src/core/types.ts`\n- `src/core/state.ts`\n- `src/core/docs.ts`\n- `tests/run-tests.ts`\n",
       "description": "Build the filesystem contract that the rest of S03 depends on.\n\n## Failure Modes\n\n| Dependency | On error | On timeout | On malformed response |\n|------------|----------|-----------|----------------------|\n| Local filesystem under `.holistic/sessions/**` | Leave the current session state untouched, fail the write/read path deterministically, and keep tests exercising the error boundary. | Not applicable for local sync filesystem access. | Skip corrupt session JSON exactly as current readers do instead of crashing the entire tool. |\n| Derived docs renderers in `src/core/docs.ts` | Keep history/regression generation reading a merged session list so storage refactors cannot silently hide prior work. | Not applicable. | Treat malformed archived entries as skipped records, not a fatal docs render error. |\n\n## Load Profile\n\n- **Shared resources**: `.holistic/sessions/` directory listings and per-session JSON files.\n- **Per-operation cost**: O(number of stored session files) directory scans and JSON parses.\n- **10x breakpoint**: Repeated full-directory reads become the first cost center, so helper boundaries should stay centralized and reusable.\n\n## Negative Tests\n\n- **Malformed inputs**: corrupt JSON file in active or archive storage is skipped without breaking the rest of the read.\n- **Error paths**: empty archive directory and mixed active/archive session sets still render derived docs successfully.\n- **Boundary conditions**: active-only history, archive-only history, and newest-first ordering across both directories.\n\n## Steps\n\n1. Add an explicit archive runtime path (for example `archiveSessionsDir`) and ensure Holistic creates it alongside the existing sessions directory.\n2. Replace the misleading single-directory `readArchivedSessions()` behavior with explicit active/archive/all-session helpers while keeping the current `SessionRecord` shape unchanged.\n3. Update history/regression/current-context doc renderers to consume the merged reader so archived sessions remain visible after the storage split.\n4. Extend `tests/run-tests.ts` with assertions that archived sessions live under `.holistic/sessions/archive/` and still appear in derived docs/history output.\n\n## Must-Haves\n\n- [ ] `RuntimePaths` exposes the archive directory explicitly.\n- [ ] Docs/history readers no longer assume every stored session lives directly in `.holistic/sessions/`.\n- [ ] Existing corrupt-session tolerance is preserved across both directories.",
       "estimate": "1.5h",
       "files": [
@@ -1039,6 +1047,30 @@
       "revisable": "Yes",
       "made_by": "agent",
       "superseded_by": null
+    },
+    {
+      "seq": 11,
+      "id": "D008",
+      "when_context": "M001/S03 planning",
+      "scope": "architecture",
+      "decision": "How archived sessions should reactivate without causing broad archive churn",
+      "choice": "Use a shared state-layer reactivation helper and limit automatic reactivation to explicit session-id usage: `diff` endpoints always reactivate, handoff references reactivate only exact session-id matches, and a new exact-id `holistic search --id` surface satisfies searched-session behavior.",
+      "rationale": "R009 requires archived sessions to become active again when reused, but current reference fields are free-form strings and broad substring matching would move unrelated sessions back into active storage. Exact-id semantics keep filesystem mutations predictable while still covering diff, handoff, and search workflows through one reusable helper.",
+      "revisable": "Yes",
+      "made_by": "agent",
+      "superseded_by": null
+    },
+    {
+      "seq": 12,
+      "id": "D009",
+      "when_context": "M001 S03 T01",
+      "scope": "architecture",
+      "decision": "How Holistic should read session history after splitting active and archived storage",
+      "choice": "Expose `archiveSessionsDir` explicitly and centralize stored-session access behind `readArchivedSessions()` and `readAllSessions()` helpers, while keeping derived docs on the merged reader",
+      "rationale": "The archive split needs a real filesystem boundary for later hygiene/reactivation work, but history/regression docs must stay complete and corrupt-session tolerance must remain unchanged. Centralizing the merged read path avoids duplicated directory scans and prevents storage refactors from silently hiding archived sessions.",
+      "revisable": "Yes",
+      "made_by": "agent",
+      "superseded_by": null
     }
   ],
   "verification_evidence": [
@@ -1140,6 +1172,39 @@
       "verdict": "✅ pass",
       "duration_ms": 0,
       "created_at": "2026-03-28T03:04:12.910Z"
+    },
+    {
+      "id": 10,
+      "task_id": "T01",
+      "slice_id": "S03",
+      "milestone_id": "M001",
+      "command": "npm test -- --grep \"archived sessions|history\"",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 1099,
+      "created_at": "2026-03-28T03:24:55.536Z"
+    },
+    {
+      "id": 11,
+      "task_id": "T01",
+      "slice_id": "S03",
+      "milestone_id": "M001",
+      "command": "npm test",
+      "exit_code": 1,
+      "verdict": "❌ fail",
+      "duration_ms": 1623,
+      "created_at": "2026-03-28T03:24:55.537Z"
+    },
+    {
+      "id": 12,
+      "task_id": "T01",
+      "slice_id": "S03",
+      "milestone_id": "M001",
+      "command": "npm run build",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 2716,
+      "created_at": "2026-03-28T03:24:55.537Z"
     }
   ]
 }

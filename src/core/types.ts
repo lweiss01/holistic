@@ -150,6 +150,7 @@ export interface RuntimePaths {
   holisticDir: string;
   stateFile: string;
   sessionsDir: string;
+  archiveSessionsDir: string;
   contextDir: string;
   adaptersDir: string;
   masterDoc: string;

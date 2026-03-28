@@ -19,6 +19,8 @@ import {
   getRuntimePaths,
   loadState,
   loadSessionById,
+  readArchivedSessions,
+  readAllSessions,
   readDraftHandoff,
   saveState,
   shouldAutoDraftHandoff,
@@ -430,6 +432,47 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.match(output, /Pending work: 1 item\(s\)/);
       const after = fs.readFileSync(path.join(rootDir, ".holistic", "state.json"), "utf8");
       assert.equal(after, before);
+    },
+  },
+  {
+    name: "archived sessions live under archive storage and merged history reads across active/archive files",
+    run: () => {
+      const { rootDir } = makeRepo();
+      let state = createInitialState(rootDir);
+      const archived = archiveSession(rootDir, state, "Archive old work", {
+        status: "Archived session captured",
+        done: ["Recorded durable archive session"],
+        regressions: ["History must include archived sessions"],
+        next: ["Start fresh active work"],
+      }, "archive-source.txt");
+      state = archived.state;
+      state = startNewSession(rootDir, state, "codex", "Current active work", ["Keep merged history intact"]);
+      state = persist(rootDir, state);
+
+      const paths = getRuntimePaths(rootDir);
+      const archivedPath = path.join(paths.archiveSessionsDir, `${archived.sessionId}.json`);
+      const legacyFlatPath = path.join(paths.sessionsDir, `${archived.sessionId}.json`);
+      assert.ok(fs.existsSync(archivedPath));
+      assert.equal(fs.existsSync(legacyFlatPath), false);
+
+      fs.writeFileSync(path.join(paths.sessionsDir, "corrupt-active.json"), "{not json", "utf8");
+      fs.writeFileSync(path.join(paths.archiveSessionsDir, "corrupt-archive.json"), "{still not json", "utf8");
+
+      const archivedSessions = readArchivedSessions(paths);
+      const allSessions = readAllSessions(paths);
+      assert.equal(archivedSessions.length, 1);
+      assert.equal(archivedSessions[0]?.id, archived.sessionId);
+      assert.equal(allSessions.length, 1);
+      assert.equal(allSessions[0]?.id, archived.sessionId);
+
+      const projectHistory = fs.readFileSync(path.join(rootDir, ".holistic", "context", "project-history.md"), "utf8");
+      const regressionWatch = fs.readFileSync(path.join(rootDir, ".holistic", "context", "regression-watch.md"), "utf8");
+      assert.match(projectHistory, /Current active work/);
+      assert.match(projectHistory, /Archive old work/);
+      assert.match(projectHistory, /History must include archived sessions/);
+      assert.match(regressionWatch, /Archive old work/);
+      assert.match(regressionWatch, /History must include archived sessions/);
+      assert.ok(projectHistory.indexOf("Current active work") < projectHistory.indexOf("Archive old work"));
     },
   },
   {

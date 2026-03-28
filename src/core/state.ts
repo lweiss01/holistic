@@ -105,11 +105,15 @@ export function getRuntimePaths(rootDir: string): RuntimePaths {
     relativeToRoot(rootDir, holisticDir),
   ].filter((value, index, list): value is string => Boolean(value) && list.indexOf(value) === index);
 
+  const sessionsDir = path.join(holisticDir, "sessions");
+  const archiveSessionsDir = path.join(sessionsDir, "archive");
+
   return {
     rootDir,
     holisticDir,
     stateFile: path.join(holisticDir, "state.json"),
-    sessionsDir: path.join(holisticDir, "sessions"),
+    sessionsDir,
+    archiveSessionsDir,
     contextDir,
     adaptersDir: path.join(contextDir, "adapters"),
     masterDoc,
@@ -294,6 +298,7 @@ export function createInitialState(rootDir: string): HolisticState {
 function ensureDirs(paths: RuntimePaths): void {
   fs.mkdirSync(paths.holisticDir, { recursive: true });
   fs.mkdirSync(paths.sessionsDir, { recursive: true });
+  fs.mkdirSync(paths.archiveSessionsDir, { recursive: true });
   fs.mkdirSync(paths.contextDir, { recursive: true });
   fs.mkdirSync(paths.adaptersDir, { recursive: true });
 }
@@ -472,25 +477,41 @@ function recentFirstMerge(current: string[], incoming: string[]): string[] {
   return [...incomingUnique, ...remaining];
 }
 
-export function readArchivedSessions(paths: RuntimePaths): SessionRecord[] {
-  if (!fs.existsSync(paths.sessionsDir)) {
+function readSessionsFromDir(directory: string): SessionRecord[] {
+  if (!fs.existsSync(directory)) {
     return [];
   }
 
   const sessions: SessionRecord[] = [];
-  for (const file of fs.readdirSync(paths.sessionsDir)) {
+  for (const file of fs.readdirSync(directory)) {
     if (!file.endsWith(".json")) {
       continue;
     }
 
     try {
-      sessions.push(JSON.parse(fs.readFileSync(path.join(paths.sessionsDir, file), "utf8")) as SessionRecord);
+      sessions.push(JSON.parse(fs.readFileSync(path.join(directory, file), "utf8")) as SessionRecord);
     } catch {
       // Skip corrupt session files instead of crashing the entire tool.
     }
   }
 
-  return sessions.sort((left, right) => (right.endedAt || right.updatedAt).localeCompare(left.endedAt || left.updatedAt));
+  return sessions;
+}
+
+function sortSessionsNewestFirst(sessions: SessionRecord[]): SessionRecord[] {
+  return [...sessions].sort((left, right) => (right.endedAt || right.updatedAt).localeCompare(left.endedAt || left.updatedAt));
+}
+
+export function readActiveSessions(paths: RuntimePaths): SessionRecord[] {
+  return sortSessionsNewestFirst(readSessionsFromDir(paths.sessionsDir));
+}
+
+export function readArchivedSessions(paths: RuntimePaths): SessionRecord[] {
+  return sortSessionsNewestFirst(readSessionsFromDir(paths.archiveSessionsDir));
+}
+
+export function readAllSessions(paths: RuntimePaths): SessionRecord[] {
+  return sortSessionsNewestFirst([...readActiveSessions(paths), ...readArchivedSessions(paths)]);
 }
 
 function buildResumeRecap(state: HolisticState): string[] {
@@ -593,7 +614,7 @@ export function loadSessionById(state: HolisticState, paths: RuntimePaths, sessi
     return state.activeSession;
   }
 
-  for (const session of readArchivedSessions(paths)) {
+  for (const session of readAllSessions(paths)) {
     if (session.id === sessionId) {
       return session;
     }
@@ -798,7 +819,7 @@ function toPendingWork(session: SessionRecord): PendingWorkItem {
 }
 
 function writeArchivedSession(paths: RuntimePaths, session: SessionRecord): void {
-  const filePath = path.join(paths.sessionsDir, `${session.id}.json`);
+  const filePath = path.join(paths.archiveSessionsDir, `${session.id}.json`);
   fs.writeFileSync(filePath, JSON.stringify(session, null, 2) + "\n", "utf8");
 }
 
