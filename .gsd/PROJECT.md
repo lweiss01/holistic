@@ -24,19 +24,20 @@ Even if everything else got stripped away, agents must be able to pick up where 
 
 ## Current State
 
-- **Phase 0, 1, 1.5 complete** - foundation solid, MCP server working, daemon passive capture implemented, workflow disappearance features shipped
+- **Phase 0, 1, 1.5 complete; M001/S02 complete** - foundation solid, MCP server working, daemon passive capture implemented, proactive automatic capture shipped, workflow disappearance features shipped
 - **Phase tracking removed** - workflow-neutral refactor complete (March 21, 2026)
 - **State sync validated on Windows** - `main` and `holistic/state` now sync successfully in dogfooding
 - **~3900 LOC TypeScript** - core state engine, CLI, MCP server, daemon, git hooks, cross-device sync
-- **20 tests passing** - comprehensive coverage
+- **23 targeted tests passing** - proactive capture and continuity coverage verified during S02 slice completion
 - **Working in production** - dogfooding in this repo
 
 **What works:**
 - `holistic bootstrap` - one-command machine setup
-- `holistic checkpoint` / `holistic handoff` - manual capture
+- `holistic checkpoint` / `holistic handoff` - manual capture with structured completion metadata and safety-valve parity across CLI/MCP
 - `holistic status` / `holistic diff` / `holistic resume` - inspection commands
 - MCP server mode (`holistic serve`) - thin tool surface for agent-native workflows
-- Daemon passive capture - background file watching with smart checkpoint clustering
+- Daemon passive capture - background file watching with smart checkpoint clustering plus proactive 2-hour and 5-meaningful-file checkpoints
+- Auto-drafted handoffs - idle and explicit completion-signal drafting with duplicate suppression
 - Cross-device sync via state branch
 - Git hooks for auto-checkpoint on commit
 

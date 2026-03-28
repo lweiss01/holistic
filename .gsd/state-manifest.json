@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exported_at": "2026-03-28T03:04:12.976Z",
+  "exported_at": "2026-03-28T03:15:43.658Z",
   "milestones": [
     {
       "id": "M001",
@@ -115,16 +115,16 @@
       "milestone_id": "M001",
       "id": "S02",
       "title": "Proactive Automatic Capture",
-      "status": "pending",
+      "status": "complete",
       "risk": "medium",
       "depends": [
         "S01"
       ],
       "demo": "daemon checkpoints on time elapsed (2hr) OR significant files (5+); agents initiate checkpoints at natural breakpoints in conversation; handoff drafts trigger after 30min idle or completion signals; `/checkpoint` and `/handoff` slash commands available as safety valves",
       "created_at": "2026-03-28T02:12:48.087Z",
-      "completed_at": null,
-      "full_summary_md": "",
-      "full_uat_md": "",
+      "completed_at": "2026-03-28T03:07:21.408Z",
+      "full_summary_md": "---\nid: S02\nparent: M001\nmilestone: M001\nprovides:\n  - Automatic proactive checkpoints after 2 elapsed hours even when no meaningful files changed.\n  - Immediate automatic checkpoints when 5 meaningful files accumulate, with passive state reset to avoid repeat firing.\n  - Structured completion-signal checkpoint entrypoints in CLI and MCP that create or refresh one deduped draft handoff.\n  - Agent-facing docs/help text that name supported natural-breakpoint examples and manual safety valves consistently across surfaces.\nrequires:\n  - slice: S01\n    provides: Existing daemon/session-state plumbing plus CLI/MCP continuity surfaces introduced by S01, which S02 extended with proactive triggers and structured completion metadata.\naffects:\n  - S04\n  - S05\n  - S06\nkey_files:\n  - tests/run-tests.ts\n  - src/core/state.ts\n  - src/core/types.ts\n  - src/daemon.ts\n  - src/cli.ts\n  - src/mcp-server.ts\n  - src/core/docs.ts\n  - .gsd/KNOWLEDGE.md\n  - .gsd/PROJECT.md\nkey_decisions:\n  - Use deterministic proactive triggers (2 elapsed hours or 5 meaningful files) instead of adding a new watcher or attempting transcript inference.\n  - Require explicit bounded completion metadata (`kind` + `source`, plus optional `recordedAt`) before treating a checkpoint as completion-triggered.\n  - Centralize completion-metadata normalization and deduped auto-draft handoff logic in core state helpers so daemon, CLI, and MCP stay aligned.\n  - Document supported natural-breakpoint examples and safety valves explicitly rather than implying unsupported free-form automation.\npatterns_established:\n  - Keep proactive-capture and auto-draft decisions pure in `src/core/state.ts`, then have daemon/CLI/MCP consume the shared helpers instead of re-implementing threshold logic per surface.\n  - Represent natural breakpoints with bounded completion metadata rather than open-ended strings so unsupported semantics are ignored instead of guessed.\n  - Protect agent-facing behavior with wording-regression tests whenever docs/help output is part of the runtime contract.\nobservability_surfaces:\n  - Focused `daemon tick`, `auto-draft handoff`, and `holistic_checkpoint` regression tests are the authoritative diagnostics for proactive-capture behavior.\n  - Persisted checkpoint and draft-handoff state, including `handoff --draft` consumption, is the primary runtime evidence that proactive capture fired as intended.\ndrill_down_paths:\n  - .gsd/milestones/M001/slices/S02/tasks/T01-SUMMARY.md\n  - .gsd/milestones/M001/slices/S02/tasks/T02-SUMMARY.md\n  - .gsd/milestones/M001/slices/S02/tasks/T03-SUMMARY.md\nduration: \"\"\nverification_result: passed\ncompleted_at: 2026-03-28T03:07:21.410Z\nblocker_discovered: false\n---\n\n# S02: Proactive Automatic Capture\n\n**Daemon proactive capture now checkpoints at 2 hours or 5 meaningful files, and CLI/MCP checkpoints can create deduped draft handoffs from explicit natural-breakpoint completion signals.**\n\n## What Happened\n\nS02 turned Holistic's passive continuity capture into proactive continuity capture without introducing another watcher or fuzzy transcript parsing. T01 first pinned the slice contract in focused regression tests and pure helpers: elapsed-time checkpointing at exactly two hours, immediate checkpointing at exactly five meaningful files, completion-signal draft triggering, duplicate-draft suppression, and the preserved idle 29-vs-30 minute boundary. It also introduced bounded completion metadata types and `--grep` support in the custom test runner so the slice's verification command could stay narrow and repeatable.\n\nT02 then wired those helpers into the real runtime. The daemon now checkpoints even when there are zero meaningful file changes once the two-hour boundary is reached, and it checkpoints immediately at five meaningful files while resetting pending passive state so it does not fire on every subsequent tick. Quiet-cluster and branch-switch behavior from earlier work stayed intact. The same task also aligned CLI and MCP checkpoint entrypoints around structured completion metadata, added shared normalization for that metadata, and reused one deduped auto-draft writer so explicit completion-signal checkpoints can create or refresh a single draft handoff instead of churning duplicates.\n\nT03 closed the slice by making the new behavior legible to downstream agents. Generated docs, CLI help text, and MCP tool descriptions now call out concrete supported natural-breakpoint examples such as tests passed, bug fixed, feature complete, focus change, before compaction, and before handoff. The wording stays honest about what the runtime supports: structured completion metadata and explicit safety valves, not magic semantic inference from arbitrary transcript text. Wording-regression tests were added so those help surfaces stay aligned with runtime behavior. Together, the slice now delivers proactive automatic capture at the daemon layer plus aligned manual/agent entrypoints for semantically meaningful checkpoints and aggressive handoff drafting.\n\n## Verification\n\nSlice-level verification was rerun sequentially and passed cleanly: `npm run build && npm test -- --grep \"daemon tick|auto-draft handoff|holistic_checkpoint\" && test -f .gsd/milestones/M001/slices/S02/S02-PLAN.md` succeeded, confirming the shipped daemon/CLI/MCP behavior and required plan artifact presence. A second focused pass, `npm test -- --grep \"resume payload starts empty|mcp tool list stays intentionally thin|CLI help text documents\"`, also passed, confirming the generated docs/help/tool descriptions still match the bounded runtime contract. Across task execution and final slice verification, the passing checks covered exact two-hour elapsed-time checkpoint boundaries, exact five-file proactive checkpoint boundaries, passive-state reset after threshold firing, explicit completion-signal drafting, duplicate-draft suppression, idle 29-vs-30 minute drafting boundaries, malformed completion metadata being ignored safely, and CLI/MCP guidance parity.\n\n## Requirements Advanced\n\n- R004 — Implemented and verified elapsed-time checkpoint helpers plus daemon wiring so proactive capture fires at the 2-hour boundary even with zero file changes.\n- R005 — Implemented and verified immediate threshold checkpointing at 5 meaningful files with passive state reset to prevent looped firing.\n- R006 — Added bounded completion metadata, CLI/MCP entrypoints, and aligned docs so agents can explicitly checkpoint supported natural breakpoints with narration.\n- R007 — Implemented and verified more aggressive handoff drafting through 30-minute idle detection and explicit completion-signal checkpoints with duplicate suppression.\n\n## Requirements Validated\n\n- R004 — `npm run build && npm test -- --grep \"daemon tick|auto-draft handoff|holistic_checkpoint\"` passed, including `daemon tick checkpoints on elapsed time with zero changed files` and the exact-two-hour boundary helper test.\n- R005 — The same focused verification passed `daemon tick checkpoints immediately at five meaningful files and clears passive pending state` plus the exact-five-file boundary helper test.\n- R006 — Focused proactive-capture tests verified explicit completion-signal drafting, malformed metadata rejection, and aligned CLI/MCP help surfaces for supported natural-breakpoint metadata.\n- R007 — Focused proactive-capture tests passed for explicit completion-signal auto-drafts, duplicate suppression, the idle 29-vs-30 minute boundary, and `handoff --draft` consumption.\n\n## New Requirements Surfaced\n\nNone.\n\n## Requirements Invalidated or Re-scoped\n\nNone.\n\n## Deviations\n\nAdded `--grep` support to the custom test runner so the slice's declared focused verification command is executable, and added wording-regression assertions so CLI/MCP/doc parity is enforced by tests rather than manual inspection.\n\n## Known Limitations\n\nNatural-breakpoint checkpointing is still explicit rather than inferred: agents must send structured completion metadata through CLI/MCP or use the manual `/checkpoint` and `/handoff` safety valves. The slice also does not add a dedicated runtime health endpoint or alert surface yet; proactive-capture health is primarily diagnosed through persisted state plus focused regression tests. Unrelated broader hook-test failures outside the S02 grep subset still exist elsewhere in the suite and were not addressed here.\n\n## Follow-ups\n\n1. Dogfood whether the 2-hour and 5-file thresholds feel right in real repos before locking them as long-term defaults.\n2. Let S04 build on this slice's proactive behavior to surface health warnings when checkpoint cadence goes stale.\n3. Let S05 reuse the bounded completion-metadata language from CLI/MCP/docs so every tool surface describes the same supported natural-breakpoint contract.\n\n## Files Created/Modified\n\n- `tests/run-tests.ts` — Added pure proactive-capture helpers, bounded completion metadata types, and focused S02 regression coverage for elapsed-time, file-threshold, idle-boundary, and completion-signal behavior.\n- `src/core/state.ts` — Centralized proactive checkpoint decisions, completion metadata normalization, and deduped auto-draft handoff logic shared by daemon, CLI, and MCP flows.\n- `src/core/types.ts` — Bounded checkpoint completion metadata so runtime surfaces can express supported natural-breakpoint semantics without free-form inference.\n- `src/daemon.ts` — Wired proactive 2-hour and 5-meaningful-file checkpoint triggers into the real daemon tick flow while preserving quiet-cluster and branch-switch semantics.\n- `src/cli.ts` — Documented and exposed structured completion metadata flags in CLI help and checkpoint entrypoints.\n- `src/mcp-server.ts` — Kept MCP checkpoint behavior and guidance aligned with CLI behavior for structured completion signals and deduped draft handoffs.\n- `src/core/docs.ts` — Updated generated agent-facing guidance so supported natural-breakpoint examples and manual safety valves are discoverable without promising unsupported transcript inference.\n- `.gsd/KNOWLEDGE.md` — Recorded the sequential build/test verification gotcha so future agents do not reproduce transient source-rewrite failures.\n- `.gsd/PROJECT.md` — Refreshed current project state to reflect shipped proactive capture behavior.\n",
+      "full_uat_md": "# S02: Proactive Automatic Capture — UAT\n\n**Milestone:** M001\n**Written:** 2026-03-28T03:07:21.411Z\n\n# S02: Proactive Automatic Capture — UAT\n\n**Milestone:** M001\n**Written:** 2026-03-28\n\n## UAT Type\n\n- UAT mode: mixed\n- Why this mode is sufficient: S02 is mostly runtime policy and agent-surface behavior. The authoritative proof is the focused regression suite exercising daemon decisions, CLI/MCP entrypoints, and handoff persistence, plus build verification that the shipped surfaces compile together.\n\n## Preconditions\n\n- Run from `C:\\Users\\lweis\\Documents\\holistic` with dependencies already installed.\n- Do **not** run `npm run build` in parallel with source-mode test commands; run verification sequentially because the build temporarily rewrites imports during compilation.\n- The repository contains the S02 plan/task artifacts under `.gsd/milestones/M001/slices/S02/`.\n\n## Smoke Test\n\n1. Run `npm run build && npm test -- --grep \"daemon tick|auto-draft handoff|holistic_checkpoint\"`.\n2. **Expected:** Build succeeds and the focused proactive-capture suite reports all targeted daemon/handoff/checkpoint tests passing.\n\n## Test Cases\n\n### 1. Elapsed-time checkpoints fire without file churn\n\n1. Run `npm test -- --grep \"daemon tick helper triggers an elapsed-time checkpoint at exactly two hours|daemon tick checkpoints on elapsed time with zero changed files\"`.\n2. Review the passing output.\n3. **Expected:** Both tests pass, proving the helper boundary is exact and the daemon checkpoints after two hours even when zero meaningful files changed.\n\n### 2. Five-file threshold checkpoints fire once and reset passive state\n\n1. Run `npm test -- --grep \"daemon tick helper triggers a checkpoint at exactly five meaningful files|daemon tick checkpoints immediately at five meaningful files and clears passive pending state\"`.\n2. Review the passing output.\n3. **Expected:** Both tests pass, proving the checkpoint fires immediately at the five-file threshold and passive pending state is cleared so repeated ticks do not spam checkpoints.\n\n### 3. Explicit completion signals create one deduped draft handoff\n\n1. Run `npm test -- --grep \"auto-draft handoff triggers immediately for an explicit completion signal|auto-draft handoff suppresses duplicate completion-signal drafts for unchanged sessions|daemon tick saves an idle auto-drafted handoff and handoff --draft consumes it\"`.\n2. Review the passing output.\n3. **Expected:** All tests pass, proving explicit completion-signal checkpoints can create a draft handoff, unchanged sessions do not churn duplicate drafts, and the saved draft remains consumable through `handoff --draft`.\n\n### 4. CLI/MCP guidance matches the supported completion-metadata contract\n\n1. Run `npm test -- --grep \"CLI help text documents completion metadata and natural breakpoint safety valves|mcp tool list stays intentionally thin and tool calls persist state\"`.\n2. Review the passing output.\n3. **Expected:** Both tests pass, proving CLI help and the MCP tool surface expose the supported completion-metadata workflow and remain aligned with runtime behavior.\n\n## Edge Cases\n\n- Malformed completion metadata should be ignored rather than guessed; normal checkpoint creation should still succeed.\n- Idle auto-drafting must preserve the 29-minute vs 30-minute boundary so drafts are not created too early.\n- Existing quiet-cluster and branch-switch checkpoint behavior must remain intact while proactive triggers are added.\n- Sequential build/test discipline is required during verification because parallel execution can cause transient source-import rewrite failures.\n\n",
       "goal": "Deliver proactive continuity capture so Holistic checkpoints after 2 hours without repo changes, checkpoints immediately when 5+ meaningful files accumulate, lets agents mark natural breakpoints explicitly, and auto-drafts handoffs on idle or completion signals without duplicate draft churn.",
       "success_criteria": "## Demo\nAfter this: daemon checkpoints on time elapsed (2hr) OR significant files (5+); agents initiate checkpoints at natural breakpoints in conversation; handoff drafts trigger after 30min idle or completion signals; `/checkpoint` and `/handoff` slash commands remain available as safety valves.\n\n## Must-Haves\n- R004: daemon checkpoints automatically when the most recent checkpoint is at least 2 hours old, even if no meaningful files changed.\n- R005: daemon checkpoints automatically when 5 or more meaningful changed files are pending, without waiting for the quiet-tick cluster path.\n- R006: CLI and MCP checkpoint surfaces accept explicit natural-breakpoint/completion metadata and agent-facing docs/tool descriptions tell agents when to use it.\n- R007: auto-draft handoff logic triggers for 30 minutes idle and explicit completion signals, deduping identical drafts.\n\n## Threat Surface\n- **Abuse**: Replayed or noisy checkpoint requests could spam state history and draft-handoff writes if completion-signal handling is not deduped.\n- **Data exposure**: Checkpoints and drafts contain repo/work summaries but no new secret classes; verify status text and docs do not encourage copying secrets into checkpoint narration.\n- **Input trust**: CLI flags and MCP tool arguments are trusted user/agent input that flow into state files and docs, so new metadata must remain bounded to explicit enums/booleans rather than arbitrary control flow.\n\n## Requirement Impact\n- **Requirements touched**: R004, R005, R006, R007.\n- **Re-verify**: existing daemon quiet-cluster checkpoints, branch-switch auto-checkpoints, MCP `holistic_checkpoint`, CLI `checkpoint`, and draft handoff consumption via `handoff --draft`.\n- **Decisions revisited**: none recorded; preserve the existing repo-snapshot-based daemon model from S02 research instead of adding a new watcher.\n\n## Verification\n- `npm run build`\n- `npm test -- --grep \"daemon tick\"`\n- `npm test -- --grep \"auto-draft handoff\"`\n- `npm test -- --grep \"holistic_checkpoint\"`\n- `test -f .gsd/milestones/M001/slices/S02/S02-PLAN.md`\n\n## Slice-level stopping condition\nExecution is only done when tests in `tests/run-tests.ts` prove elapsed-time checkpoints, 5-file checkpoints, completion-signal handoff drafting, and CLI/MCP parity without regressing quiet clustering or branch-switch capture.",
       "proof_level": "- This slice proves: integration\n- Real runtime required: no\n- Human/UAT required: no",
@@ -145,11 +145,11 @@
       "completed_at": null,
       "full_summary_md": "",
       "full_uat_md": "",
-      "goal": "",
-      "success_criteria": "",
-      "proof_level": "",
-      "integration_closure": "",
-      "observability_impact": "",
+      "goal": "Introduce automatic session-memory hygiene so stale, unreferenced sessions move into `.holistic/sessions/archive/` without losing project history, and explicit reuse brings them back to active storage automatically.",
+      "success_criteria": "**Demo:** Sessions older than 30 days and unreferenced move into `.holistic/sessions/archive/`; archived sessions reactivate automatically when used by diff, exact handoff references, or an exact-id session search; archive hygiene runs on session start and during daemon ticks without dropping history views.\n\n## Must-Haves\n\n- Sessions stored under `.holistic/sessions/` split cleanly into active files and archived files under `.holistic/sessions/archive/` while keeping the current `SessionRecord` JSON shape.\n- A single merged reader keeps `HOLISTIC`-derived history/regression docs complete after the storage split.\n- Hygiene archives only sessions older than 30 days that are not referenced by active work, pending work, last handoff, or recent stored sessions.\n- Session start/resume paths and daemon ticks both run the same hygiene helper instead of duplicating archiving logic.\n- Archived sessions reactivate automatically when explicitly used by `holistic diff`, exact session-id references in handoff input, or `holistic search --id <session-id>`.\n\n## Threat Surface\n\n- **Abuse**: Broad substring matching could move unrelated archived sessions back to active storage or churn files repeatedly; reactivation should therefore use exact session-id matches for handoff/search surfaces.\n- **Data exposure**: No new external data leaves the repo, but archived session history remains durable project memory and must not disappear from derived docs after the directory split.\n- **Input trust**: CLI flags and handoff reference arrays are untrusted inputs that can trigger filesystem reads/moves; all path resolution must stay under Holistic runtime directories.\n\n## Requirement Impact\n\n- **Requirements touched**: R008, R009.\n- **Re-verify**: Derived history/regression docs, daemon auto-checkpoint behavior, `holistic diff`, handoff application, and the new exact-id `holistic search` flow all need regression coverage after shipping.\n- **Decisions revisited**: none.\n\n## Verification\n\n- `npm test` passes with new assertions added in `tests/run-tests.ts` covering archive placement, merged history reads, stale-vs-referenced hygiene, daemon/session-start hygiene hooks, diff reactivation, handoff reactivation, and exact-id search reactivation.\n- `npm run build` passes after the new archive/search helpers are wired into runtime entrypoints.\n",
+      "proof_level": "- This slice proves: operational\n- Real runtime required: yes\n- Human/UAT required: no",
+      "integration_closure": "- Upstream surfaces consumed: `src/core/state.ts`, `src/core/docs.ts`, `src/daemon.ts`, `src/cli.ts`, `tests/run-tests.ts`.\n- New wiring introduced in this slice: session storage split, shared hygiene pass invoked from session-start and daemon entrypoints, and explicit reactivation wiring for diff/handoff/search surfaces.\n- What remains before the milestone is truly usable end-to-end: nothing for S03 once the runtime paths, daemon flow, and CLI surfaces above are verified together.",
+      "observability_impact": "- Runtime signals: session file moves between `.holistic/sessions/` and `.holistic/sessions/archive/`, plus the existing passive-capture timestamps used to prove when hygiene ran.\n- Inspection surfaces: filesystem state under `.holistic/sessions/**`, `holistic diff`, `holistic search --id`, and derived docs generated from `src/core/docs.ts`.\n- Failure visibility: missing session files, sessions that fail to move on hygiene/reactivation, or history docs that omit archived sessions should be directly visible in tests and runtime file layout.\n- Redaction constraints: session JSON stays repo-local; do not broaden what is rendered beyond current session-history content.",
       "sequence": 0,
       "replan_triggered_at": null
     },
@@ -833,6 +833,126 @@
       "observability_impact": "Improves future diagnosis by documenting which trigger reasons should appear in runtime state and how a human/agent can inspect them.",
       "full_plan_md": "",
       "sequence": 0
+    },
+    {
+      "milestone_id": "M001",
+      "slice_id": "S03",
+      "id": "T01",
+      "title": "Split active vs archived session storage and preserve merged history reads",
+      "status": "pending",
+      "one_liner": "",
+      "narrative": "",
+      "verification_result": "",
+      "duration": "",
+      "completed_at": null,
+      "blocker_discovered": false,
+      "deviations": "",
+      "known_issues": "",
+      "key_files": [],
+      "key_decisions": [],
+      "full_summary_md": "",
+      "description": "Build the filesystem contract that the rest of S03 depends on.\n\n## Failure Modes\n\n| Dependency | On error | On timeout | On malformed response |\n|------------|----------|-----------|----------------------|\n| Local filesystem under `.holistic/sessions/**` | Leave the current session state untouched, fail the write/read path deterministically, and keep tests exercising the error boundary. | Not applicable for local sync filesystem access. | Skip corrupt session JSON exactly as current readers do instead of crashing the entire tool. |\n| Derived docs renderers in `src/core/docs.ts` | Keep history/regression generation reading a merged session list so storage refactors cannot silently hide prior work. | Not applicable. | Treat malformed archived entries as skipped records, not a fatal docs render error. |\n\n## Load Profile\n\n- **Shared resources**: `.holistic/sessions/` directory listings and per-session JSON files.\n- **Per-operation cost**: O(number of stored session files) directory scans and JSON parses.\n- **10x breakpoint**: Repeated full-directory reads become the first cost center, so helper boundaries should stay centralized and reusable.\n\n## Negative Tests\n\n- **Malformed inputs**: corrupt JSON file in active or archive storage is skipped without breaking the rest of the read.\n- **Error paths**: empty archive directory and mixed active/archive session sets still render derived docs successfully.\n- **Boundary conditions**: active-only history, archive-only history, and newest-first ordering across both directories.\n\n## Steps\n\n1. Add an explicit archive runtime path (for example `archiveSessionsDir`) and ensure Holistic creates it alongside the existing sessions directory.\n2. Replace the misleading single-directory `readArchivedSessions()` behavior with explicit active/archive/all-session helpers while keeping the current `SessionRecord` shape unchanged.\n3. Update history/regression/current-context doc renderers to consume the merged reader so archived sessions remain visible after the storage split.\n4. Extend `tests/run-tests.ts` with assertions that archived sessions live under `.holistic/sessions/archive/` and still appear in derived docs/history output.\n\n## Must-Haves\n\n- [ ] `RuntimePaths` exposes the archive directory explicitly.\n- [ ] Docs/history readers no longer assume every stored session lives directly in `.holistic/sessions/`.\n- [ ] Existing corrupt-session tolerance is preserved across both directories.",
+      "estimate": "1.5h",
+      "files": [
+        "src/core/types.ts",
+        "src/core/state.ts",
+        "src/core/docs.ts",
+        "tests/run-tests.ts"
+      ],
+      "verify": "npm test -- --grep \"archived sessions|history\"",
+      "inputs": [
+        "`src/core/types.ts`",
+        "`src/core/state.ts`",
+        "`src/core/docs.ts`",
+        "`tests/run-tests.ts`"
+      ],
+      "expected_output": [
+        "`src/core/types.ts`",
+        "`src/core/state.ts`",
+        "`src/core/docs.ts`",
+        "`tests/run-tests.ts`"
+      ],
+      "observability_impact": "",
+      "full_plan_md": "",
+      "sequence": 0
+    },
+    {
+      "milestone_id": "M001",
+      "slice_id": "S03",
+      "id": "T02",
+      "title": "Archive stale unreferenced sessions during session start and daemon ticks",
+      "status": "pending",
+      "one_liner": "",
+      "narrative": "",
+      "verification_result": "",
+      "duration": "",
+      "completed_at": null,
+      "blocker_discovered": false,
+      "deviations": "",
+      "known_issues": "",
+      "key_files": [],
+      "key_decisions": [],
+      "full_summary_md": "",
+      "description": "Implement the actual hygiene policy once the storage contract exists.\n\n## Failure Modes\n\n| Dependency | On error | On timeout | On malformed response |\n|------------|----------|-----------|----------------------|\n| Session-history files discovered by the state layer | Abort that archive move, leave the session in active storage, and surface the failure through deterministic tests instead of partially moving files. | Not applicable for local sync filesystem access. | Ignore malformed records when computing candidates so one bad file cannot archive the wrong sessions. |\n| `runDaemonTick()` shared lock + checkpoint flow | Run hygiene before normal passive-capture logic and preserve the current checkpoint behavior if no archive work is needed. | Daemon tick should return without repeated loops or extra checkpoints. | If candidate metadata is incomplete, treat the session as referenced and do not archive it. |\n\n## Load Profile\n\n- **Shared resources**: session directory listings, daemon state lock, and derived-reference scans across recent sessions.\n- **Per-operation cost**: one archive-candidate scan per session start/tick, plus file move/write work for each archived session.\n- **10x breakpoint**: repeated scans of very large session histories; candidate logic should stay conservative and single-pass.\n\n## Negative Tests\n\n- **Malformed inputs**: missing `endedAt`, invalid timestamps, or incomplete reference metadata should not archive the session.\n- **Error paths**: daemon tick with no candidates leaves passive checkpoint behavior unchanged.\n- **Boundary conditions**: exactly 30 days old, just under 30 days, referenced old sessions, and multiple stale candidates in one pass.\n\n## Steps\n\n1. Add a shared helper in `src/core/state.ts` that identifies archive candidates older than 30 days and excludes anything referenced by active session state, pending work, last handoff, or recent stored sessions.\n2. Invoke that helper from session-start/resume entrypoints and from `runDaemonTick()` before passive checkpoint decisions, reusing one codepath instead of duplicating policy.\n3. Preserve or expose enough runtime state for tests to prove when hygiene ran and which files moved.\n4. Extend `tests/run-tests.ts` to cover stale-session archiving, reference exemptions, and daemon/session-start integration without regressing existing proactive-checkpoint tests.\n\n## Must-Haves\n\n- [ ] One shared hygiene helper owns the archive policy.\n- [ ] Session start/resume and daemon tick both exercise the same policy path.\n- [ ] Referenced old sessions remain active until they truly become stale and unused.",
+      "estimate": "2h",
+      "files": [
+        "src/core/state.ts",
+        "src/daemon.ts",
+        "tests/run-tests.ts"
+      ],
+      "verify": "npm test -- --grep \"30 days|daemon tick\"",
+      "inputs": [
+        "`src/core/state.ts`",
+        "`src/daemon.ts`",
+        "`tests/run-tests.ts`"
+      ],
+      "expected_output": [
+        "`src/core/state.ts`",
+        "`src/daemon.ts`",
+        "`tests/run-tests.ts`"
+      ],
+      "observability_impact": "- Signals added/changed: deterministic archive vs keep-active state transitions during startup and daemon ticks.\n- How a future agent inspects this: inspect `.holistic/sessions/**` layout plus the daemon-tick assertions in `tests/run-tests.ts`.\n- Failure state exposed: stale sessions that fail to move, or referenced sessions that archive incorrectly, become visible as file-layout and assertion failures.",
+      "full_plan_md": "",
+      "sequence": 0
+    },
+    {
+      "milestone_id": "M001",
+      "slice_id": "S03",
+      "id": "T03",
+      "title": "Reactivate archived sessions on diff, exact handoff references, and exact-id search",
+      "status": "pending",
+      "one_liner": "",
+      "narrative": "",
+      "verification_result": "",
+      "duration": "",
+      "completed_at": null,
+      "blocker_discovered": false,
+      "deviations": "",
+      "known_issues": "",
+      "key_files": [],
+      "key_decisions": [],
+      "full_summary_md": "",
+      "description": "Close R009 by making explicit session reuse pull archived history back into active storage.\n\n## Failure Modes\n\n| Dependency | On error | On timeout | On malformed response |\n|------------|----------|-----------|----------------------|\n| CLI session-id inputs for diff/search | Fail the command with a clear missing-session error and leave unrelated archived files untouched. | Not applicable for local sync filesystem access. | Reject malformed or non-existent ids without broadening the match set. |\n| Handoff reference arrays | Reactivate only exact session-id matches; leave free-form notes/readme references untouched. | Not applicable. | Treat malformed reference entries as inert text, not as archive-move triggers. |\n\n## Load Profile\n\n- **Shared resources**: archive directory lookups and single-session file moves.\n- **Per-operation cost**: O(number of stored sessions) lookup unless an index helper is added; at most one move per explicitly used session id.\n- **10x breakpoint**: repeated broad search would cause unnecessary directory scans, so this task should keep search exact-id scoped.\n\n## Negative Tests\n\n- **Malformed inputs**: empty `--id`, unknown ids, and free-form handoff references that merely mention similar text should not reactivate anything.\n- **Error paths**: diff/search for a missing session still exits cleanly with an error.\n- **Boundary conditions**: one archived diff endpoint, both archived diff endpoints, exact-id handoff references, and exact-id search reactivating only the targeted session.\n\n## Steps\n\n1. Add a mutating reactivation helper in `src/core/state.ts` that loads a session by id and moves it from archive storage back into active storage when the caller explicitly opts in.\n2. Wire `holistic diff --from/--to` to use that helper so archived sessions become active again as soon as they are compared.\n3. During `applyHandoff()`, detect exact session-id matches in `references` or `relatedSessions` and reactivate those sessions without using substring matching.\n4. Add a minimal `holistic search --id \"<session-id>\" [--format text|json]` command that resolves an archived session by exact id and reactivates it, satisfying the searched-session requirement without fuzzy archive churn.\n5. Extend `tests/run-tests.ts` to cover diff reactivation, handoff reactivation, exact-id search reactivation, and the non-reactivating negative cases.\n\n## Must-Haves\n\n- [ ] Reactivation is explicit and exact-match based outside the guaranteed `diff` flow.\n- [ ] `holistic diff`, handoff application, and `holistic search --id` all reuse the same state-layer reactivation helper.\n- [ ] Missing-session errors remain clear and do not mutate unrelated files.",
+      "estimate": "2h",
+      "files": [
+        "src/core/state.ts",
+        "src/cli.ts",
+        "tests/run-tests.ts"
+      ],
+      "verify": "npm test -- --grep \"diff|handoff|search\"",
+      "inputs": [
+        "`src/core/state.ts`",
+        "`src/cli.ts`",
+        "`tests/run-tests.ts`"
+      ],
+      "expected_output": [
+        "`src/core/state.ts`",
+        "`src/cli.ts`",
+        "`tests/run-tests.ts`"
+      ],
+      "observability_impact": "- Signals added/changed: archive-to-active file moves driven by diff, handoff, and search paths.\n- How a future agent inspects this: run the targeted CLI commands and inspect `.holistic/sessions/` vs `.holistic/sessions/archive/` in tests.\n- Failure state exposed: targeted sessions remain archived after explicit reuse, or unrelated sessions move unexpectedly.",
+      "full_plan_md": "",
+      "sequence": 0
     }
   ],
   "decisions": [
@@ -868,6 +988,54 @@
       "decision": "How agent-facing checkpoint guidance should describe proactive capture",
       "choice": "Document explicit supported natural-breakpoint examples and `/checkpoint` / `/handoff` safety valves, while pointing runtime integrations to structured completion metadata instead of implying free-form transcript inference.",
       "rationale": "S02’s runtime supports bounded completion metadata and explicit manual safety valves, but it does not parse arbitrary conversation semantics. Aligning generated docs, CLI help, and MCP descriptions to those exact surfaces makes proactive capture discoverable without promising unsupported automation.",
+      "revisable": "Yes",
+      "made_by": "agent",
+      "superseded_by": null
+    },
+    {
+      "seq": 7,
+      "id": "D004",
+      "when_context": "M001/S02",
+      "scope": "requirement",
+      "decision": "R007",
+      "choice": "validated",
+      "rationale": "S02 verification passed both idle-boundary and explicit completion-signal handoff tests, including duplicate-draft suppression and `handoff --draft` consumption, proving aggressive 30-minute idle and completion-signal auto-drafting behavior.",
+      "revisable": "Yes",
+      "made_by": "agent",
+      "superseded_by": null
+    },
+    {
+      "seq": 8,
+      "id": "D005",
+      "when_context": "M001/S02",
+      "scope": "requirement",
+      "decision": "R004",
+      "choice": "validated",
+      "rationale": "S02 verification passed `npm run build && npm test -- --grep \"daemon tick|auto-draft handoff|holistic_checkpoint\"`, including `daemon tick checkpoints on elapsed time with zero changed files`, which proves the daemon checkpoints automatically after the 2-hour boundary even without file changes.",
+      "revisable": "Yes",
+      "made_by": "agent",
+      "superseded_by": null
+    },
+    {
+      "seq": 9,
+      "id": "D006",
+      "when_context": "M001/S02",
+      "scope": "requirement",
+      "decision": "R006",
+      "choice": "validated",
+      "rationale": "CLI/MCP completion metadata flows and docs were verified by passing tests for explicit completion-signal drafting plus CLI/MCP help alignment, proving agents can mark supported natural breakpoints with structured narration metadata instead of free-form inference.",
+      "revisable": "Yes",
+      "made_by": "agent",
+      "superseded_by": null
+    },
+    {
+      "seq": 10,
+      "id": "D007",
+      "when_context": "M001/S02",
+      "scope": "requirement",
+      "decision": "R007",
+      "choice": "validated",
+      "rationale": "S02 verification passed both idle-boundary and explicit completion-signal handoff tests, including duplicate-draft suppression and `handoff --draft` consumption, proving aggressive 30-minute idle and completion-signal auto-drafting behavior.",
       "revisable": "Yes",
       "made_by": "agent",
       "superseded_by": null

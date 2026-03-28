@@ -1,12 +1,10 @@
 # Requirements
 
-This file is the explicit capability and coverage contract for M001: Core Workflow Tightening.
-
-Use it to track what is actively in scope, what has been validated by completed work, what is intentionally deferred, and what is explicitly out of scope.
+This file is the explicit capability and coverage contract for the project.
 
 ## Active
 
-### R001 — MCP clients receive automatic startup context
+### R001 — When an MCP client connects (Claude Desktop, etc.), the agent immediately receives resume context without user prompting
 - Class: primary-user-loop
 - Status: active
 - Description: When an MCP client connects (Claude Desktop, etc.), the agent immediately receives resume context without user prompting
@@ -17,7 +15,7 @@ Use it to track what is actively in scope, what has been validated by completed 
 - Validation: unmapped
 - Notes: Currently sends notification but agent may not act on it - needs verification
 
-### R002 — Non-MCP tools have lightweight manual trigger (/holistic)
+### R002 — For tools without MCP support, `/holistic` command loads context with minimal ceremony
 - Class: primary-user-loop
 - Status: active
 - Description: For tools without MCP support, `/holistic` command loads context with minimal ceremony
@@ -28,7 +26,7 @@ Use it to track what is actively in scope, what has been validated by completed 
 - Validation: unmapped
 - Notes: Slash command should be discoverable through autocomplete/help
 
-### R003 — Agent greets with recap + 3-question pattern automatically
+### R003 — Agent sees resume context and automatically greets with last handoff recap, asks "continue as planned, tweak the plan, or start something new?"
 - Class: primary-user-loop
 - Status: active
 - Description: Agent sees resume context and automatically greets with last handoff recap, asks "continue as planned, tweak the plan, or start something new?"
@@ -39,18 +37,7 @@ Use it to track what is actively in scope, what has been validated by completed 
 - Validation: unmapped
 - Notes: Pattern must work consistently whether MCP auto or /holistic manual
 
-### R004 — Daemon checkpoints based on time elapsed
-- Class: continuity
-- Status: active
-- Description: After meaningful work time (e.g., 2 hours), daemon checkpoints automatically even without file changes
-- Why it matters: Captures progress during long thinking/refactoring sessions where files don't change frequently
-- Source: user
-- Primary owning slice: M001/S02
-- Supporting slices: none
-- Validation: unmapped
-- Notes: Should AND with other conditions to avoid spam - not purely time-based
-
-### R005 — Daemon checkpoints based on file count threshold
+### R005 — When significant file changes occur (e.g., 5+ files), daemon checkpoints automatically
 - Class: continuity
 - Status: active
 - Description: When significant file changes occur (e.g., 5+ files), daemon checkpoints automatically
@@ -61,7 +48,7 @@ Use it to track what is actively in scope, what has been validated by completed 
 - Validation: unmapped
 - Notes: Should combine with time or other signals to avoid checkpoint spam
 
-### R006 — Agents can initiate checkpoints during conversation
+### R006 — Agents detect natural breakpoints (tests pass, bug fixed, feature complete) and checkpoint automatically with narration
 - Class: continuity
 - Status: active
 - Description: Agents detect natural breakpoints (tests pass, bug fixed, feature complete) and checkpoint automatically with narration
@@ -72,7 +59,7 @@ Use it to track what is actively in scope, what has been validated by completed 
 - Validation: unmapped
 - Notes: Agent narrates "checkpointing this progress" instead of asking permission
 
-### R007 — Handoff drafts trigger on shorter idle periods
+### R007 — Auto-draft handoff triggers more aggressively (30min idle, session completion signals)
 - Class: continuity
 - Status: active
 - Description: Auto-draft handoff triggers more aggressively (30min idle, session completion signals)
@@ -83,7 +70,7 @@ Use it to track what is actively in scope, what has been validated by completed 
 - Validation: unmapped
 - Notes: Already exists from Phase 1.5 but needs sensitivity tuning
 
-### R008 — Stale sessions auto-archive (30+ days, unreferenced)
+### R008 — Sessions older than 30 days that haven't been referenced in recent work move to .holistic/sessions/archive/
 - Class: continuity
 - Status: active
 - Description: Sessions older than 30 days that haven't been referenced in recent work move to .holistic/sessions/archive/
@@ -94,7 +81,7 @@ Use it to track what is actively in scope, what has been validated by completed 
 - Validation: unmapped
 - Notes: Hybrid time + relevance - must meet BOTH criteria to archive
 
-### R009 — Archived sessions unarchive when explicitly used
+### R009 — When archived session is diffed, referenced in handoff, or searched, it moves back to active automatically
 - Class: continuity
 - Status: active
 - Description: When archived session is diffed, referenced in handoff, or searched, it moves back to active automatically
@@ -105,7 +92,7 @@ Use it to track what is actively in scope, what has been validated by completed 
 - Validation: unmapped
 - Notes: Listing archived sessions does NOT unarchive them - only actual use does
 
-### R010 — Health warnings detect daemon failures
+### R010 — Startup notification includes warning if daemon hasn't checkpointed in 3+ days (system health check)
 - Class: failure-visibility
 - Status: active
 - Description: Startup notification includes warning if daemon hasn't checkpointed in 3+ days (system health check)
@@ -116,7 +103,7 @@ Use it to track what is actively in scope, what has been validated by completed 
 - Validation: unmapped
 - Notes: Diagnostic tone, not nagging - "daemon may not be running"
 
-### R011 — Health warnings detect checkpoint gaps
+### R011 — Unusual patterns surface as diagnostics (50+ files, no checkpoint) so agent can investigate
 - Class: failure-visibility
 - Status: active
 - Description: Unusual patterns surface as diagnostics (50+ files, no checkpoint) so agent can investigate
@@ -127,7 +114,7 @@ Use it to track what is actively in scope, what has been validated by completed 
 - Validation: unmapped
 - Notes: Should be rare - if common, automatic capture needs improvement
 
-### R012 — Slash command helper text visible to agents
+### R012 — /holistic, /checkpoint, /handoff commands have clear helper text agents can see
 - Class: operability
 - Status: active
 - Description: /holistic, /checkpoint, /handoff commands have clear helper text agents can see
@@ -138,7 +125,7 @@ Use it to track what is actively in scope, what has been validated by completed 
 - Validation: unmapped
 - Notes: Helper text appears in agent tool lists or slash command menus
 
-### R013 — README documents MCP auto vs manual tools
+### R013 — README includes comparison table showing which tools support automatic startup vs require /holistic
 - Class: operability
 - Status: active
 - Description: README includes comparison table showing which tools support automatic startup vs require /holistic
@@ -149,7 +136,7 @@ Use it to track what is actively in scope, what has been validated by completed 
 - Validation: unmapped
 - Notes: Simple table: Claude Desktop (auto), Web (manual), etc.
 
-### R014 — AGENTS.md teaches /holistic pattern clearly
+### R014 — AGENTS.md documents the /holistic pattern with clear instructions for what agents should do when they see it
 - Class: operability
 - Status: active
 - Description: AGENTS.md documents the /holistic pattern with clear instructions for what agents should do when they see it
@@ -162,15 +149,20 @@ Use it to track what is actively in scope, what has been validated by completed 
 
 ## Validated
 
-No requirements validated yet (milestone not started).
-
-## Deferred
-
-No requirements deferred.
+### R004 — After meaningful work time (e.g., 2 hours), daemon checkpoints automatically even without file changes
+- Class: continuity
+- Status: validated
+- Description: After meaningful work time (e.g., 2 hours), daemon checkpoints automatically even without file changes
+- Why it matters: Captures progress during long thinking/refactoring sessions where files don't change frequently
+- Source: user
+- Primary owning slice: M001/S02
+- Supporting slices: none
+- Validation: Verified by `npm run build && npm test -- --grep "daemon tick|auto-draft handoff|holistic_checkpoint"`, including `daemon tick checkpoints on elapsed time with zero changed files` proving a 2-hour automatic checkpoint with no file changes.
+- Notes: Validated during M001/S02 slice completion.
 
 ## Out of Scope
 
-### R100 — Web dashboard for session visualization
+### R100 — Graphical dashboard showing timeline, stats, graphs
 - Class: anti-feature
 - Status: out-of-scope
 - Description: Graphical dashboard showing timeline, stats, graphs
@@ -181,7 +173,7 @@ No requirements deferred.
 - Validation: n/a
 - Notes: CLI and agent context are sufficient
 
-### R101 — Manual archive management commands
+### R101 — Commands like "holistic archive <session>" or "holistic unarchive <session>"
 - Class: anti-feature
 - Status: out-of-scope
 - Description: Commands like "holistic archive <session>" or "holistic unarchive <session>"
@@ -199,7 +191,7 @@ No requirements deferred.
 | R001 | primary-user-loop | active | M001/S01 | none | unmapped |
 | R002 | primary-user-loop | active | M001/S01 | M001/S05 | unmapped |
 | R003 | primary-user-loop | active | M001/S01 | M001/S05 | unmapped |
-| R004 | continuity | active | M001/S02 | none | unmapped |
+| R004 | continuity | validated | M001/S02 | none | Verified by `npm run build && npm test -- --grep "daemon tick|auto-draft handoff|holistic_checkpoint"`, including `daemon tick checkpoints on elapsed time with zero changed files` proving a 2-hour automatic checkpoint with no file changes. |
 | R005 | continuity | active | M001/S02 | none | unmapped |
 | R006 | continuity | active | M001/S02 | none | unmapped |
 | R007 | continuity | active | M001/S02 | none | unmapped |
@@ -215,7 +207,7 @@ No requirements deferred.
 
 ## Coverage Summary
 
-- Active requirements: 14
-- Mapped to slices: 14
-- Validated: 0
+- Active requirements: 13
+- Mapped to slices: 13
+- Validated: 1 (R004)
 - Unmapped active requirements: 0
