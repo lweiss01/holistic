@@ -15,6 +15,7 @@ import {
   computeSessionDiff,
   continueFromLatest,
   createInitialState,
+  evaluateHealthDiagnostics,
   findArchiveCandidates,
   getResumePayload,
   getRuntimePaths,
@@ -1337,6 +1338,108 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(shouldCheckpointForPendingFiles(["1", "2", "3", "4"]), false);
       assert.equal(shouldCheckpointForPendingFiles([]), false);
       assert.equal(shouldCheckpointForPendingFiles(null), false);
+    },
+  },
+  {
+    name: "health diagnostics emits stale checkpoint warning at the 3-day boundary",
+    run: () => {
+      const { rootDir } = makeRepo();
+      const base = createInitialState(rootDir);
+      const nowMs = Date.now();
+      const exactlyThreeDaysAgo = new Date(nowMs - (3 * 24 * 60 * 60 * 1000)).toISOString();
+      const justUnderThreeDaysAgo = new Date(nowMs - (3 * 24 * 60 * 60 * 1000) + 1).toISOString();
+
+      const staleState: HolisticState = { ...base, lastAutoCheckpoint: exactlyThreeDaysAgo };
+      const staleDiagnostics = evaluateHealthDiagnostics(staleState, nowMs);
+      assert.equal(staleDiagnostics.warnings.some((warning) => warning.code === "daemon-stale-checkpoint"), true);
+
+      const freshState: HolisticState = { ...base, lastAutoCheckpoint: justUnderThreeDaysAgo };
+      const freshDiagnostics = evaluateHealthDiagnostics(freshState, nowMs);
+      assert.equal(freshDiagnostics.warnings.some((warning) => warning.code === "daemon-stale-checkpoint"), false);
+    },
+  },
+  {
+    name: "health diagnostics ignores malformed stale checkpoint timestamps",
+    run: () => {
+      const { rootDir } = makeRepo();
+      const base = createInitialState(rootDir);
+      const diagnostics = evaluateHealthDiagnostics({ ...base, lastAutoCheckpoint: "not-a-date" }, Date.now());
+      assert.equal(diagnostics.warnings.some((warning) => warning.code === "daemon-stale-checkpoint"), false);
+    },
+  },
+  {
+    name: "health diagnostics flags unusual pattern when 50+ files exist without checkpoint evidence",
+    run: () => {
+      const { rootDir } = makeRepo();
+      let state = createInitialState(rootDir);
+      state = startNewSession(rootDir, state, "codex", "Investigate unusual file churn", ["Inspect changed files"]);
+      assert.ok(state.activeSession);
+
+      const changedFiles = Array.from({ length: 50 }, (_, index) => `src/file-${index + 1}.ts`);
+      state.activeSession!.changedFiles = changedFiles;
+      state.activeSession!.checkpointCount = 0;
+      state.lastAutoCheckpoint = undefined;
+      state.passiveCapture = {
+        ...(state.passiveCapture ?? {
+          lastObservedBranch: null,
+          pendingFiles: [],
+          activityTicks: 0,
+          quietTicks: 0,
+          lastCheckpointAt: null,
+        }),
+        pendingFiles: changedFiles,
+        lastCheckpointAt: null,
+      };
+
+      const diagnostics = evaluateHealthDiagnostics(state, Date.now());
+      const unusual = diagnostics.warnings.find((warning) => warning.code === "unusual-files-without-checkpoint");
+      assert.ok(unusual);
+      assert.equal(unusual?.inputs.changedFileCount, 50);
+      assert.equal(unusual?.inputs.hasCheckpointEvidence, false);
+    },
+  },
+  {
+    name: "health diagnostics does not flag unusual pattern below the 50-file boundary without checkpoint evidence",
+    run: () => {
+      const { rootDir } = makeRepo();
+      let state = createInitialState(rootDir);
+      state = startNewSession(rootDir, state, "codex", "Track medium edit set", ["Checkpoint often"]);
+      assert.ok(state.activeSession);
+
+      const changedFiles = Array.from({ length: 49 }, (_, index) => `src/medium-${index + 1}.ts`);
+      state.activeSession!.changedFiles = changedFiles;
+      state.activeSession!.checkpointCount = 0;
+      state.lastAutoCheckpoint = undefined;
+      state.passiveCapture = {
+        ...(state.passiveCapture ?? {
+          lastObservedBranch: null,
+          pendingFiles: [],
+          activityTicks: 0,
+          quietTicks: 0,
+          lastCheckpointAt: null,
+        }),
+        pendingFiles: changedFiles,
+        lastCheckpointAt: null,
+      };
+
+      const diagnostics = evaluateHealthDiagnostics(state, Date.now());
+      assert.equal(diagnostics.warnings.some((warning) => warning.code === "unusual-files-without-checkpoint"), false);
+    },
+  },
+  {
+    name: "health diagnostics does not flag unusual pattern when checkpoint evidence exists",
+    run: () => {
+      const { rootDir } = makeRepo();
+      let state = createInitialState(rootDir);
+      state = startNewSession(rootDir, state, "codex", "Track large edit set", ["Checkpoint often"]);
+      assert.ok(state.activeSession);
+
+      state.activeSession!.changedFiles = Array.from({ length: 80 }, (_, index) => `src/large-${index + 1}.ts`);
+      state.activeSession!.checkpointCount = 1;
+      state.lastAutoCheckpoint = new Date().toISOString();
+
+      const diagnostics = evaluateHealthDiagnostics(state, Date.now());
+      assert.equal(diagnostics.warnings.some((warning) => warning.code === "unusual-files-without-checkpoint"), false);
     },
   },
   {

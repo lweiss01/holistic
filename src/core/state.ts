@@ -15,6 +15,8 @@ import type {
   DocIndex,
   DraftHandoff,
   HandoffInput,
+  HealthDiagnostics,
+  HealthWarning,
   HolisticState,
   PendingWorkItem,
   PassiveCaptureState,
@@ -742,25 +744,42 @@ export function getResumePayload(state: HolisticState, agent: AgentName): Resume
 /**
  * Build a formatted startup greeting for agents.
  * Used by both MCP notification and manual /holistic command.
- * Returns null if there's no meaningful context to share.
+ * Returns null when there is no carryover context and no health diagnostics to surface.
  */
 export function buildStartupGreeting(state: HolisticState, agent: AgentName): string | null {
   const payload = getResumePayload(state, agent);
-  if (payload.status === "empty") {
+  const diagnostics = evaluateHealthDiagnostics(state);
+  const hasCarryover = payload.status !== "empty";
+
+  if (!hasCarryover && diagnostics.warnings.length === 0) {
     return null;
   }
 
   const lines: string[] = [];
   lines.push("Holistic resume");
   lines.push("");
-  lines.push(...payload.recap.map((line) => `- ${line}`));
-  lines.push("");
-  lines.push(`Choices: ${payload.choices.join(", ")}`);
-  lines.push(`Adapter doc: ${payload.adapterDoc}`);
-  lines.push(`Recommended command: ${payload.recommendedCommand}`);
-  lines.push(`Long-term history: ${state.docIndex.historyDoc}`);
-  lines.push(`Regression watch: ${state.docIndex.regressionDoc}`);
-  lines.push(`Zero-touch architecture: ${state.docIndex.zeroTouchDoc}`);
+
+  if (hasCarryover) {
+    lines.push(...payload.recap.map((line) => `- ${line}`));
+    lines.push("");
+    lines.push(`Choices: ${payload.choices.join(", ")}`);
+    lines.push(`Adapter doc: ${payload.adapterDoc}`);
+    lines.push(`Recommended command: ${payload.recommendedCommand}`);
+    lines.push(`Long-term history: ${state.docIndex.historyDoc}`);
+    lines.push(`Regression watch: ${state.docIndex.regressionDoc}`);
+    lines.push(`Zero-touch architecture: ${state.docIndex.zeroTouchDoc}`);
+  }
+
+  if (diagnostics.warnings.length > 0) {
+    if (hasCarryover) {
+      lines.push("");
+    }
+    lines.push("System health warnings:");
+    for (const warning of diagnostics.warnings) {
+      lines.push(`- ${warning.message} [${warning.code}]`);
+    }
+  }
+
   return lines.join("\n");
 }
 
@@ -1043,6 +1062,8 @@ export function continueFromLatest(rootDir: string, state: HolisticState, agent:
 
 const PASSIVE_CHECKPOINT_ELAPSED_MS = 2 * 60 * 60 * 1000;
 const PASSIVE_CHECKPOINT_PENDING_FILE_THRESHOLD = 5;
+const HEALTH_WARNING_STALE_CHECKPOINT_MS = 3 * 24 * 60 * 60 * 1000;
+const HEALTH_WARNING_UNUSUAL_FILES_THRESHOLD = 50;
 const AUTO_DRAFT_IDLE_MINUTES = 30;
 const AUTO_DRAFT_WORK_MILESTONE_HOURS = 2;
 const AUTO_DRAFT_WORK_MILESTONE_CHECKPOINTS = 5;
@@ -1066,6 +1087,67 @@ export function shouldCheckpointForPendingFiles(pendingFiles: string[] | null | 
   }
 
   return pendingFiles.length >= PASSIVE_CHECKPOINT_PENDING_FILE_THRESHOLD;
+}
+
+function latestCheckpointTimestamp(state: HolisticState): string | null {
+  const candidates = [state.lastAutoCheckpoint, state.passiveCapture?.lastCheckpointAt].filter((value): value is string => Boolean(value));
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  const ranked = candidates
+    .map((value) => ({ value, ms: new Date(value).getTime() }))
+    .filter((item) => !Number.isNaN(item.ms))
+    .sort((left, right) => right.ms - left.ms);
+
+  return ranked[0]?.value ?? null;
+}
+
+export function evaluateHealthDiagnostics(state: HolisticState, currentTimeMs = Date.now()): HealthDiagnostics {
+  const warnings: HealthWarning[] = [];
+  const observedAt = new Date(currentTimeMs).toISOString();
+  const lastCheckpointAt = latestCheckpointTimestamp(state);
+
+  if (lastCheckpointAt) {
+    const lastCheckpointMs = new Date(lastCheckpointAt).getTime();
+    if (!Number.isNaN(lastCheckpointMs)) {
+      const elapsedMs = currentTimeMs - lastCheckpointMs;
+      if (elapsedMs >= HEALTH_WARNING_STALE_CHECKPOINT_MS) {
+        const daysSinceCheckpoint = Math.floor(elapsedMs / (24 * 60 * 60 * 1000));
+        warnings.push({
+          code: "daemon-stale-checkpoint",
+          message: "Daemon may not be checkpointing — no checkpoint has been recorded for 3+ days.",
+          observedAt,
+          inputs: {
+            lastCheckpointAt,
+            staleThresholdDays: 3,
+            daysSinceCheckpoint,
+          },
+        });
+      }
+    }
+  }
+
+  const changedFileCount = Math.max(
+    state.activeSession?.changedFiles.length ?? 0,
+    state.passiveCapture?.pendingFiles.length ?? 0,
+  );
+  const hasCheckpointEvidence = Boolean(lastCheckpointAt || (state.activeSession?.checkpointCount ?? 0) > 0);
+  if (changedFileCount >= HEALTH_WARNING_UNUSUAL_FILES_THRESHOLD && !hasCheckpointEvidence) {
+    warnings.push({
+      code: "unusual-files-without-checkpoint",
+      message: "Unusual repo activity detected: 50+ changed files with no checkpoint evidence.",
+      observedAt,
+      inputs: {
+        lastCheckpointAt,
+        changedFileCount,
+        changedFilesThreshold: HEALTH_WARNING_UNUSUAL_FILES_THRESHOLD,
+        hasCheckpointEvidence,
+      },
+    });
+  }
+
+  return { warnings };
 }
 
 export function shouldDraftCompletionSignalHandoff(input: CompletionDraftDecisionInput): AutoHandoffDecision {

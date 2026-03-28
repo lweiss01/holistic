@@ -53,6 +53,121 @@ export const tests = [
     },
   },
   {
+    name: "buildStartupGreeting includes system health warnings for stale daemon checkpoints",
+    run: () => {
+      const nowMs = Date.now();
+      const staleCheckpoint = new Date(nowMs - (4 * 24 * 60 * 60 * 1000)).toISOString();
+      const state = makeTestState({
+        activeSession: {
+          id: "session-test",
+          agent: "claude",
+          branch: "main",
+          startedAt: "2026-03-21T12:00:00.000Z",
+          updatedAt: "2026-03-21T12:00:00.000Z",
+          endedAt: null,
+          status: "active",
+          title: "Test",
+          currentGoal: "Test",
+          currentPlan: [],
+          latestStatus: "Test",
+          workDone: [],
+          triedItems: [],
+          nextSteps: [],
+          assumptions: [],
+          blockers: [],
+          references: [],
+          impactNotes: [],
+          regressionRisks: [],
+          changedFiles: [],
+          checkpointCount: 1,
+          lastCheckpointReason: "test",
+          resumeRecap: [],
+        },
+        lastAutoCheckpoint: staleCheckpoint,
+      });
+
+      const greeting = buildStartupGreeting(state, "claude");
+      assert.ok(greeting);
+      assert.match(greeting, /System health warnings:/);
+      assert.match(greeting, /Daemon may not be checkpointing/);
+      assert.match(greeting, /daemon-stale-checkpoint/);
+    },
+  },
+  {
+    name: "buildStartupGreeting emits warning-only startup output when carryover is empty but diagnostics exist",
+    run: () => {
+      const nowMs = Date.now();
+      const staleCheckpoint = new Date(nowMs - (4 * 24 * 60 * 60 * 1000)).toISOString();
+      const state = makeTestState({
+        lastAutoCheckpoint: staleCheckpoint,
+      });
+
+      const greeting = buildStartupGreeting(state, "claude");
+      assert.ok(greeting);
+      assert.match(greeting, /^Holistic resume/m);
+      assert.match(greeting, /System health warnings:/);
+      assert.doesNotMatch(greeting, /Current objective:/);
+      assert.match(greeting, /daemon-stale-checkpoint/);
+    },
+  },
+  {
+    name: "buildStartupGreeting emits warning text that is diagnostic (not user-blaming instructions)",
+    run: () => {
+      const nowMs = Date.now();
+      const staleCheckpoint = new Date(nowMs - (4 * 24 * 60 * 60 * 1000)).toISOString();
+      const state = makeTestState({
+        lastAutoCheckpoint: staleCheckpoint,
+      });
+
+      const greeting = buildStartupGreeting(state, "claude");
+      assert.ok(greeting);
+      assert.match(greeting, /System health warnings:/);
+      assert.doesNotMatch(greeting, /\byou\b/i);
+      assert.doesNotMatch(greeting, /\byour\b/i);
+      assert.doesNotMatch(greeting, /\bmust\b/i);
+      assert.doesNotMatch(greeting, /\bshould\b/i);
+    },
+  },
+  {
+    name: "buildStartupGreeting keeps no-warning startup output unchanged when diagnostics are clear",
+    run: () => {
+      const state = makeTestState({
+        activeSession: {
+          id: "session-clear",
+          agent: "claude",
+          branch: "main",
+          startedAt: "2026-03-21T12:00:00.000Z",
+          updatedAt: "2026-03-21T12:00:00.000Z",
+          endedAt: null,
+          status: "active",
+          title: "Clear session",
+          currentGoal: "Ship baseline",
+          currentPlan: ["Step 1"],
+          latestStatus: "Working baseline",
+          workDone: [],
+          triedItems: [],
+          nextSteps: ["Finish baseline"],
+          assumptions: [],
+          blockers: [],
+          references: [],
+          impactNotes: [],
+          regressionRisks: [],
+          changedFiles: [],
+          checkpointCount: 1,
+          lastCheckpointReason: "manual",
+          resumeRecap: [],
+        },
+        lastAutoCheckpoint: new Date(Date.now() - (60 * 60 * 1000)).toISOString(),
+      });
+
+      const greeting = buildStartupGreeting(state, "claude");
+      assert.ok(greeting);
+      assert.match(greeting, /Current objective: Ship baseline/);
+      assert.match(greeting, /Choices: continue, tweak, start-new/);
+      assert.doesNotMatch(greeting, /System health warnings:/);
+    },
+  },
+  {
     name: "buildStartupGreeting includes objective, status, and next steps from active session",
     run: () => {
       const state = makeTestState({

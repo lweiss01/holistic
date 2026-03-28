@@ -78,6 +78,26 @@ export interface PassiveCaptureState {
   lastCheckpointAt: string | null;
 }
 
+export type HealthWarningCode = "daemon-stale-checkpoint" | "unusual-files-without-checkpoint";
+
+export interface HealthWarning {
+  code: HealthWarningCode;
+  message: string;
+  observedAt: string;
+  inputs: {
+    lastCheckpointAt: string | null;
+    staleThresholdDays?: number;
+    daysSinceCheckpoint?: number;
+    changedFileCount?: number;
+    changedFilesThreshold?: number;
+    hasCheckpointEvidence?: boolean;
+  };
+}
+
+export interface HealthDiagnostics {
+  warnings: HealthWarning[];
+}
+
 export interface SessionRecord {
   id: string;
   agent: AgentName;

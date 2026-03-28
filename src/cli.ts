@@ -13,6 +13,7 @@ import { requestAutoSync } from './core/sync.ts';
 import { runDaemonTick } from './daemon.ts';
 import {
   applyHandoff,
+  buildStartupGreeting,
   clearDraftHandoff,
   checkpointState,
   computeSessionDiff,
@@ -480,6 +481,12 @@ async function handleResume(rootDir: string, parsed: ParsedArgs): Promise<number
       return 0;
     }
 
+    const greeting = buildStartupGreeting(nextState, agent);
+    if (greeting) {
+      process.stdout.write(renderResumeOutput(`${greeting}\n`));
+      return 0;
+    }
+
     process.stdout.write(renderResumeOutput(`Holistic resume\n\n${payload.recap.map((line) => `- ${line}`).join("\n")}\n\nChoices: ${payload.choices.join(", ")}\nAdapter doc: ${payload.adapterDoc}\nRecommended command: ${payload.recommendedCommand}\nLong-term history: ${nextState.docIndex.historyDoc}\nRegression watch: ${nextState.docIndex.regressionDoc}\nZero-touch architecture: ${nextState.docIndex.zeroTouchDoc}\n`));
     return 0;
   }
@@ -488,6 +495,12 @@ async function handleResume(rootDir: string, parsed: ParsedArgs): Promise<number
   const payload = getResumePayload(state, agent);
   if (firstFlag(parsed.flags, "json") === "true") {
     printJson(payload);
+    return 0;
+  }
+
+  const greeting = buildStartupGreeting(state, agent);
+  if (greeting) {
+    process.stdout.write(renderResumeOutput(`${greeting}\n`));
     return 0;
   }
 
