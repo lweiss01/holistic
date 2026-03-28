@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exported_at": "2026-03-28T02:20:02.858Z",
+  "exported_at": "2026-03-28T02:39:53.720Z",
   "milestones": [
     {
       "id": "M001",
@@ -676,19 +676,29 @@
       "milestone_id": "M001",
       "slice_id": "S02",
       "id": "T01",
-      "title": "Lock proactive capture rules in tests and pure state helpers",
-      "status": "pending",
-      "one_liner": "",
-      "narrative": "",
-      "verification_result": "",
+      "title": "Added pure proactive-capture helpers, bounded completion-signal types, and S02 boundary tests for elapsed-time, file-threshold, and completion-triggered handoff decisions.",
+      "status": "complete",
+      "one_liner": "Added pure proactive-capture helpers, bounded completion-signal types, and S02 boundary tests for elapsed-time, file-threshold, and completion-triggered handoff decisions.",
+      "narrative": "Extended the custom test runner with explicit S02 scenarios for the 2-hour elapsed checkpoint boundary, the 5-meaningful-file checkpoint boundary, completion-signal draft triggering, duplicate completion-draft suppression, and the preserved 29-vs-30 minute idle boundary. Added pure helpers in src/core/state.ts for elapsed-time checkpoint decisions, pending-file threshold decisions, and completion-signal draft decisions, then routed shouldAutoDraftHandoff through the new completion helper while preserving existing idle and work-milestone behavior. Added bounded completion metadata types in src/core/types.ts so future runtime wiring can carry explicit breakpoint/completion signals without open-ended parsing. Also added grep support to the custom test runner because the task’s declared verification command depends on scoped execution.",
+      "verification_result": "Verified the scoped S02 daemon/handoff test subset with `npm test -- --grep 'daemon tick|auto-draft handoff|holistic_checkpoint'`, verified the project still builds with `npm run build`, and verified the slice/task plan artifacts exist on disk. During verification I isolated a transient ERR_MODULE_NOT_FOUND to running build and source-mode tests in parallel, then reran the checks sequentially and recorded that gotcha in .gsd/KNOWLEDGE.md.",
       "duration": "",
-      "completed_at": null,
+      "completed_at": "2026-03-28T02:39:53.623Z",
       "blocker_discovered": false,
-      "deviations": "",
-      "known_issues": "",
-      "key_files": [],
-      "key_decisions": [],
-      "full_summary_md": "",
+      "deviations": "Added `--grep` support to the custom test runner so the task plan’s declared verification command scopes to the intended tests instead of running unrelated suites.",
+      "known_issues": "The broader test suite still contains unrelated pre-existing hook-test failures outside the scoped S02 grep subset; those were not changed in this task.",
+      "key_files": [
+        "tests/run-tests.ts",
+        "src/core/state.ts",
+        "src/core/types.ts",
+        ".gsd/KNOWLEDGE.md",
+        ".gsd/milestones/M001/slices/S02/tasks/T01-SUMMARY.md"
+      ],
+      "key_decisions": [
+        "Model completion-triggered handoff drafting with explicit bounded metadata instead of open-ended strings.",
+        "Keep proactive checkpoint and draft decisions pure in state helpers so future daemon wiring stays easy to diagnose.",
+        "Support `--grep` in the custom test runner because the task’s verification contract depends on scoped execution."
+      ],
+      "full_summary_md": "---\nid: T01\nparent: S02\nmilestone: M001\nkey_files:\n  - tests/run-tests.ts\n  - src/core/state.ts\n  - src/core/types.ts\n  - .gsd/KNOWLEDGE.md\n  - .gsd/milestones/M001/slices/S02/tasks/T01-SUMMARY.md\nkey_decisions:\n  - Model completion-triggered handoff drafting with explicit bounded metadata instead of open-ended strings.\n  - Keep proactive checkpoint and draft decisions pure in state helpers so future daemon wiring stays easy to diagnose.\n  - Support `--grep` in the custom test runner because the task’s verification contract depends on scoped execution.\nduration: \"\"\nverification_result: passed\ncompleted_at: 2026-03-28T02:39:53.625Z\nblocker_discovered: false\n---\n\n# T01: Added pure proactive-capture helpers, bounded completion-signal types, and S02 boundary tests for elapsed-time, file-threshold, and completion-triggered handoff decisions.\n\n**Added pure proactive-capture helpers, bounded completion-signal types, and S02 boundary tests for elapsed-time, file-threshold, and completion-triggered handoff decisions.**\n\n## What Happened\n\nExtended the custom test runner with explicit S02 scenarios for the 2-hour elapsed checkpoint boundary, the 5-meaningful-file checkpoint boundary, completion-signal draft triggering, duplicate completion-draft suppression, and the preserved 29-vs-30 minute idle boundary. Added pure helpers in src/core/state.ts for elapsed-time checkpoint decisions, pending-file threshold decisions, and completion-signal draft decisions, then routed shouldAutoDraftHandoff through the new completion helper while preserving existing idle and work-milestone behavior. Added bounded completion metadata types in src/core/types.ts so future runtime wiring can carry explicit breakpoint/completion signals without open-ended parsing. Also added grep support to the custom test runner because the task’s declared verification command depends on scoped execution.\n\n## Verification\n\nVerified the scoped S02 daemon/handoff test subset with `npm test -- --grep 'daemon tick|auto-draft handoff|holistic_checkpoint'`, verified the project still builds with `npm run build`, and verified the slice/task plan artifacts exist on disk. During verification I isolated a transient ERR_MODULE_NOT_FOUND to running build and source-mode tests in parallel, then reran the checks sequentially and recorded that gotcha in .gsd/KNOWLEDGE.md.\n\n## Verification Evidence\n\n| # | Command | Exit Code | Verdict | Duration |\n|---|---------|-----------|---------|----------|\n| 1 | `npm test -- --grep 'daemon tick|auto-draft handoff|holistic_checkpoint'` | 0 | ✅ pass | 4200ms |\n| 2 | `npm run build` | 0 | ✅ pass | 4100ms |\n| 3 | `test -f .gsd/milestones/M001/slices/S02/S02-PLAN.md && test -f .gsd/milestones/M001/slices/S02/tasks/T01-PLAN.md && test -f .gsd/milestones/M001/slices/S02/tasks/T02-PLAN.md && test -f .gsd/milestones/M001/slices/S02/tasks/T03-PLAN.md` | 0 | ✅ pass | 790ms |\n\n\n## Deviations\n\nAdded `--grep` support to the custom test runner so the task plan’s declared verification command scopes to the intended tests instead of running unrelated suites.\n\n## Known Issues\n\nThe broader test suite still contains unrelated pre-existing hook-test failures outside the scoped S02 grep subset; those were not changed in this task.\n\n## Files Created/Modified\n\n- `tests/run-tests.ts`\n- `src/core/state.ts`\n- `src/core/types.ts`\n- `.gsd/KNOWLEDGE.md`\n- `.gsd/milestones/M001/slices/S02/tasks/T01-SUMMARY.md`\n",
       "description": "Add or extend focused tests around the S02 contract before wiring daemon behavior so executors can change runtime code safely.\n\nSteps:\n1. Extend `tests/run-tests.ts` with failing cases for elapsed-time checkpoints, immediate 5-file checkpoints, completion-signal handoff drafting, duplicate-draft suppression, and preserved quiet-cluster / branch-switch behavior.\n2. Add pure decision helpers and any small type additions in `src/core/state.ts` and `src/core/types.ts` so threshold logic and completion-signal rules are deterministic and unit-testable.\n3. Keep thresholds aligned with roadmap/research: 2 hours and 5 meaningful files, with no new file watcher.\n\nMust-haves:\n- Tests name the exact S02 scenarios and fail against the current baseline before implementation is wired.\n- Helper APIs expose elapsed-time, pending-file threshold, and completion-signal draft decisions without burying all logic inside `runDaemonTick()`.\n- Any new checkpoint metadata is constrained and documented in types.\n- Existing idle-30min behavior remains covered.\n",
       "estimate": "1.5h",
       "files": [
@@ -804,6 +814,53 @@
       "sequence": 0
     }
   ],
-  "decisions": [],
-  "verification_evidence": []
+  "decisions": [
+    {
+      "seq": 1,
+      "id": "D001",
+      "when_context": "M001/S02 planning",
+      "scope": "architecture",
+      "decision": "How S02 should detect natural breakpoints and proactive checkpoint triggers",
+      "choice": "Use deterministic daemon thresholds (2-hour elapsed or 5 meaningful files) plus explicit checkpoint completion metadata through CLI/MCP instead of transcript parsing or a new watcher.",
+      "rationale": "The existing architecture already has repo-snapshot-based passive capture and checkpoint entrypoints. Deterministic thresholds satisfy R004/R005 without adding another watcher, and explicit completion metadata gives agents a reliable way to express natural breakpoints for R006/R007 while avoiding brittle free-form text inference and draft spam.",
+      "revisable": "Yes",
+      "made_by": "agent",
+      "superseded_by": null
+    }
+  ],
+  "verification_evidence": [
+    {
+      "id": 1,
+      "task_id": "T01",
+      "slice_id": "S02",
+      "milestone_id": "M001",
+      "command": "npm test -- --grep 'daemon tick|auto-draft handoff|holistic_checkpoint'",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 4200,
+      "created_at": "2026-03-28T02:39:53.624Z"
+    },
+    {
+      "id": 2,
+      "task_id": "T01",
+      "slice_id": "S02",
+      "milestone_id": "M001",
+      "command": "npm run build",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 4100,
+      "created_at": "2026-03-28T02:39:53.625Z"
+    },
+    {
+      "id": 3,
+      "task_id": "T01",
+      "slice_id": "S02",
+      "milestone_id": "M001",
+      "command": "test -f .gsd/milestones/M001/slices/S02/S02-PLAN.md && test -f .gsd/milestones/M001/slices/S02/tasks/T01-PLAN.md && test -f .gsd/milestones/M001/slices/S02/tasks/T02-PLAN.md && test -f .gsd/milestones/M001/slices/S02/tasks/T03-PLAN.md",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 790,
+      "created_at": "2026-03-28T02:39:53.625Z"
+    }
+  ]
 }

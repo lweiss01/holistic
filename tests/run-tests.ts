@@ -22,6 +22,9 @@ import {
   readDraftHandoff,
   saveState,
   shouldAutoDraftHandoff,
+  shouldCheckpointForElapsedTime,
+  shouldCheckpointForPendingFiles,
+  shouldDraftCompletionSignalHandoff,
   startNewSession,
 } from "../src/core/state.ts";
 import { runDaemonTick } from "../src/daemon.ts";
@@ -800,6 +803,94 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     },
   },
   {
+    name: "daemon tick helper triggers an elapsed-time checkpoint at exactly two hours",
+    run: () => {
+      const nowMs = Date.now();
+      const exactlyTwoHoursAgo = new Date(nowMs - (2 * 60 * 60 * 1000)).toISOString();
+      const justUnderTwoHoursAgo = new Date(nowMs - (2 * 60 * 60 * 1000) + 1).toISOString();
+
+      assert.equal(shouldCheckpointForElapsedTime(exactlyTwoHoursAgo, nowMs), true);
+      assert.equal(shouldCheckpointForElapsedTime(justUnderTwoHoursAgo, nowMs), false);
+      assert.equal(shouldCheckpointForElapsedTime(null, nowMs), false);
+      assert.equal(shouldCheckpointForElapsedTime("", nowMs), false);
+      assert.equal(shouldCheckpointForElapsedTime("not-a-date", nowMs), false);
+    },
+  },
+  {
+    name: "daemon tick helper triggers a checkpoint at exactly five meaningful files",
+    run: () => {
+      assert.equal(shouldCheckpointForPendingFiles(["1", "2", "3", "4", "5"]), true);
+      assert.equal(shouldCheckpointForPendingFiles(["1", "2", "3", "4"]), false);
+      assert.equal(shouldCheckpointForPendingFiles([]), false);
+      assert.equal(shouldCheckpointForPendingFiles(null), false);
+    },
+  },
+  {
+    name: "auto-draft handoff triggers immediately for an explicit completion signal",
+    run: () => {
+      const { rootDir } = makeRepo();
+      let state = createInitialState(rootDir);
+      state = startNewSession(rootDir, state, "codex", "Pause at a natural breakpoint", ["Capture the breakpoint"]);
+      assert.ok(state.activeSession);
+      state.activeSession!.completionSignal = {
+        kind: "natural-breakpoint",
+        source: "agent",
+        recordedAt: new Date().toISOString(),
+      };
+
+      const decision = shouldAutoDraftHandoff(state.activeSession!);
+      assert.equal(decision.should, true);
+      assert.equal(decision.reason, "completion-signal");
+    },
+  },
+  {
+    name: "auto-draft handoff suppresses duplicate completion-signal drafts for unchanged sessions",
+    run: () => {
+      const recordedAt = new Date().toISOString();
+      const decision = shouldDraftCompletionSignalHandoff({
+        sessionId: "session-1",
+        sessionUpdatedAt: recordedAt,
+        completionSignal: {
+          kind: "task-complete",
+          source: "system",
+          recordedAt,
+        },
+        existingDraft: {
+          sourceSessionId: "session-1",
+          sourceSessionUpdatedAt: recordedAt,
+          reason: "completion-signal",
+        },
+      });
+
+      assert.equal(decision.should, false);
+      assert.equal(decision.reason, "");
+      assert.deepEqual(
+        shouldDraftCompletionSignalHandoff({
+          sessionId: "session-1",
+          sessionUpdatedAt: recordedAt,
+          completionSignal: null,
+        }),
+        { should: false, reason: "" },
+      );
+    },
+  },
+  {
+    name: "auto-draft handoff preserves the idle 29-vs-30 minute boundary",
+    run: () => {
+      const { rootDir } = makeRepo();
+      let state = createInitialState(rootDir);
+      state = startNewSession(rootDir, state, "codex", "Document the current work", ["Prepare handoff"]);
+      assert.ok(state.activeSession);
+      const nowMs = Date.now();
+      state.activeSession!.startedAt = new Date(nowMs - (60 * 60 * 1000)).toISOString();
+      state.activeSession!.updatedAt = new Date(nowMs - (29 * 60 * 1000)).toISOString();
+      assert.deepEqual(shouldAutoDraftHandoff(state.activeSession!, nowMs), { should: false, reason: "" });
+
+      state.activeSession!.updatedAt = new Date(nowMs - (30 * 60 * 1000)).toISOString();
+      assert.deepEqual(shouldAutoDraftHandoff(state.activeSession!, nowMs), { should: true, reason: "idle-30min" });
+    },
+  },
+  {
     name: "auto-draft handoff triggers for significant work milestones",
     run: () => {
       const { rootDir } = makeRepo();
@@ -887,8 +978,14 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 // Merge in unit tests from test modules
 const allTests = [...tests, ...mcpNotificationTests];
 
+const argv = process.argv.slice(2);
+const grepIndex = argv.indexOf("--grep");
+const grepPattern = grepIndex >= 0 ? argv[grepIndex + 1] ?? "" : "";
+const grep = grepPattern ? new RegExp(grepPattern) : null;
+const selectedTests = grep ? allTests.filter((testCase) => grep.test(testCase.name)) : allTests;
+
 let failures = 0;
-for (const testCase of allTests) {
+for (const testCase of selectedTests) {
   try {
     await testCase.run();
     console.log(`PASS ${testCase.name}`);
@@ -904,4 +1001,4 @@ if (failures > 0) {
   process.exit(1);
 }
 
-console.log(`\n${allTests.length} test(s) passed.`);
+console.log(`\n${selectedTests.length} test(s) passed.`);

@@ -106,6 +106,7 @@ export interface SessionRecord {
   relatedSessions?: string[];
   outcomeStatus?: OutcomeStatus;
   severity?: Severity;
+  completionSignal?: CompletionSignalMetadata | null;
   // End of enhanced metadata
   changedFiles: string[];
   checkpointCount: number;
@@ -196,6 +197,27 @@ export interface CheckpointInput {
   severity?: Severity;
 }
 
+export type CompletionSignalKind =
+  | "natural-breakpoint"
+  | "task-complete"
+  | "slice-complete"
+  | "milestone-complete";
+
+export type CompletionSignalSource = "agent" | "system";
+
+export interface CompletionSignalMetadata {
+  kind: CompletionSignalKind;
+  source: CompletionSignalSource;
+  recordedAt: string;
+}
+
+export interface CompletionDraftDecisionInput {
+  sessionId?: string | null;
+  sessionUpdatedAt?: string | null;
+  completionSignal?: CompletionSignalMetadata | null;
+  existingDraft?: Pick<DraftHandoff, "sourceSessionId" | "sourceSessionUpdatedAt" | "reason"> | null;
+}
+
 export interface HandoffInput {
   summary?: string;
   done?: string[];
@@ -218,7 +240,7 @@ export interface HandoffInput {
 
 export interface AutoHandoffDecision {
   should: boolean;
-  reason: "idle-30min" | "work-milestone" | "";
+  reason: "idle-30min" | "work-milestone" | "completion-signal" | "";
 }
 
 export interface DraftHandoff {

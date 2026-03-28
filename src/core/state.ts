@@ -8,6 +8,7 @@ import type {
   AgentName,
   AutoHandoffDecision,
   CheckpointInput,
+  CompletionDraftDecisionInput,
   DocIndex,
   DraftHandoff,
   HandoffInput,
@@ -440,6 +441,7 @@ function createSession(agent: AgentName, goal: string, title?: string, plan?: st
     references: [],
     impactNotes: [],
     regressionRisks: [],
+    completionSignal: null,
     changedFiles: [],
     checkpointCount: 0,
     lastCheckpointReason: "session-start",
@@ -812,16 +814,75 @@ export function continueFromLatest(rootDir: string, state: HolisticState, agent:
   };
 }
 
-export function shouldAutoDraftHandoff(session: SessionRecord, currentTimeMs = Date.now()): AutoHandoffDecision {
+const PASSIVE_CHECKPOINT_ELAPSED_MS = 2 * 60 * 60 * 1000;
+const PASSIVE_CHECKPOINT_PENDING_FILE_THRESHOLD = 5;
+const AUTO_DRAFT_IDLE_MINUTES = 30;
+const AUTO_DRAFT_WORK_MILESTONE_HOURS = 2;
+const AUTO_DRAFT_WORK_MILESTONE_CHECKPOINTS = 5;
+
+export function shouldCheckpointForElapsedTime(lastCheckpointAt: string | null | undefined, currentTimeMs = Date.now()): boolean {
+  if (!lastCheckpointAt) {
+    return false;
+  }
+
+  const lastCheckpointMs = new Date(lastCheckpointAt).getTime();
+  if (Number.isNaN(lastCheckpointMs)) {
+    return false;
+  }
+
+  return currentTimeMs - lastCheckpointMs >= PASSIVE_CHECKPOINT_ELAPSED_MS;
+}
+
+export function shouldCheckpointForPendingFiles(pendingFiles: string[] | null | undefined): boolean {
+  if (!pendingFiles || pendingFiles.length === 0) {
+    return false;
+  }
+
+  return pendingFiles.length >= PASSIVE_CHECKPOINT_PENDING_FILE_THRESHOLD;
+}
+
+export function shouldDraftCompletionSignalHandoff(input: CompletionDraftDecisionInput): AutoHandoffDecision {
+  if (!input.completionSignal || !input.sessionId || !input.sessionUpdatedAt) {
+    return { should: false, reason: "" };
+  }
+
+  const existingDraft = input.existingDraft;
+  if (
+    existingDraft
+    && existingDraft.sourceSessionId === input.sessionId
+    && existingDraft.sourceSessionUpdatedAt === input.sessionUpdatedAt
+    && existingDraft.reason === "completion-signal"
+  ) {
+    return { should: false, reason: "" };
+  }
+
+  return { should: true, reason: "completion-signal" };
+}
+
+export function shouldAutoDraftHandoff(session: SessionRecord, currentTimeMs = Date.now(), existingDraft: DraftHandoff | null = null): AutoHandoffDecision {
+  const completionSignalDecision = shouldDraftCompletionSignalHandoff({
+    sessionId: session.id,
+    sessionUpdatedAt: session.updatedAt,
+    completionSignal: session.completionSignal ?? null,
+    existingDraft,
+  });
+  if (completionSignalDecision.should) {
+    return completionSignalDecision;
+  }
+
   const updatedAtMs = new Date(session.updatedAt).getTime();
   const startedAtMs = new Date(session.startedAt).getTime();
+  if (Number.isNaN(updatedAtMs) || Number.isNaN(startedAtMs)) {
+    return { should: false, reason: "" };
+  }
+
   const idleMinutes = (currentTimeMs - updatedAtMs) / 60000;
-  if (idleMinutes >= 30) {
+  if (idleMinutes >= AUTO_DRAFT_IDLE_MINUTES) {
     return { should: true, reason: "idle-30min" };
   }
 
   const sessionHours = (currentTimeMs - startedAtMs) / 3600000;
-  if (session.checkpointCount >= 5 && sessionHours >= 2) {
+  if (session.checkpointCount >= AUTO_DRAFT_WORK_MILESTONE_CHECKPOINTS && sessionHours >= AUTO_DRAFT_WORK_MILESTONE_HOURS) {
     return { should: true, reason: "work-milestone" };
   }
 
