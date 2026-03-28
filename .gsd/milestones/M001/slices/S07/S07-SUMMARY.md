@@ -1,6 +1,4 @@
-# S07: Technical Polish & Cross-Platform
-
-**Goal:** ---
+---
 id: S07
 parent: M001
 milestone: M001
@@ -81,10 +79,3 @@ If stricter release gates are needed, add CI matrix smoke checks for Linux/macOS
 - `.gitignore` — Stopped ignoring .gitattributes so line-ending policy is tracked and shared.
 - `.gitattributes` — Added tracked cross-platform line-ending rules with JSON normalization adjustment.
 - `src/core/git-hooks.ts` — Aggregated custom-hook skip warnings into a single less-noisy diagnostics line.
-
-**Demo:** After this: CRLF warnings fixed with proper .gitattributes; npm pack/install tested on Mac/Windows/Linux; error messages are helpful and actionable; bootstrap experience validated on clean machines; same-repo state sync no longer creates confusing GitHub PR/banner prompts for normal project repos
-
-## Tasks
-- [x] **T01: Tracked .gitattributes and aligned cross-platform line-ending policy to reduce recurring CRLF churn.** — 
-- [x] **T02: Validated package/install smoke path with passing npm pack/install/bootstrap checks.** — 
-- [x] **T03: Reduced hook refresh warning noise by aggregating custom-hook skip diagnostics.** — 
