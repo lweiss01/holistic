@@ -104,15 +104,15 @@ function getVersion(): string {
   }
 }
 
-function printHelp(): void {
-  process.stdout.write(`Holistic CLI v${getVersion()}
+export function renderHelpText(): string {
+  return `Holistic CLI v${getVersion()}
 
 Usage:
   holistic init [--install-daemon] [--install-hooks] [--platform win32|darwin|linux] [--interval 30] [--remote origin] [--state-ref refs/holistic/state] [--state-branch holistic/state]
   holistic bootstrap [--platform win32|darwin|linux] [--interval 30] [--remote origin] [--state-ref refs/holistic/state] [--state-branch holistic/state] [--install-daemon false] [--install-hooks false] [--configure-mcp false]
   holistic start [--agent codex|claude|antigravity|gemini|copilot|cursor|goose|gsd|gsd2] [--continue] [--json]
   holistic resume [--agent codex|claude|antigravity|gemini|copilot|cursor|goose|gsd|gsd2] [--continue] [--json]
-  holistic checkpoint --reason "<reason>" [--goal "<goal>"] [--status "<status>"] [--plan "<step>"]...
+  holistic checkpoint --reason "<reason>" [--goal "<goal>"] [--status "<status>"] [--plan "<step>"]... [--completion-kind natural-breakpoint|task-complete|slice-complete|milestone-complete] [--completion-source agent|system] [--completion-recorded-at <iso8601>]
   holistic checkpoint --fixed "<bug>" [--fix-files "<file>"] [--fix-risk "<what reintroduces it>"]
   holistic handoff [--draft] [--summary "<summary>"] [--next "<step>"]...
   holistic start-new --goal "<goal>" [--title "<title>"] [--plan "<step>"]...
@@ -121,8 +121,18 @@ Usage:
   holistic serve
   holistic watch [--agent codex|claude|antigravity|gemini|copilot|cursor|goose|gsd|gsd2] [--interval 60]
 
+Checkpoint examples:
+  holistic checkpoint --reason "tests passed" --status "Focused verification is green" --completion-kind natural-breakpoint --completion-source agent
+  holistic checkpoint --reason "feature complete" --status "Ready for handoff" --completion-kind task-complete --completion-source agent
+
+Use checkpoint at natural breakpoints like tests passed, bug fixed, feature complete, focus change, or before compaction. Use handoff as the final safety valve when the session is ending.
+
   'holistic start' is an alias for 'holistic resume'.
-`);
+`;
+}
+
+function printHelp(): void {
+  process.stdout.write(renderHelpText());
 }
 
 export function renderResumeOutput(body: string): string {

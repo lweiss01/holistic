@@ -151,7 +151,7 @@ export function listHolisticTools(): ListToolsResult {
       },
       {
         name: "holistic_checkpoint",
-        description: "Create a Holistic checkpoint for the current work.",
+        description: "Create a Holistic checkpoint for the current work. Use this at explicit natural breakpoints like tests passed, bug fixed, feature complete, focus change, or before compaction. When the checkpoint represents a real breakpoint or completion signal, set completionKind and completionSource so Holistic can draft or refresh handoff context without guessing from free-form text.",
         inputSchema: {
           type: "object",
           properties: {

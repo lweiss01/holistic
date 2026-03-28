@@ -314,7 +314,7 @@ Every agent working in this repo should:
 4. If the Holistic daemon is installed, assume passive capture is already running in the background.
 5. Use the repo-local Holistic helper for explicit recap or recovery flows in this repo.
 6. Recap the current state for the user and ask whether to continue, tweak the plan, or start something new.
-7. Record a checkpoint when focus changes, before likely context compaction, and before handoff.
+7. Record a checkpoint when focus changes, when tests passed in the current verification pass, when a bug is fixed (example: "bug fixed"), when a feature is complete (example: "feature complete"), before likely context compaction, and before handoff. If your client exposes "/checkpoint" or "/handoff" wrappers, treat them as safety valves; otherwise use the repo-local Holistic helper commands below.
 
 ${resumeFallbackNote}
 
@@ -415,9 +415,13 @@ ${resumeFallbackNote}
 Use the repo-local Holistic helper for checkpoints in this repo:
 
 - when the task focus changes
+- when tests passed in the current verification pass
+- when you fix a bug that should not regress
+- when a feature is complete or ready for review
 - before likely context compaction
-- after meaningful progress
-- when you fix something another agent might accidentally re-break later
+- before handoff
+
+If your client exposes \`/checkpoint\` or \`/handoff\` wrappers, treat them as safety valves for those moments. Otherwise, use the explicit repo-local commands below.
 
 Use the repo-local Holistic helper with \`watch\` if you want foreground background checkpoints while working manually.
 
@@ -484,9 +488,13 @@ ${resumeFallbackNote}
 Use the repo-local Holistic helper for checkpoints in this repo when:
 
 - the task focus changes
+- tests passed and you reached a clean breakpoint
+- you fixed a bug that should not regress
+- a feature is complete or ready for review
 - you are about to compact or clear context
-- you finish a meaningful chunk of work
-- you fix or alter behavior that could regress later
+- before handoff
+
+If your client exposes \`/checkpoint\` or \`/handoff\` wrappers, treat them as safety valves. Otherwise, use the explicit repo-local commands below.
 
 Include impact notes and regression risks when they matter.
 
@@ -867,10 +875,13 @@ function renderRootAgentDoc(agentName: string, commandName: string, hasMcp: bool
 
 **After significant work or on any git commit (hook fires automatically):**
 - Run \`holistic checkpoint --reason '<what you just did>'\`
+- Prefer checkpoints at natural breakpoints like tests passed, bug fixed, feature complete, focus change, or before compaction.
+- If your client exposes \`/checkpoint\`, you can use it as the safety valve for the same action.
 - To record a fix that must not regress: \`holistic checkpoint --fixed '<bug>' --fix-files '<file>' --fix-risk '<what reintroduces it>'\`
 
 **At the end of every session:**
 - Run \`holistic handoff\` - this opens a dialog to capture the summary and prepares a pending handoff commit.
+- If your client exposes \`/handoff\`, it is the matching session-end safety valve.
 - If you want the Holistic files committed, make that git commit explicitly.
 
 **Never touch files listed in the KNOWN FIXES section of HOLISTIC.md without reading that section first.**

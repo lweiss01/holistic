@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { finalizeDraftHandoffInput, renderDiff, renderResumeOutput, renderStatus } from "../src/cli.ts";
+import { finalizeDraftHandoffInput, renderDiff, renderHelpText, renderResumeOutput, renderStatus } from "../src/cli.ts";
 import { writeDerivedDocs } from "../src/core/docs.ts";
 import { captureRepoSnapshot } from "../src/core/git.ts";
 import { bootstrapHolistic, initializeHolistic, refreshHolisticHooks } from "../src/core/setup.ts";
@@ -229,7 +229,15 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "state.json")));
       assert.match(fs.readFileSync(path.join(rootDir, "HOLISTIC.md"), "utf8"), /repo-local Holistic helper/);
       assert.match(fs.readFileSync(path.join(rootDir, "AGENTS.md"), "utf8"), /repo-local Holistic helper/);
+      assert.match(fs.readFileSync(path.join(rootDir, "AGENTS.md"), "utf8"), /tests passed/);
+      assert.match(fs.readFileSync(path.join(rootDir, "AGENTS.md"), "utf8"), /bug fixed/);
+      assert.match(fs.readFileSync(path.join(rootDir, "AGENTS.md"), "utf8"), /feature complete/);
+      assert.match(fs.readFileSync(path.join(rootDir, "AGENTS.md"), "utf8"), /\/checkpoint/);
+      assert.match(fs.readFileSync(path.join(rootDir, "AGENTS.md"), "utf8"), /\/handoff/);
       assert.match(fs.readFileSync(path.join(rootDir, ".holistic", "context", "session-protocol.md"), "utf8"), /repo-local Holistic helper/);
+      assert.match(fs.readFileSync(path.join(rootDir, ".holistic", "context", "session-protocol.md"), "utf8"), /tests pass/);
+      assert.match(fs.readFileSync(path.join(rootDir, ".holistic", "context", "session-protocol.md"), "utf8"), /\/checkpoint/);
+      assert.match(fs.readFileSync(path.join(rootDir, ".holistic", "context", "session-protocol.md"), "utf8"), /\/handoff/);
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "project-history.md")));
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "regression-watch.md")));
       assert.ok(fs.existsSync(path.join(rootDir, ".holistic", "context", "zero-touch.md")));
@@ -251,6 +259,20 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.match(output, /Your repo remembers, so your next agent doesn't have to guess\./);
       assert.match(output, /Holistic resume/);
       assert.match(output, /Current objective: Test banner rendering/);
+    },
+  },
+  {
+    name: "CLI help text documents completion metadata and natural breakpoint safety valves",
+    run: () => {
+      const help = renderHelpText();
+
+      assert.match(help, /--completion-kind natural-breakpoint\|task-complete\|slice-complete\|milestone-complete/);
+      assert.match(help, /--completion-source agent\|system/);
+      assert.match(help, /tests passed/);
+      assert.match(help, /bug fixed/);
+      assert.match(help, /feature complete/);
+      assert.match(help, /before compaction/);
+      assert.match(help, /Use handoff as the final safety valve/);
     },
   },
   {
@@ -500,6 +522,14 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
       const tools = listHolisticTools().tools.map((tool) => tool.name);
       assert.deepEqual(tools, ["holistic_resume", "holistic_slash", "holistic_checkpoint", "holistic_handoff"]);
+      const checkpointTool = listHolisticTools().tools.find((tool) => tool.name === "holistic_checkpoint");
+      assert.match(checkpointTool?.description ?? "", /tests passed/);
+      assert.match(checkpointTool?.description ?? "", /bug fixed/);
+      assert.match(checkpointTool?.description ?? "", /feature complete/);
+      assert.match(checkpointTool?.description ?? "", /focus change/);
+      assert.match(checkpointTool?.description ?? "", /before compaction/);
+      assert.match(checkpointTool?.description ?? "", /completionKind/);
+      assert.match(checkpointTool?.description ?? "", /completionSource/);
 
       const resumeBefore = callHolisticTool(rootDir, "holistic_resume", { agent: "codex" });
       const initialText = resumeBefore.content[0]?.type === "text" ? resumeBefore.content[0].text : "";

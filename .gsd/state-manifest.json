@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exported_at": "2026-03-28T02:51:06.013Z",
+  "exported_at": "2026-03-28T03:04:12.976Z",
   "milestones": [
     {
       "id": "M001",
@@ -783,19 +783,29 @@
       "milestone_id": "M001",
       "slice_id": "S02",
       "id": "T03",
-      "title": "Teach agents when to checkpoint and verify the full slice",
-      "status": "pending",
-      "one_liner": "",
-      "narrative": "",
-      "verification_result": "",
+      "title": "Aligned proactive-capture docs, CLI help, and MCP checkpoint guidance with supported natural-breakpoint behavior and verified S02.",
+      "status": "complete",
+      "one_liner": "Aligned proactive-capture docs, CLI help, and MCP checkpoint guidance with supported natural-breakpoint behavior and verified S02.",
+      "narrative": "Updated src/core/docs.ts so generated agent-facing guidance teaches concrete natural-breakpoint checkpoint moments that the runtime actually supports, including tests passed, bug fixed, feature complete, focus change, before compaction, and before handoff. Added safety-valve wording for /checkpoint and /handoff only when a client exposes those wrappers, while preserving the explicit repo-local command fallback so the docs do not promise unsupported automation. Updated src/cli.ts help output to document the already-supported completion metadata flags and concrete checkpoint examples, and updated src/mcp-server.ts so holistic_checkpoint describes when to use structured completion metadata instead of free-form inference. Added focused wording-regression assertions in tests/run-tests.ts to keep generated docs, CLI help, and MCP descriptions aligned with runtime behavior. During verification, the first build failed because raw /checkpoint and /handoff text inside a template literal was parsed incorrectly; I isolated that cause, escaped the literals, reran the required build/test command, and finished with clean verification.",
+      "verification_result": "Verified the slice-required command npm run build && npm test -- --grep \"daemon tick|auto-draft handoff|holistic_checkpoint\" to a clean pass after the wording changes. Verified the new wording-regression assertions with npm test -- --grep \"resume payload starts empty|mcp tool list stays intentionally thin|CLI help text documents\". Verified the slice plan and all task-plan artifacts remain present on disk with a direct Node existsSync check.",
       "duration": "",
-      "completed_at": null,
+      "completed_at": "2026-03-28T03:04:12.909Z",
       "blocker_discovered": false,
-      "deviations": "",
-      "known_issues": "",
-      "key_files": [],
-      "key_decisions": [],
-      "full_summary_md": "",
+      "deviations": "Added a small wording-regression test subset beyond the slice’s required grep command so doc/help alignment is executable rather than purely manual.",
+      "known_issues": "None.",
+      "key_files": [
+        "src/core/docs.ts",
+        "src/cli.ts",
+        "src/mcp-server.ts",
+        "tests/run-tests.ts",
+        ".gsd/DECISIONS.md",
+        ".gsd/milestones/M001/slices/S02/tasks/T03-SUMMARY.md"
+      ],
+      "key_decisions": [
+        "Document natural breakpoints with explicit supported examples and safety valves instead of implying transcript parsing or unsupported automation.",
+        "Keep CLI help and MCP descriptions aligned with the same bounded completion metadata exposed by the runtime."
+      ],
+      "full_summary_md": "---\nid: T03\nparent: S02\nmilestone: M001\nkey_files:\n  - src/core/docs.ts\n  - src/cli.ts\n  - src/mcp-server.ts\n  - tests/run-tests.ts\n  - .gsd/DECISIONS.md\n  - .gsd/milestones/M001/slices/S02/tasks/T03-SUMMARY.md\nkey_decisions:\n  - Document natural breakpoints with explicit supported examples and safety valves instead of implying transcript parsing or unsupported automation.\n  - Keep CLI help and MCP descriptions aligned with the same bounded completion metadata exposed by the runtime.\nduration: \"\"\nverification_result: passed\ncompleted_at: 2026-03-28T03:04:12.911Z\nblocker_discovered: false\n---\n\n# T03: Aligned proactive-capture docs, CLI help, and MCP checkpoint guidance with supported natural-breakpoint behavior and verified S02.\n\n**Aligned proactive-capture docs, CLI help, and MCP checkpoint guidance with supported natural-breakpoint behavior and verified S02.**\n\n## What Happened\n\nUpdated src/core/docs.ts so generated agent-facing guidance teaches concrete natural-breakpoint checkpoint moments that the runtime actually supports, including tests passed, bug fixed, feature complete, focus change, before compaction, and before handoff. Added safety-valve wording for /checkpoint and /handoff only when a client exposes those wrappers, while preserving the explicit repo-local command fallback so the docs do not promise unsupported automation. Updated src/cli.ts help output to document the already-supported completion metadata flags and concrete checkpoint examples, and updated src/mcp-server.ts so holistic_checkpoint describes when to use structured completion metadata instead of free-form inference. Added focused wording-regression assertions in tests/run-tests.ts to keep generated docs, CLI help, and MCP descriptions aligned with runtime behavior. During verification, the first build failed because raw /checkpoint and /handoff text inside a template literal was parsed incorrectly; I isolated that cause, escaped the literals, reran the required build/test command, and finished with clean verification.\n\n## Verification\n\nVerified the slice-required command npm run build && npm test -- --grep \"daemon tick|auto-draft handoff|holistic_checkpoint\" to a clean pass after the wording changes. Verified the new wording-regression assertions with npm test -- --grep \"resume payload starts empty|mcp tool list stays intentionally thin|CLI help text documents\". Verified the slice plan and all task-plan artifacts remain present on disk with a direct Node existsSync check.\n\n## Verification Evidence\n\n| # | Command | Exit Code | Verdict | Duration |\n|---|---------|-----------|---------|----------|\n| 1 | `npm run build && npm test -- --grep \"daemon tick|auto-draft handoff|holistic_checkpoint\"` | 0 | ✅ pass | 3300ms |\n| 2 | `npm test -- --grep \"resume payload starts empty|mcp tool list stays intentionally thin|CLI help text documents\"` | 0 | ✅ pass | 2400ms |\n| 3 | `node -e \"const fs=require('node:fs'); const paths=['.gsd/milestones/M001/slices/S02/S02-PLAN.md','.gsd/milestones/M001/slices/S02/tasks/T01-PLAN.md','.gsd/milestones/M001/slices/S02/tasks/T02-PLAN.md','.gsd/milestones/M001/slices/S02/tasks/T03-PLAN.md']; const missing=paths.filter((p)=>!fs.existsSync(p)); if(missing.length){ console.error('Missing: '+missing.join(', ')); process.exit(1);} \"` | 0 | ✅ pass | 0ms |\n\n\n## Deviations\n\nAdded a small wording-regression test subset beyond the slice’s required grep command so doc/help alignment is executable rather than purely manual.\n\n## Known Issues\n\nNone.\n\n## Files Created/Modified\n\n- `src/core/docs.ts`\n- `src/cli.ts`\n- `src/mcp-server.ts`\n- `tests/run-tests.ts`\n- `.gsd/DECISIONS.md`\n- `.gsd/milestones/M001/slices/S02/tasks/T03-SUMMARY.md`\n",
       "description": "Finish the slice by making the new behavior discoverable to agents and by running the required regression/build checks.\n\nSteps:\n1. Update generated instruction surfaces in `src/core/docs.ts` and any relevant CLI/MCP tool descriptions so agents are told to checkpoint at concrete natural breakpoints such as tests passed, bug fixed, feature complete, focus change, or before compaction.\n2. Reconcile wording with the runtime metadata introduced in T02 so docs point agents toward supported checkpoint reasons/signals rather than free-form inference magic.\n3. Run build and focused tests, then record any follow-up threshold-tuning risk for downstream dogfooding rather than silently changing semantics.\n\nMust-haves:\n- Agent-facing docs and tool descriptions explicitly mention natural-breakpoint examples and the manual safety-valve commands.\n- Verification proves CLI/MCP parity plus daemon trigger behavior without broad regressions.\n- The slice outputs a complete plan artifact and task artifacts for downstream executors.\n",
       "estimate": "1h",
       "files": [
@@ -848,6 +858,18 @@
       "rationale": "This keeps CLI and MCP behavior aligned, prevents arbitrary free-form text from creating drafts, and centralizes dedupe/reset behavior so proactive triggers stay observable and easier to debug.",
       "revisable": "Yes",
       "made_by": "collaborative",
+      "superseded_by": null
+    },
+    {
+      "seq": 3,
+      "id": "D003",
+      "when_context": "M001/S02/T03",
+      "scope": "pattern",
+      "decision": "How agent-facing checkpoint guidance should describe proactive capture",
+      "choice": "Document explicit supported natural-breakpoint examples and `/checkpoint` / `/handoff` safety valves, while pointing runtime integrations to structured completion metadata instead of implying free-form transcript inference.",
+      "rationale": "S02’s runtime supports bounded completion metadata and explicit manual safety valves, but it does not parse arbitrary conversation semantics. Aligning generated docs, CLI help, and MCP descriptions to those exact surfaces makes proactive capture discoverable without promising unsupported automation.",
+      "revisable": "Yes",
+      "made_by": "agent",
       "superseded_by": null
     }
   ],
@@ -917,6 +939,39 @@
       "verdict": "✅ pass",
       "duration_ms": 869,
       "created_at": "2026-03-28T02:51:05.945Z"
+    },
+    {
+      "id": 7,
+      "task_id": "T03",
+      "slice_id": "S02",
+      "milestone_id": "M001",
+      "command": "npm run build && npm test -- --grep \"daemon tick|auto-draft handoff|holistic_checkpoint\"",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 3300,
+      "created_at": "2026-03-28T03:04:12.910Z"
+    },
+    {
+      "id": 8,
+      "task_id": "T03",
+      "slice_id": "S02",
+      "milestone_id": "M001",
+      "command": "npm test -- --grep \"resume payload starts empty|mcp tool list stays intentionally thin|CLI help text documents\"",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 2400,
+      "created_at": "2026-03-28T03:04:12.910Z"
+    },
+    {
+      "id": 9,
+      "task_id": "T03",
+      "slice_id": "S02",
+      "milestone_id": "M001",
+      "command": "node -e \"const fs=require('node:fs'); const paths=['.gsd/milestones/M001/slices/S02/S02-PLAN.md','.gsd/milestones/M001/slices/S02/tasks/T01-PLAN.md','.gsd/milestones/M001/slices/S02/tasks/T02-PLAN.md','.gsd/milestones/M001/slices/S02/tasks/T03-PLAN.md']; const missing=paths.filter((p)=>!fs.existsSync(p)); if(missing.length){ console.error('Missing: '+missing.join(', ')); process.exit(1);} \"",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 0,
+      "created_at": "2026-03-28T03:04:12.910Z"
     }
   ]
 }

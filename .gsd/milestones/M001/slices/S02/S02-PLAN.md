@@ -37,7 +37,7 @@ Must-haves:
   - Estimate: 2h
   - Files: src/daemon.ts, src/cli.ts, src/mcp-server.ts, src/core/state.ts, src/core/types.ts
   - Verify: npm test -- --grep "daemon tick|auto-draft handoff|holistic_checkpoint"
-- [ ] **T03: Teach agents when to checkpoint and verify the full slice** — Finish the slice by making the new behavior discoverable to agents and by running the required regression/build checks.
+- [x] **T03: Aligned proactive-capture docs, CLI help, and MCP checkpoint guidance with supported natural-breakpoint behavior and verified S02.** — Finish the slice by making the new behavior discoverable to agents and by running the required regression/build checks.
 
 Steps:
 1. Update generated instruction surfaces in `src/core/docs.ts` and any relevant CLI/MCP tool descriptions so agents are told to checkpoint at concrete natural breakpoints such as tests passed, bug fixed, feature complete, focus change, or before compaction.
