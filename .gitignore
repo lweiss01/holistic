@@ -1,6 +1,5 @@
 HOLISTIC.md
 AGENTS.md
-.gitattributes
 .beads/.gitignore
 .beads/README.md
 .beads/config.yaml
