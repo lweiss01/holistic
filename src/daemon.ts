@@ -8,6 +8,7 @@ import {
   getRuntimePaths,
   loadState,
   maybeWriteAutoDraftHandoff,
+  runSessionHygiene,
   saveState,
   shouldCheckpointForElapsedTime,
   shouldCheckpointForPendingFiles,
@@ -100,6 +101,10 @@ export function runDaemonTick(rootDir: string, agent: AgentName = "unknown"): { 
   const paths = getRuntimePaths(rootDir);
   const result = withStateLock(paths, () => {
     const { state, paths: lockedPaths } = loadState(rootDir);
+
+    // Run session hygiene before passive-capture decisions.
+    runSessionHygiene(lockedPaths, state);
+
     const snapshot = getGitSnapshot(rootDir, state.repoSnapshot ?? {});
     const tracker = {
       ...defaultPassiveCapture(),

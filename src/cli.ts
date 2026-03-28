@@ -24,6 +24,7 @@ import {
   loadState,
   maybeWriteAutoDraftHandoff,
   normalizeCompletionSignalMetadata,
+  reactivateArchivedSession,
   readDraftHandoff,
   saveState,
   startNewSession,
@@ -118,6 +119,7 @@ Usage:
   holistic start-new --goal "<goal>" [--title "<title>"] [--plan "<step>"]...
   holistic status
   holistic diff --from "<session-id>" --to "<session-id>" [--format text|json]
+  holistic search --id "<session-id>" [--format text|json]
   holistic serve
   holistic watch [--agent codex|claude|antigravity|gemini|copilot|cursor|goose|gsd|gsd2] [--interval 60]
 
@@ -707,6 +709,11 @@ async function handleDiff(rootDir: string, parsed: ParsedArgs): Promise<number> 
   }
 
   const { state, paths } = loadState(rootDir);
+
+  // Reactivate archived sessions used in diff — explicit reuse brings them back.
+  reactivateArchivedSession(paths, from);
+  reactivateArchivedSession(paths, to);
+
   const fromSession = loadSessionById(state, paths, from);
   const toSession = loadSessionById(state, paths, to);
   if (!fromSession || !toSession) {
@@ -725,6 +732,51 @@ async function handleDiff(rootDir: string, parsed: ParsedArgs): Promise<number> 
   }
 
   process.stdout.write(renderDiff(fromSession, toSession, diff));
+  return 0;
+}
+
+async function handleSearch(rootDir: string, parsed: ParsedArgs): Promise<number> {
+  const sessionId = firstFlag(parsed.flags, "id");
+  const format = firstFlag(parsed.flags, "format", "text");
+
+  if (!sessionId) {
+    process.stderr.write("Error: --id is required for search.\n");
+    return 1;
+  }
+
+  const { state, paths } = loadState(rootDir);
+
+  // Try to reactivate from archive first.
+  reactivateArchivedSession(paths, sessionId);
+
+  const session = loadSessionById(state, paths, sessionId);
+  if (!session) {
+    process.stderr.write(`Error: Session "${sessionId}" not found.\n`);
+    return 1;
+  }
+
+  if (format === "json") {
+    printJson(session);
+    return 0;
+  }
+
+  const lines: string[] = [];
+  lines.push(`Session: ${session.id}`);
+  lines.push(`Title: ${session.title}`);
+  lines.push(`Agent: ${session.agent}`);
+  lines.push(`Branch: ${session.branch}`);
+  lines.push(`Status: ${session.status}`);
+  lines.push(`Started: ${session.startedAt}`);
+  lines.push(`Ended: ${session.endedAt ?? "active"}`);
+  lines.push(`Goal: ${session.currentGoal}`);
+  lines.push(`Latest: ${session.latestStatus}`);
+  if (session.workDone.length > 0) {
+    lines.push(`Work done: ${session.workDone.join("; ")}`);
+  }
+  if (session.nextSteps.length > 0) {
+    lines.push(`Next steps: ${session.nextSteps.join("; ")}`);
+  }
+  process.stdout.write(lines.join("\n") + "\n");
   return 0;
 }
 
@@ -811,6 +863,8 @@ async function main(): Promise<number> {
       return handleStatus(rootDir);
     case "diff":
       return handleDiff(rootDir, parsed);
+    case "search":
+      return handleSearch(rootDir, parsed);
     case "serve":
       return handleServe(rootDir);
     case "watch":

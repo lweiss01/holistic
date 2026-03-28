@@ -15,13 +15,17 @@ import {
   computeSessionDiff,
   continueFromLatest,
   createInitialState,
+  findArchiveCandidates,
   getResumePayload,
   getRuntimePaths,
   loadState,
   loadSessionById,
   readArchivedSessions,
+  readActiveSessions,
   readAllSessions,
   readDraftHandoff,
+  reactivateArchivedSession,
+  runSessionHygiene,
   saveState,
   shouldAutoDraftHandoff,
   shouldCheckpointForElapsedTime,
@@ -195,7 +199,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(loaded.state.docIndex.regressionDoc, ".holistic-local/context/regression-watch.md");
 
       const postCommit = fs.readFileSync(path.join(rootDir, ".git", "hooks", "post-commit"), "utf8");
-      assert.match(postCommit, /\.holistic-local\/state\.json/);
+      assert.match(postCommit, /HOLISTIC-MANAGED post-commit/);
+      assert.match(postCommit, /hook placeholder after commit/);
     },
   },
   {
@@ -770,17 +775,16 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       const prePush = fs.readFileSync(prePushPath, "utf8");
       const syncPs1 = fs.readFileSync(path.join(rootDir, ".holistic", "system", "sync-state.ps1"), "utf8");
       const syncSh = fs.readFileSync(path.join(rootDir, ".holistic", "system", "sync-state.sh"), "utf8");
-      assert.match(postCommit, /Holistic auto-checkpoint after commit/);
+      assert.match(postCommit, /Holistic hook placeholder after commit/);
       assert.match(postCommit, /HOLISTIC-MANAGED post-commit/);
-      assert.match(postCommit, /'checkpoint' '--reason' 'post-commit'/);
-      assert.match(postCommit, /Committed: \$COMMIT_SUBJECT/);
+      assert.match(postCommit, /Intentionally do not create a new checkpoint/);
       assert.match(postCommit, /cd '/);
       assert.match(postCheckout, /Holistic continuity checkpoint after branch switch/);
       assert.match(postCheckout, /HOLISTIC-MANAGED post-checkout/);
       assert.match(postCheckout, /'checkpoint' '--reason' 'branch-switch'/);
       assert.match(postCheckout, /\[ "\$3" = "1" \]/);
       assert.match(prePush, /HOLISTIC-MANAGED pre-push/);
-      assert.match(prePush, /pre-push snapshot/);
+      assert.match(prePush, /portable state sync before push/);
       assert.match(prePush, /sync-state\.sh/);
       assert.match(prePush, /sync\.log/);
       assert.match(syncPs1, /core\.hooksPath=NUL/);
@@ -811,7 +815,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       const postCommitPath = path.join(rootDir, ".git", "hooks", "post-commit");
       const postCheckoutPath = path.join(rootDir, ".git", "hooks", "post-checkout");
       const prePushPath = path.join(rootDir, ".git", "hooks", "pre-push");
-      const stalePostCommit = fs.readFileSync(postCommitPath, "utf8").replace("Holistic auto-checkpoint after commit", "Stale Holistic hook");
+      const stalePostCommit = fs.readFileSync(postCommitPath, "utf8").replace("Holistic hook placeholder after commit", "Stale Holistic hook");
       const customPrePush = "#!/usr/bin/env sh\n# custom user hook\nexit 0\n";
 
       fs.writeFileSync(postCommitPath, stalePostCommit, "utf8");
@@ -823,13 +827,399 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.ok(refreshed.refreshed.includes("post-commit"));
       assert.ok(refreshed.refreshed.includes("post-checkout"));
       assert.match(refreshed.warnings[0] ?? "", /pre-push/);
-      assert.match(fs.readFileSync(postCommitPath, "utf8"), /Holistic auto-checkpoint after commit/);
+      assert.match(fs.readFileSync(postCommitPath, "utf8"), /Holistic hook placeholder after commit/);
       assert.ok(fs.existsSync(postCheckoutPath));
       assert.equal(fs.readFileSync(prePushPath, "utf8"), customPrePush);
 
       const secondPass = refreshHolisticHooks(rootDir);
       assert.deepEqual(secondPass.refreshed, []);
       assert.match(secondPass.warnings[0] ?? "", /pre-push/);
+    },
+  },
+  {
+    name: "30 day hygiene archives stale unreferenced sessions and leaves referenced ones active",
+    run: () => {
+      const { rootDir } = makeRepo();
+      let state = createInitialState(rootDir);
+      const paths = getRuntimePaths(rootDir);
+      fs.mkdirSync(paths.sessionsDir, { recursive: true });
+      fs.mkdirSync(paths.archiveSessionsDir, { recursive: true });
+
+      const nowMs = Date.now();
+      const thirtyOneDaysAgo = new Date(nowMs - (31 * 24 * 60 * 60 * 1000)).toISOString();
+      const twentyNineDaysAgo = new Date(nowMs - (29 * 24 * 60 * 60 * 1000)).toISOString();
+      const exactlyThirtyDaysAgo = new Date(nowMs - (30 * 24 * 60 * 60 * 1000)).toISOString();
+
+      // Stale session — should be archived.
+      const staleSession = {
+        id: "session-stale-1", agent: "codex", branch: "main",
+        startedAt: thirtyOneDaysAgo, updatedAt: thirtyOneDaysAgo, endedAt: thirtyOneDaysAgo,
+        status: "handed_off", title: "Old stale work", currentGoal: "Old", currentPlan: [],
+        latestStatus: "Done long ago", workDone: [], triedItems: [], nextSteps: [],
+        assumptions: [], blockers: [], references: [], impactNotes: [], regressionRisks: [],
+        changedFiles: [], checkpointCount: 1, lastCheckpointReason: "manual", resumeRecap: [],
+      };
+      fs.writeFileSync(path.join(paths.sessionsDir, "session-stale-1.json"), JSON.stringify(staleSession) + "\n", "utf8");
+
+      // Recent session — should stay active.
+      const recentSession = { ...staleSession, id: "session-recent-1", endedAt: twentyNineDaysAgo, title: "Recent work" };
+      fs.writeFileSync(path.join(paths.sessionsDir, "session-recent-1.json"), JSON.stringify(recentSession) + "\n", "utf8");
+
+      // Exactly 30 days old — should be archived (at boundary).
+      const boundarySession = { ...staleSession, id: "session-boundary-1", endedAt: exactlyThirtyDaysAgo, title: "Boundary work" };
+      fs.writeFileSync(path.join(paths.sessionsDir, "session-boundary-1.json"), JSON.stringify(boundarySession) + "\n", "utf8");
+
+      // Old but referenced by lastHandoff — should stay active.
+      const referencedSession = { ...staleSession, id: "session-referenced-1", title: "Referenced old work" };
+      fs.writeFileSync(path.join(paths.sessionsDir, "session-referenced-1.json"), JSON.stringify(referencedSession) + "\n", "utf8");
+      state.lastHandoff = {
+        sessionId: "session-referenced-1", summary: "Old handoff", blockers: [],
+        nextAction: "Continue", committedAt: null, createdAt: thirtyOneDaysAgo,
+      };
+
+      // Old but referenced by pendingWork — should stay active.
+      const pendingSession = { ...staleSession, id: "session-pending-1", title: "Pending old work" };
+      fs.writeFileSync(path.join(paths.sessionsDir, "session-pending-1.json"), JSON.stringify(pendingSession) + "\n", "utf8");
+      state.pendingWork = [{
+        id: "pending-session-pending-1", title: "Pending item", context: "ctx",
+        recommendedNextStep: "Do something", priority: "medium",
+        carriedFromSession: "session-pending-1", createdAt: thirtyOneDaysAgo,
+      }];
+
+      const candidates = findArchiveCandidates(paths, state, nowMs);
+      assert.equal(candidates.length, 2);
+      const candidateIds = candidates.map((s) => s.id).sort();
+      assert.deepEqual(candidateIds, ["session-boundary-1", "session-stale-1"]);
+
+      const archived = runSessionHygiene(paths, state, nowMs);
+      assert.equal(archived.length, 2);
+      assert.ok(archived.includes("session-stale-1"));
+      assert.ok(archived.includes("session-boundary-1"));
+
+      // Verify files moved correctly.
+      assert.ok(fs.existsSync(path.join(paths.archiveSessionsDir, "session-stale-1.json")));
+      assert.ok(fs.existsSync(path.join(paths.archiveSessionsDir, "session-boundary-1.json")));
+      assert.equal(fs.existsSync(path.join(paths.sessionsDir, "session-stale-1.json")), false);
+      assert.equal(fs.existsSync(path.join(paths.sessionsDir, "session-boundary-1.json")), false);
+
+      // Recent and referenced sessions still in active storage.
+      assert.ok(fs.existsSync(path.join(paths.sessionsDir, "session-recent-1.json")));
+      assert.ok(fs.existsSync(path.join(paths.sessionsDir, "session-referenced-1.json")));
+      assert.ok(fs.existsSync(path.join(paths.sessionsDir, "session-pending-1.json")));
+    },
+  },
+  {
+    name: "30 day hygiene skips sessions with missing or malformed endedAt",
+    run: () => {
+      const { rootDir } = makeRepo();
+      const state = createInitialState(rootDir);
+      const paths = getRuntimePaths(rootDir);
+      fs.mkdirSync(paths.sessionsDir, { recursive: true });
+      fs.mkdirSync(paths.archiveSessionsDir, { recursive: true });
+
+      const base = {
+        agent: "codex", branch: "main", startedAt: "2020-01-01T00:00:00.000Z",
+        updatedAt: "2020-01-01T00:00:00.000Z", status: "handed_off",
+        title: "Test", currentGoal: "Test", currentPlan: [], latestStatus: "Done",
+        workDone: [], triedItems: [], nextSteps: [], assumptions: [], blockers: [],
+        references: [], impactNotes: [], regressionRisks: [], changedFiles: [],
+        checkpointCount: 1, lastCheckpointReason: "manual", resumeRecap: [],
+      };
+
+      // No endedAt — should NOT be archived.
+      fs.writeFileSync(path.join(paths.sessionsDir, "session-no-ended.json"),
+        JSON.stringify({ ...base, id: "session-no-ended", endedAt: null }) + "\n", "utf8");
+
+      // Malformed endedAt — should NOT be archived.
+      fs.writeFileSync(path.join(paths.sessionsDir, "session-bad-date.json"),
+        JSON.stringify({ ...base, id: "session-bad-date", endedAt: "not-a-date" }) + "\n", "utf8");
+
+      const candidates = findArchiveCandidates(paths, state);
+      assert.equal(candidates.length, 0);
+
+      const archived = runSessionHygiene(paths, state);
+      assert.equal(archived.length, 0);
+    },
+  },
+  {
+    name: "daemon tick runs 30 day hygiene before passive checkpoint decisions",
+    run: () => {
+      const { rootDir } = makeRepo();
+      let state = createInitialState(rootDir);
+      const paths = getRuntimePaths(rootDir);
+      fs.mkdirSync(paths.sessionsDir, { recursive: true });
+      fs.mkdirSync(paths.archiveSessionsDir, { recursive: true });
+
+      // Place a stale session in active storage.
+      const thirtyOneDaysAgo = new Date(Date.now() - (31 * 24 * 60 * 60 * 1000)).toISOString();
+      const staleSession = {
+        id: "session-daemon-stale", agent: "codex", branch: "main",
+        startedAt: thirtyOneDaysAgo, updatedAt: thirtyOneDaysAgo, endedAt: thirtyOneDaysAgo,
+        status: "handed_off", title: "Daemon stale", currentGoal: "Old", currentPlan: [],
+        latestStatus: "Done", workDone: [], triedItems: [], nextSteps: [],
+        assumptions: [], blockers: [], references: [], impactNotes: [], regressionRisks: [],
+        changedFiles: [], checkpointCount: 1, lastCheckpointReason: "manual", resumeRecap: [],
+      };
+      fs.writeFileSync(path.join(paths.sessionsDir, "session-daemon-stale.json"), JSON.stringify(staleSession) + "\n", "utf8");
+      state = persist(rootDir, state);
+
+      // Run a daemon tick — it should archive the stale session as a side effect.
+      runDaemonTick(rootDir, "unknown");
+
+      // Verify the stale session moved to archive.
+      assert.ok(fs.existsSync(path.join(paths.archiveSessionsDir, "session-daemon-stale.json")));
+      assert.equal(fs.existsSync(path.join(paths.sessionsDir, "session-daemon-stale.json")), false);
+    },
+  },
+  {
+    name: "session start runs 30 day hygiene before creating a new session",
+    run: () => {
+      const { rootDir } = makeRepo();
+      let state = createInitialState(rootDir);
+      const paths = getRuntimePaths(rootDir);
+      fs.mkdirSync(paths.sessionsDir, { recursive: true });
+      fs.mkdirSync(paths.archiveSessionsDir, { recursive: true });
+
+      // Place a stale session in active storage.
+      const thirtyOneDaysAgo = new Date(Date.now() - (31 * 24 * 60 * 60 * 1000)).toISOString();
+      const staleSession = {
+        id: "session-start-stale", agent: "codex", branch: "main",
+        startedAt: thirtyOneDaysAgo, updatedAt: thirtyOneDaysAgo, endedAt: thirtyOneDaysAgo,
+        status: "handed_off", title: "Start stale", currentGoal: "Old", currentPlan: [],
+        latestStatus: "Done", workDone: [], triedItems: [], nextSteps: [],
+        assumptions: [], blockers: [], references: [], impactNotes: [], regressionRisks: [],
+        changedFiles: [], checkpointCount: 1, lastCheckpointReason: "manual", resumeRecap: [],
+      };
+      fs.writeFileSync(path.join(paths.sessionsDir, "session-start-stale.json"), JSON.stringify(staleSession) + "\n", "utf8");
+      state = persist(rootDir, state);
+
+      // Start a new session — should archive the stale session.
+      state = startNewSession(rootDir, state, "codex", "Fresh work", ["Step 1"]);
+      persist(rootDir, state);
+
+      assert.ok(fs.existsSync(path.join(paths.archiveSessionsDir, "session-start-stale.json")));
+      assert.equal(fs.existsSync(path.join(paths.sessionsDir, "session-start-stale.json")), false);
+    },
+  },
+  {
+    name: "daemon tick with no archive candidates leaves passive checkpoint behavior unchanged",
+    run: () => {
+      const { rootDir } = makeRepo();
+      let state = createInitialState(rootDir);
+      state = persist(rootDir, state);
+
+      // No stale sessions — daemon tick should behave normally.
+      const tick = runDaemonTick(rootDir, "unknown");
+      assert.equal(tick.changed, false);
+      assert.match(tick.summary, /No repo changes detected/);
+    },
+  },
+  {
+    name: "30 day hygiene handles multiple stale candidates in one pass",
+    run: () => {
+      const { rootDir } = makeRepo();
+      const state = createInitialState(rootDir);
+      const paths = getRuntimePaths(rootDir);
+      fs.mkdirSync(paths.sessionsDir, { recursive: true });
+      fs.mkdirSync(paths.archiveSessionsDir, { recursive: true });
+
+      const base = {
+        agent: "codex", branch: "main", status: "handed_off",
+        currentGoal: "Old", currentPlan: [], latestStatus: "Done",
+        workDone: [], triedItems: [], nextSteps: [], assumptions: [],
+        blockers: [], references: [], impactNotes: [], regressionRisks: [],
+        changedFiles: [], checkpointCount: 1, lastCheckpointReason: "manual", resumeRecap: [],
+      };
+
+      for (let i = 0; i < 5; i++) {
+        const daysAgo = new Date(Date.now() - ((31 + i) * 24 * 60 * 60 * 1000)).toISOString();
+        fs.writeFileSync(
+          path.join(paths.sessionsDir, `session-batch-${i}.json`),
+          JSON.stringify({ ...base, id: `session-batch-${i}`, title: `Batch ${i}`, startedAt: daysAgo, updatedAt: daysAgo, endedAt: daysAgo }) + "\n",
+          "utf8",
+        );
+      }
+
+      const archived = runSessionHygiene(paths, state);
+      assert.equal(archived.length, 5);
+
+      for (let i = 0; i < 5; i++) {
+        assert.ok(fs.existsSync(path.join(paths.archiveSessionsDir, `session-batch-${i}.json`)));
+        assert.equal(fs.existsSync(path.join(paths.sessionsDir, `session-batch-${i}.json`)), false);
+      }
+    },
+  },
+  {
+    name: "diff reactivates archived sessions back to active storage",
+    run: () => {
+      const { rootDir } = makeRepo();
+      let state = createInitialState(rootDir);
+      // Create two sessions and archive them.
+      const first = archiveSession(rootDir, state, "First archived work", {
+        status: "First done", done: ["First task"], next: ["Continue first"],
+      }, "first.txt");
+      state = first.state;
+      const second = archiveSession(rootDir, state, "Second archived work", {
+        status: "Second done", done: ["Second task"], next: ["Continue second"],
+      }, "second.txt");
+      state = second.state;
+      state = persist(rootDir, state);
+
+      const paths = getRuntimePaths(rootDir);
+
+      // Both sessions should be in archive (archiveSession writes to archive dir).
+      assert.ok(fs.existsSync(path.join(paths.archiveSessionsDir, `${first.sessionId}.json`)));
+      assert.ok(fs.existsSync(path.join(paths.archiveSessionsDir, `${second.sessionId}.json`)));
+
+      // Reactivate both via the helper (simulating what handleDiff does).
+      const reactivated1 = reactivateArchivedSession(paths, first.sessionId);
+      const reactivated2 = reactivateArchivedSession(paths, second.sessionId);
+      assert.ok(reactivated1);
+      assert.ok(reactivated2);
+
+      // Sessions should now be in active storage, not archive.
+      assert.ok(fs.existsSync(path.join(paths.sessionsDir, `${first.sessionId}.json`)));
+      assert.ok(fs.existsSync(path.join(paths.sessionsDir, `${second.sessionId}.json`)));
+      assert.equal(fs.existsSync(path.join(paths.archiveSessionsDir, `${first.sessionId}.json`)), false);
+      assert.equal(fs.existsSync(path.join(paths.archiveSessionsDir, `${second.sessionId}.json`)), false);
+
+      // loadSessionById should still find them.
+      const fromSession = loadSessionById(state, paths, first.sessionId);
+      const toSession = loadSessionById(state, paths, second.sessionId);
+      assert.ok(fromSession);
+      assert.ok(toSession);
+      const diff = computeSessionDiff(fromSession!, toSession!);
+      assert.ok(diff.timeSpan.durationMs !== 0 || diff.timeSpan.durationMs === 0);
+    },
+  },
+  {
+    name: "handoff reactivates exact session-id matches in relatedSessions",
+    run: () => {
+      const { rootDir } = makeRepo();
+      let state = createInitialState(rootDir);
+      // Create and archive a session.
+      const archived = archiveSession(rootDir, state, "Old related work", {
+        status: "Old done", done: ["Old task"], next: ["Continue old"],
+      }, "old-related.txt");
+      state = archived.state;
+
+      // Start a new session to hand off.
+      state = startNewSession(rootDir, state, "codex", "Current work", ["Step 1"]);
+      state = checkpointState(rootDir, state, {
+        agent: "codex", reason: "test",
+        status: "Working", done: ["Some work"],
+      });
+      state = persist(rootDir, state);
+
+      const paths = getRuntimePaths(rootDir);
+      assert.ok(fs.existsSync(path.join(paths.archiveSessionsDir, `${archived.sessionId}.json`)));
+
+      // Apply handoff with relatedSessions referencing the archived session.
+      state = applyHandoff(rootDir, state, {
+        summary: "Handoff with related session",
+        done: ["Current work done"],
+        next: ["Continue"],
+        relatedSessions: [archived.sessionId],
+      });
+      state = persist(rootDir, state);
+
+      // The referenced archived session should have been reactivated.
+      assert.ok(fs.existsSync(path.join(paths.sessionsDir, `${archived.sessionId}.json`)));
+      assert.equal(fs.existsSync(path.join(paths.archiveSessionsDir, `${archived.sessionId}.json`)), false);
+    },
+  },
+  {
+    name: "search reactivates an archived session by exact id",
+    run: () => {
+      const { rootDir } = makeRepo();
+      let state = createInitialState(rootDir);
+      const archived = archiveSession(rootDir, state, "Searchable old work", {
+        status: "Search done", done: ["Search task"], next: ["Continue search"],
+      }, "search-source.txt");
+      state = archived.state;
+      state = persist(rootDir, state);
+
+      const paths = getRuntimePaths(rootDir);
+      assert.ok(fs.existsSync(path.join(paths.archiveSessionsDir, `${archived.sessionId}.json`)));
+
+      // Reactivate via helper (simulating what handleSearch does).
+      const reactivated = reactivateArchivedSession(paths, archived.sessionId);
+      assert.ok(reactivated);
+      assert.equal(reactivated?.id, archived.sessionId);
+
+      // Now in active storage.
+      assert.ok(fs.existsSync(path.join(paths.sessionsDir, `${archived.sessionId}.json`)));
+      assert.equal(fs.existsSync(path.join(paths.archiveSessionsDir, `${archived.sessionId}.json`)), false);
+    },
+  },
+  {
+    name: "reactivation returns null for unknown session ids and does not mutate files",
+    run: () => {
+      const { rootDir } = makeRepo();
+      createInitialState(rootDir);
+      const paths = getRuntimePaths(rootDir);
+      fs.mkdirSync(paths.sessionsDir, { recursive: true });
+      fs.mkdirSync(paths.archiveSessionsDir, { recursive: true });
+
+      const result = reactivateArchivedSession(paths, "session-does-not-exist");
+      assert.equal(result, null);
+
+      // No files should have been created.
+      const activeFiles = fs.readdirSync(paths.sessionsDir).filter((f) => f.endsWith(".json"));
+      assert.equal(activeFiles.length, 0);
+    },
+  },
+  {
+    name: "reactivation ignores empty id and free-form text that is not a session id",
+    run: () => {
+      const { rootDir } = makeRepo();
+      createInitialState(rootDir);
+      const paths = getRuntimePaths(rootDir);
+      fs.mkdirSync(paths.sessionsDir, { recursive: true });
+      fs.mkdirSync(paths.archiveSessionsDir, { recursive: true });
+
+      assert.equal(reactivateArchivedSession(paths, ""), null);
+      assert.equal(reactivateArchivedSession(paths, "some random text"), null);
+      assert.equal(reactivateArchivedSession(paths, "not-a-session-id"), null);
+    },
+  },
+  {
+    name: "handoff does not reactivate free-form relatedSessions entries that are not session ids",
+    run: () => {
+      const { rootDir } = makeRepo();
+      let state = createInitialState(rootDir);
+      state = startNewSession(rootDir, state, "codex", "Test handoff filtering", ["Step 1"]);
+      state = checkpointState(rootDir, state, {
+        agent: "codex", reason: "test", status: "Working", done: ["Some work"],
+      });
+      state = persist(rootDir, state);
+
+      const paths = getRuntimePaths(rootDir);
+
+      // Place a properly shaped but non-session-id-prefixed file in archive.
+      const fakeSession = {
+        id: "not-a-session", agent: "codex", branch: "main",
+        startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+        endedAt: new Date().toISOString(), status: "handed_off",
+        title: "Fake", currentGoal: "Fake", currentPlan: [], latestStatus: "Done",
+        workDone: [], triedItems: [], nextSteps: [], assumptions: [], blockers: [],
+        references: [], impactNotes: [], regressionRisks: [], changedFiles: [],
+        checkpointCount: 0, lastCheckpointReason: "manual", resumeRecap: [],
+      };
+      fs.writeFileSync(path.join(paths.archiveSessionsDir, "not-a-session.json"),
+        JSON.stringify(fakeSession) + "\n", "utf8");
+
+      state = applyHandoff(rootDir, state, {
+        summary: "Handoff with non-session references",
+        done: ["Done"],
+        next: ["Next"],
+        relatedSessions: ["not-a-session", "random-text", ""],
+      });
+      state = persist(rootDir, state);
+
+      // The non-session-id file should remain in archive untouched.
+      assert.ok(fs.existsSync(path.join(paths.archiveSessionsDir, "not-a-session.json")));
+      assert.equal(fs.existsSync(path.join(paths.sessionsDir, "not-a-session.json")), false);
     },
   },
   {

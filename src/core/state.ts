@@ -499,7 +499,11 @@ function readSessionsFromDir(directory: string): SessionRecord[] {
 }
 
 function sortSessionsNewestFirst(sessions: SessionRecord[]): SessionRecord[] {
-  return [...sessions].sort((left, right) => (right.endedAt || right.updatedAt).localeCompare(left.endedAt || left.updatedAt));
+  return [...sessions].sort((left, right) => {
+    const rightKey = right.endedAt || right.updatedAt || "";
+    const leftKey = left.endedAt || left.updatedAt || "";
+    return rightKey.localeCompare(leftKey);
+  });
 }
 
 export function readActiveSessions(paths: RuntimePaths): SessionRecord[] {
@@ -512,6 +516,157 @@ export function readArchivedSessions(paths: RuntimePaths): SessionRecord[] {
 
 export function readAllSessions(paths: RuntimePaths): SessionRecord[] {
   return sortSessionsNewestFirst([...readActiveSessions(paths), ...readArchivedSessions(paths)]);
+}
+
+const STALE_SESSION_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+/**
+ * Collect the set of session IDs that are "referenced" by current state and
+ * should never be archived regardless of age.  Referenced means: active session,
+ * last handoff, any pending-work item that carried from a session, or any
+ * session whose ID appears as a relatedSession on a recent stored session.
+ */
+function referencedSessionIds(state: HolisticState, paths: RuntimePaths): Set<string> {
+  const ids = new Set<string>();
+
+  if (state.activeSession) {
+    ids.add(state.activeSession.id);
+  }
+
+  if (state.lastHandoff) {
+    ids.add(state.lastHandoff.sessionId);
+  }
+
+  for (const item of state.pendingWork) {
+    if (item.carriedFromSession) {
+      ids.add(item.carriedFromSession);
+    }
+  }
+
+  // Scan recent stored sessions for relatedSessions cross-references.
+  // We read active sessions only — archived sessions referencing each other
+  // shouldn't prevent archival.
+  for (const session of readSessionsFromDir(paths.sessionsDir)) {
+    if (session.relatedSessions) {
+      for (const related of session.relatedSessions) {
+        ids.add(related);
+      }
+    }
+  }
+
+  return ids;
+}
+
+/**
+ * Identify active sessions that are stale (ended >30 days ago) and not
+ * referenced by any current state.  Returns the list of candidate sessions
+ * that should be moved to archive storage.
+ */
+export function findArchiveCandidates(
+  paths: RuntimePaths,
+  state: HolisticState,
+  currentTimeMs: number = Date.now(),
+): SessionRecord[] {
+  const referenced = referencedSessionIds(state, paths);
+  const cutoffMs = currentTimeMs - STALE_SESSION_AGE_MS;
+  const candidates: SessionRecord[] = [];
+
+  for (const session of readSessionsFromDir(paths.sessionsDir)) {
+    // Skip sessions without a valid endedAt — they are incomplete or malformed.
+    if (!session.endedAt) {
+      continue;
+    }
+
+    const endedMs = new Date(session.endedAt).getTime();
+    if (Number.isNaN(endedMs)) {
+      // Malformed timestamp — treat as referenced and leave in place.
+      continue;
+    }
+
+    if (endedMs > cutoffMs) {
+      // Not stale yet.
+      continue;
+    }
+
+    if (referenced.has(session.id)) {
+      // Still referenced — keep active.
+      continue;
+    }
+
+    candidates.push(session);
+  }
+
+  return candidates;
+}
+
+/**
+ * Run the session-hygiene policy: move stale unreferenced sessions from
+ * active storage to archive storage.  Returns the list of session IDs
+ * that were archived.
+ *
+ * This is the single shared codepath that both session-start/resume
+ * entrypoints and the daemon tick invoke.
+ */
+export function runSessionHygiene(
+  paths: RuntimePaths,
+  state: HolisticState,
+  currentTimeMs: number = Date.now(),
+): string[] {
+  const candidates = findArchiveCandidates(paths, state, currentTimeMs);
+  const archived: string[] = [];
+
+  for (const session of candidates) {
+    const activePath = path.join(paths.sessionsDir, `${session.id}.json`);
+    const archivePath = path.join(paths.archiveSessionsDir, `${session.id}.json`);
+
+    try {
+      // Write to archive first, then remove from active — crash-safe ordering.
+      fs.writeFileSync(archivePath, JSON.stringify(session, null, 2) + "\n", "utf8");
+      fs.unlinkSync(activePath);
+      archived.push(session.id);
+    } catch {
+      // If the move fails for any reason, leave the session in active storage.
+      // A future tick will retry.
+    }
+  }
+
+  return archived;
+}
+
+/**
+ * Reactivate an archived session by moving it from archive storage back to
+ * active storage.  Returns the session record on success, or null if the
+ * session is not found in the archive directory.
+ *
+ * This is the single shared helper that diff, handoff, and search flows
+ * use when explicit reuse makes an archived session relevant again.
+ */
+export function reactivateArchivedSession(paths: RuntimePaths, sessionId: string): SessionRecord | null {
+  const archivePath = path.join(paths.archiveSessionsDir, `${sessionId}.json`);
+  if (!fs.existsSync(archivePath)) {
+    return null;
+  }
+
+  let session: SessionRecord;
+  try {
+    session = JSON.parse(fs.readFileSync(archivePath, "utf8")) as SessionRecord;
+  } catch {
+    // Corrupt archive file — cannot reactivate.
+    return null;
+  }
+
+  const activePath = path.join(paths.sessionsDir, `${sessionId}.json`);
+
+  try {
+    // Write to active first, then remove from archive — crash-safe ordering.
+    fs.writeFileSync(activePath, JSON.stringify(session, null, 2) + "\n", "utf8");
+    fs.unlinkSync(archivePath);
+  } catch {
+    // If the move fails, leave archive in place.
+    return null;
+  }
+
+  return session;
 }
 
 function buildResumeRecap(state: HolisticState): string[] {
@@ -824,6 +979,9 @@ function writeArchivedSession(paths: RuntimePaths, session: SessionRecord): void
 }
 
 export function startNewSession(rootDir: string, state: HolisticState, agent: AgentName, goal: string, plan: string[], title?: string): HolisticState {
+  // Run session hygiene on startup — archive stale unreferenced sessions.
+  runSessionHygiene(getRuntimePaths(rootDir), state);
+
   const nextState: HolisticState = { ...state, pendingWork: [...state.pendingWork], pendingCommit: null };
 
   if (nextState.activeSession) {
@@ -847,6 +1005,9 @@ export function startNewSession(rootDir: string, state: HolisticState, agent: Ag
 }
 
 export function continueFromLatest(rootDir: string, state: HolisticState, agent: AgentName): HolisticState {
+  // Run session hygiene on resume — archive stale unreferenced sessions.
+  runSessionHygiene(getRuntimePaths(rootDir), state);
+
   if (state.activeSession) {
     const refreshed = refreshSessionFromRepo(rootDir, state, {
       ...state.activeSession,
@@ -1070,7 +1231,17 @@ export function applyHandoff(rootDir: string, state: HolisticState, input: Hando
 
   writeArchivedSession(getRuntimePaths(rootDir), session);
 
+  // Reactivate archived sessions that are explicitly referenced by exact id
+  // in relatedSessions — free-form text in other fields is left untouched.
   const paths = getRuntimePaths(rootDir);
+  if (input.relatedSessions) {
+    for (const relatedId of input.relatedSessions) {
+      if (relatedId && relatedId.startsWith("session-")) {
+        reactivateArchivedSession(paths, relatedId);
+      }
+    }
+  }
+
   return {
     ...refreshed.state,
     activeSession: null,
