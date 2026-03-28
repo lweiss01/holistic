@@ -40,7 +40,7 @@
   - Estimate: 1.5h
   - Files: src/core/types.ts, src/core/state.ts, src/core/docs.ts, tests/run-tests.ts
   - Verify: npm test -- --grep "archived sessions|history"
-- [ ] **T02: Archive stale unreferenced sessions during session start and daemon ticks** — Implement the actual hygiene policy once the storage contract exists.
+- [x] **T02: Implemented 30-day stale-session archiving during session start, resume, and daemon ticks with shared hygiene helper, reference-exemption logic, and boundary-condition tests** — Implement the actual hygiene policy once the storage contract exists.
 
 ## Failure Modes
 
@@ -76,7 +76,7 @@
   - Estimate: 2h
   - Files: src/core/state.ts, src/daemon.ts, tests/run-tests.ts
   - Verify: npm test -- --grep "30 days|daemon tick"
-- [ ] **T03: Reactivate archived sessions on diff, exact handoff references, and exact-id search** — Close R009 by making explicit session reuse pull archived history back into active storage.
+- [x] **T03: Added session reactivation on diff, handoff references, and exact-id search so explicit reuse moves archived sessions back to active storage** — Close R009 by making explicit session reuse pull archived history back into active storage.
 
 ## Failure Modes
 
