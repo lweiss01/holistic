@@ -4,7 +4,7 @@
 **Demo:** After this: startup notification includes warning if daemon hasn't checkpointed in 3+ days or unusual patterns detected (50+ files, no checkpoint); warnings are diagnostic (system health) not nags (user blame)
 
 ## Tasks
-- [ ] **T01: Implement daemon-health diagnostics evaluator** — Implement a dedicated health diagnostics evaluator that reads existing runtime/session metadata and emits structured warning objects for checkpoint staleness and unusual change-without-checkpoint conditions.
+- [x] **T01: Implemented a shared daemon-health diagnostics evaluator in core state with machine-readable warning payloads.** — Implement a dedicated health diagnostics evaluator that reads existing runtime/session metadata and emits structured warning objects for checkpoint staleness and unusual change-without-checkpoint conditions.
 
 Steps:
 1. Add a shared evaluator in the core state layer (or adjacent diagnostics helper) that computes: `staleCheckpointWarning` (>=3 days since last checkpoint) and `unusualPatternWarning` (>=50 changed files without checkpoint evidence).
@@ -14,7 +14,7 @@ Steps:
   - Estimate: 1.5h
   - Files: src/core/state.ts, src/core/types.ts, tests/run-tests.ts
   - Verify: npm test -- --grep "health diagnostics|stale checkpoint|unusual pattern"
-- [ ] **T02: Integrate diagnostics into startup notification surfaces** — Wire diagnostics into startup notification rendering so both MCP auto-start and `/holistic` manual-start surfaces include warnings when present while preserving existing recap/question flow.
+- [x] **T02: Integrated diagnostics warnings into shared startup greeting used by MCP and /holistic surfaces.** — Wire diagnostics into startup notification rendering so both MCP auto-start and `/holistic` manual-start surfaces include warnings when present while preserving existing recap/question flow.
 
 Steps:
 1. Extend startup greeting/notification builders to accept health warning payloads from the evaluator.
@@ -24,7 +24,7 @@ Steps:
   - Estimate: 1.5h
   - Files: src/core/docs.ts, src/mcp-server.ts, src/cli.ts, tests/run-tests.ts
   - Verify: npm test -- --grep "startup warning|holistic command|resume notification"
-- [ ] **T03: Lock boundary behavior with diagnostics-focused tests** — Add regression and negative-case coverage for S04 boundaries so warning emission is predictable and existing startup behavior remains stable.
+- [x] **T03: Added boundary and phrasing regression coverage for S04 diagnostics behavior.** — Add regression and negative-case coverage for S04 boundaries so warning emission is predictable and existing startup behavior remains stable.
 
 Steps:
 1. Add tests for warning-trigger boundaries: exactly 3 days, just under 3 days, exactly 50 files, and below-threshold cases.
