@@ -1,6 +1,4 @@
-# S05: Documentation & Tool Parity
-
-**Goal:** ---
+---
 id: S05
 parent: M001
 milestone: M001
@@ -86,10 +84,3 @@ Use S06 dogfooding to validate whether startup/helper wording is consistently fo
 
 - `README.md` — Replaced generic startup wording with parity matrix and added slash-helper table with CLI equivalents.
 - `AGENTS.md` — Added explicit /holistic non-MCP startup pattern and slash helper text contract.
-
-**Demo:** After this: README tool comparison table shows which tools support MCP auto vs require `/holistic` manual; AGENTS.md documents `/holistic` pattern with clear instructions; all slash commands have helper text visible to agents
-
-## Tasks
-- [x] **T01: Added a startup parity matrix in README distinguishing MCP auto-start from manual /holistic startup.** — 
-- [x] **T02: Documented explicit /holistic startup behavior contract in AGENTS.md for non-MCP tools.** — 
-- [x] **T03: Added visible slash command helper text for /holistic, /checkpoint, and /handoff across docs surfaces.** — 
