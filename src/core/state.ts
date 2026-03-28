@@ -9,6 +9,9 @@ import type {
   AutoHandoffDecision,
   CheckpointInput,
   CompletionDraftDecisionInput,
+  CompletionSignalKind,
+  CompletionSignalMetadata,
+  CompletionSignalSource,
   DocIndex,
   DraftHandoff,
   HandoffInput,
@@ -672,6 +675,47 @@ function syncActiveSession(state: HolisticState, goal?: string, status?: string,
   };
 }
 
+const COMPLETION_SIGNAL_KINDS: CompletionSignalKind[] = [
+  "natural-breakpoint",
+  "task-complete",
+  "slice-complete",
+  "milestone-complete",
+];
+
+const COMPLETION_SIGNAL_SOURCES: CompletionSignalSource[] = ["agent", "system"];
+
+export function normalizeCompletionSignalMetadata(input: {
+  kind?: unknown;
+  source?: unknown;
+  recordedAt?: unknown;
+}): CompletionSignalMetadata | null {
+  if (typeof input.kind !== "string" || typeof input.source !== "string") {
+    return null;
+  }
+
+  if (!COMPLETION_SIGNAL_KINDS.includes(input.kind as CompletionSignalKind)) {
+    return null;
+  }
+
+  if (!COMPLETION_SIGNAL_SOURCES.includes(input.source as CompletionSignalSource)) {
+    return null;
+  }
+
+  const recordedAt = typeof input.recordedAt === "string" && input.recordedAt.trim().length > 0
+    ? input.recordedAt
+    : now();
+  const recordedAtMs = new Date(recordedAt).getTime();
+  if (Number.isNaN(recordedAtMs)) {
+    return null;
+  }
+
+  return {
+    kind: input.kind as CompletionSignalKind,
+    source: input.source as CompletionSignalSource,
+    recordedAt,
+  };
+}
+
 export function checkpointState(rootDir: string, state: HolisticState, input: CheckpointInput): HolisticState {
   const agent = input.agent ?? state.activeSession?.agent ?? "unknown";
   const baseSession = state.activeSession
@@ -724,6 +768,7 @@ export function checkpointState(rootDir: string, state: HolisticState, input: Ch
   if (input.severity) {
     session.severity = input.severity;
   }
+  session.completionSignal = input.completionSignal ?? null;
   
   session.lastCheckpointReason = sanitizeText(input.reason || "manual");
   session.checkpointCount += 1;
@@ -913,6 +958,40 @@ export function buildAutoDraftHandoff(state: HolisticState, reason: AutoHandoffD
       status: session.latestStatus,
     },
   };
+}
+
+export function isSameDraftHandoff(left: DraftHandoff | null, right: DraftHandoff | null): boolean {
+  if (!left || !right) {
+    return false;
+  }
+
+  return left.sourceSessionId === right.sourceSessionId
+    && left.sourceSessionUpdatedAt === right.sourceSessionUpdatedAt
+    && left.reason === right.reason;
+}
+
+export function maybeWriteAutoDraftHandoff(paths: RuntimePaths, state: HolisticState, currentTimeMs = Date.now()): {
+  changed: boolean;
+  reason: AutoHandoffDecision["reason"];
+  draft: DraftHandoff | null;
+} {
+  if (!state.activeSession) {
+    return { changed: false, reason: "", draft: null };
+  }
+
+  const existingDraft = readDraftHandoff(paths);
+  const decision = shouldAutoDraftHandoff(state.activeSession, currentTimeMs, existingDraft);
+  if (!decision.should) {
+    return { changed: false, reason: "", draft: existingDraft };
+  }
+
+  const nextDraft = buildAutoDraftHandoff(state, decision.reason);
+  if (!nextDraft || isSameDraftHandoff(existingDraft, nextDraft)) {
+    return { changed: false, reason: decision.reason, draft: existingDraft };
+  }
+
+  writeDraftHandoff(paths, nextDraft);
+  return { changed: true, reason: decision.reason, draft: nextDraft };
 }
 
 export function applyHandoff(rootDir: string, state: HolisticState, input: HandoffInput): HolisticState {

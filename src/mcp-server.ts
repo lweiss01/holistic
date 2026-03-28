@@ -15,6 +15,8 @@ import {
   getResumePayload,
   getRuntimePaths,
   loadState,
+  maybeWriteAutoDraftHandoff,
+  normalizeCompletionSignalMetadata,
   saveState,
   withStateLock,
 } from './core/state.ts';
@@ -159,6 +161,15 @@ export function listHolisticTools(): ListToolsResult {
             next: { type: "array", items: { type: "string" } },
             impacts: { type: "array", items: { type: "string" } },
             regressions: { type: "array", items: { type: "string" } },
+            completionKind: {
+              type: "string",
+              enum: ["natural-breakpoint", "task-complete", "slice-complete", "milestone-complete"],
+            },
+            completionSource: {
+              type: "string",
+              enum: ["agent", "system"],
+            },
+            completionRecordedAt: { type: "string" },
           },
           required: ["reason"],
         },
@@ -224,15 +235,24 @@ export function callHolisticTool(rootDir: string, name: string, args?: Record<st
         return textResult("Checkpoint failed: reason is required.", true);
       }
 
-      const state = mutateState(rootDir, (currentState) => checkpointState(rootDir, currentState, {
-        agent: asAgent(args?.agent, DEFAULT_MCP_AGENT),
-        reason,
-        status: typeof args?.status === "string" ? args.status : undefined,
-        done: Array.isArray(args?.done) ? args.done.filter((item): item is string => typeof item === "string") : undefined,
-        next: Array.isArray(args?.next) ? args.next.filter((item): item is string => typeof item === "string") : undefined,
-        impacts: Array.isArray(args?.impacts) ? args.impacts.filter((item): item is string => typeof item === "string") : undefined,
-        regressions: Array.isArray(args?.regressions) ? args.regressions.filter((item): item is string => typeof item === "string") : undefined,
-      }));
+      const state = mutateState(rootDir, (currentState, paths) => {
+        const nextState = checkpointState(rootDir, currentState, {
+          agent: asAgent(args?.agent, DEFAULT_MCP_AGENT),
+          reason,
+          status: typeof args?.status === "string" ? args.status : undefined,
+          done: Array.isArray(args?.done) ? args.done.filter((item): item is string => typeof item === "string") : undefined,
+          next: Array.isArray(args?.next) ? args.next.filter((item): item is string => typeof item === "string") : undefined,
+          impacts: Array.isArray(args?.impacts) ? args.impacts.filter((item): item is string => typeof item === "string") : undefined,
+          regressions: Array.isArray(args?.regressions) ? args.regressions.filter((item): item is string => typeof item === "string") : undefined,
+          completionSignal: normalizeCompletionSignalMetadata({
+            kind: args?.completionKind,
+            source: args?.completionSource,
+            recordedAt: args?.completionRecordedAt,
+          }),
+        });
+        maybeWriteAutoDraftHandoff(paths, nextState);
+        return nextState;
+      });
       requestAutoSync(rootDir, "checkpoint");
 
       return textResult(`Checkpoint created: ${state.activeSession?.checkpointCount ?? 0} total checkpoints.`);

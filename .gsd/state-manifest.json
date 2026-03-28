@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exported_at": "2026-03-28T02:39:53.720Z",
+  "exported_at": "2026-03-28T02:51:06.013Z",
   "milestones": [
     {
       "id": "M001",
@@ -726,19 +726,30 @@
       "milestone_id": "M001",
       "slice_id": "S02",
       "id": "T02",
-      "title": "Wire daemon and checkpoint entrypoints for proactive triggers",
-      "status": "pending",
-      "one_liner": "",
-      "narrative": "",
-      "verification_result": "",
+      "title": "Wired proactive daemon checkpoints plus CLI/MCP completion-signal entrypoints with deduped draft handoffs.",
+      "status": "complete",
+      "one_liner": "Wired proactive daemon checkpoints plus CLI/MCP completion-signal entrypoints with deduped draft handoffs.",
+      "narrative": "Updated src/daemon.ts to wire the proactive checkpoint helpers from T01 into the real daemon tick flow. The daemon now checkpoints immediately when five meaningful files accumulate, checkpoints after two elapsed hours even with zero meaningful file changes, and resets pendingFiles, activityTicks, quietTicks, and lastCheckpointAt after proactive checkpoints so the next tick does not loop. Quiet-cluster and branch-switch behavior were preserved. Extended src/core/types.ts and src/core/state.ts so checkpoints can carry explicit bounded completion metadata, added a shared completion-metadata normalizer plus a shared auto-draft writer/dedupe helper, and then reused that helper from daemon, CLI, and MCP flows. Updated src/cli.ts to accept --completion-kind, --completion-source, and optional --completion-recorded-at on holistic checkpoint while ignoring malformed metadata, and updated src/mcp-server.ts so holistic_checkpoint accepts the same metadata fields and can immediately create or refresh a deduped completion-signal draft handoff. Expanded tests/run-tests.ts with runtime coverage for immediate 5-file daemon checkpointing, zero-change 2-hour elapsed checkpointing, MCP completion-signal drafting, and malformed completion metadata handling.",
+      "verification_result": "Verified with a successful production build, the slice’s focused daemon/MCP verification command, and targeted completion-metadata tests. The daemon tests confirmed immediate threshold checkpointing, zero-change elapsed-time checkpointing, and passive state reset after threshold firing. The completion-metadata tests confirmed explicit completion-signal checkpoints create one deduped draft handoff and malformed metadata is ignored while normal checkpoint creation still succeeds.",
       "duration": "",
-      "completed_at": null,
+      "completed_at": "2026-03-28T02:51:05.944Z",
       "blocker_discovered": false,
-      "deviations": "",
-      "known_issues": "",
-      "key_files": [],
-      "key_decisions": [],
-      "full_summary_md": "",
+      "deviations": "None.",
+      "known_issues": "The build pipeline still temporarily rewrites source imports during `npm run build`, so source-mode tests must be run sequentially after build rather than in parallel. This was not introduced here, but it affected verification discipline during the task.",
+      "key_files": [
+        "src/daemon.ts",
+        "src/cli.ts",
+        "src/mcp-server.ts",
+        "src/core/state.ts",
+        "src/core/types.ts",
+        "tests/run-tests.ts",
+        ".gsd/milestones/M001/slices/S02/tasks/T02-SUMMARY.md"
+      ],
+      "key_decisions": [
+        "Require both bounded completion kind and source metadata before treating a checkpoint as completion-triggered, and ignore malformed metadata instead of inferring semantics.",
+        "Centralize auto-draft dedupe and completion-metadata normalization in core state helpers so daemon, CLI, and MCP flows stay aligned."
+      ],
+      "full_summary_md": "---\nid: T02\nparent: S02\nmilestone: M001\nkey_files:\n  - src/daemon.ts\n  - src/cli.ts\n  - src/mcp-server.ts\n  - src/core/state.ts\n  - src/core/types.ts\n  - tests/run-tests.ts\n  - .gsd/milestones/M001/slices/S02/tasks/T02-SUMMARY.md\nkey_decisions:\n  - Require both bounded completion kind and source metadata before treating a checkpoint as completion-triggered, and ignore malformed metadata instead of inferring semantics.\n  - Centralize auto-draft dedupe and completion-metadata normalization in core state helpers so daemon, CLI, and MCP flows stay aligned.\nduration: \"\"\nverification_result: passed\ncompleted_at: 2026-03-28T02:51:05.946Z\nblocker_discovered: false\n---\n\n# T02: Wired proactive daemon checkpoints plus CLI/MCP completion-signal entrypoints with deduped draft handoffs.\n\n**Wired proactive daemon checkpoints plus CLI/MCP completion-signal entrypoints with deduped draft handoffs.**\n\n## What Happened\n\nUpdated src/daemon.ts to wire the proactive checkpoint helpers from T01 into the real daemon tick flow. The daemon now checkpoints immediately when five meaningful files accumulate, checkpoints after two elapsed hours even with zero meaningful file changes, and resets pendingFiles, activityTicks, quietTicks, and lastCheckpointAt after proactive checkpoints so the next tick does not loop. Quiet-cluster and branch-switch behavior were preserved. Extended src/core/types.ts and src/core/state.ts so checkpoints can carry explicit bounded completion metadata, added a shared completion-metadata normalizer plus a shared auto-draft writer/dedupe helper, and then reused that helper from daemon, CLI, and MCP flows. Updated src/cli.ts to accept --completion-kind, --completion-source, and optional --completion-recorded-at on holistic checkpoint while ignoring malformed metadata, and updated src/mcp-server.ts so holistic_checkpoint accepts the same metadata fields and can immediately create or refresh a deduped completion-signal draft handoff. Expanded tests/run-tests.ts with runtime coverage for immediate 5-file daemon checkpointing, zero-change 2-hour elapsed checkpointing, MCP completion-signal drafting, and malformed completion metadata handling.\n\n## Verification\n\nVerified with a successful production build, the slice’s focused daemon/MCP verification command, and targeted completion-metadata tests. The daemon tests confirmed immediate threshold checkpointing, zero-change elapsed-time checkpointing, and passive state reset after threshold firing. The completion-metadata tests confirmed explicit completion-signal checkpoints create one deduped draft handoff and malformed metadata is ignored while normal checkpoint creation still succeeds.\n\n## Verification Evidence\n\n| # | Command | Exit Code | Verdict | Duration |\n|---|---------|-----------|---------|----------|\n| 1 | `npm run build` | 0 | ✅ pass | 2222ms |\n| 2 | `npm test -- --grep \"daemon tick|auto-draft handoff|holistic_checkpoint\"` | 0 | ✅ pass | 1066ms |\n| 3 | `npm test -- --grep \"completion metadata\"` | 0 | ✅ pass | 869ms |\n\n\n## Deviations\n\nNone.\n\n## Known Issues\n\nThe build pipeline still temporarily rewrites source imports during `npm run build`, so source-mode tests must be run sequentially after build rather than in parallel. This was not introduced here, but it affected verification discipline during the task.\n\n## Files Created/Modified\n\n- `src/daemon.ts`\n- `src/cli.ts`\n- `src/mcp-server.ts`\n- `src/core/state.ts`\n- `src/core/types.ts`\n- `tests/run-tests.ts`\n- `.gsd/milestones/M001/slices/S02/tasks/T02-SUMMARY.md`\n",
       "description": "Implement the runtime behavior once the contract is pinned down.\n\nSteps:\n1. Update `src/daemon.ts` to consume the new pure helpers, triggering checkpoints for 2-hour elapsed time and 5+ pending meaningful files while preserving branch-switch and quiet-cluster semantics.\n2. Clear/reset pending-file and checkpoint timing state correctly after immediate threshold checkpoints to avoid repeated firing on every tick.\n3. Extend `src/cli.ts` and `src/mcp-server.ts` to accept explicit natural-breakpoint/completion metadata on checkpoints, and trigger or refresh auto-draft handoffs when completion signals are present.\n4. Keep CLI and MCP behavior aligned so manual safety valves behave the same across tool surfaces.\n\nMust-haves:\n- Daemon elapsed-time checkpoints fire even with zero meaningful file changes.\n- Significant-file checkpoints fire immediately at 5+ meaningful files and do not loop.\n- Completion-signal checkpoints can create/update a draft handoff without duplicate rewrites.\n- Branch-switch and quiet-point checkpointing still work.\n",
       "estimate": "2h",
       "files": [
@@ -826,6 +837,18 @@
       "revisable": "Yes",
       "made_by": "agent",
       "superseded_by": null
+    },
+    {
+      "seq": 2,
+      "id": "D002",
+      "when_context": "M001 S02 T02",
+      "scope": "architecture",
+      "decision": "How checkpoint entrypoints identify completion-triggered handoff drafting",
+      "choice": "Require explicit bounded completion metadata (kind + source) on checkpoints, ignore malformed metadata, and share one normalizer/deduped auto-draft helper across daemon, CLI, and MCP flows.",
+      "rationale": "This keeps CLI and MCP behavior aligned, prevents arbitrary free-form text from creating drafts, and centralizes dedupe/reset behavior so proactive triggers stay observable and easier to debug.",
+      "revisable": "Yes",
+      "made_by": "collaborative",
+      "superseded_by": null
     }
   ],
   "verification_evidence": [
@@ -861,6 +884,39 @@
       "verdict": "✅ pass",
       "duration_ms": 790,
       "created_at": "2026-03-28T02:39:53.625Z"
+    },
+    {
+      "id": 4,
+      "task_id": "T02",
+      "slice_id": "S02",
+      "milestone_id": "M001",
+      "command": "npm run build",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 2222,
+      "created_at": "2026-03-28T02:51:05.945Z"
+    },
+    {
+      "id": 5,
+      "task_id": "T02",
+      "slice_id": "S02",
+      "milestone_id": "M001",
+      "command": "npm test -- --grep \"daemon tick|auto-draft handoff|holistic_checkpoint\"",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 1066,
+      "created_at": "2026-03-28T02:51:05.945Z"
+    },
+    {
+      "id": 6,
+      "task_id": "T02",
+      "slice_id": "S02",
+      "milestone_id": "M001",
+      "command": "npm test -- --grep \"completion metadata\"",
+      "exit_code": 0,
+      "verdict": "✅ pass",
+      "duration_ms": 869,
+      "created_at": "2026-03-28T02:51:05.945Z"
     }
   ]
 }

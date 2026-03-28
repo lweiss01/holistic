@@ -20,7 +20,7 @@ Must-haves:
   - Estimate: 1.5h
   - Files: tests/run-tests.ts, src/core/state.ts, src/core/types.ts
   - Verify: npm test -- --grep "daemon tick|auto-draft handoff|holistic_checkpoint"
-- [ ] **T02: Wire daemon and checkpoint entrypoints for proactive triggers** — Implement the runtime behavior once the contract is pinned down.
+- [x] **T02: Wired proactive daemon checkpoints plus CLI/MCP completion-signal entrypoints with deduped draft handoffs.** — Implement the runtime behavior once the contract is pinned down.
 
 Steps:
 1. Update `src/daemon.ts` to consume the new pure helpers, triggering checkpoints for 2-hour elapsed time and 5+ pending meaningful files while preserving branch-switch and quiet-cluster semantics.

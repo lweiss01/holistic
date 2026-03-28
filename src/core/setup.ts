@@ -91,7 +91,7 @@ function runtimeEntryScript(name: "cli" | "daemon"): { scriptPath: string; useSt
   const runtimeDir = path.dirname(currentFile);
   const useStripTypes = extension === ".ts";
   return {
-    scriptPath: path.resolve(runtimeDir, `../${name}${useStripTypes ? ".ts" : ".js"}`),
+    scriptPath: path.resolve(runtimeDir, `../${name}${useStripTypes ? ".ts" : ".ts"}`),
     useStripTypes,
   };
 }

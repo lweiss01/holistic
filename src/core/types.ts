@@ -195,6 +195,7 @@ export interface CheckpointInput {
   relatedSessions?: string[];
   outcomeStatus?: OutcomeStatus;
   severity?: Severity;
+  completionSignal?: CompletionSignalMetadata | null;
 }
 
 export type CompletionSignalKind =

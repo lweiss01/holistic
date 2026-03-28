@@ -25,6 +25,7 @@ import {
   shouldCheckpointForElapsedTime,
   shouldCheckpointForPendingFiles,
   shouldDraftCompletionSignalHandoff,
+  normalizeCompletionSignalMetadata,
   startNewSession,
 } from "../src/core/state.ts";
 import { runDaemonTick } from "../src/daemon.ts";
@@ -803,6 +804,56 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     },
   },
   {
+    name: "mcp checkpoint tool accepts explicit completion metadata and writes one deduped draft handoff",
+    run: () => {
+      const { rootDir } = makeRepo();
+      persist(rootDir, createInitialState(rootDir));
+
+      const checkpoint = callHolisticTool(rootDir, "holistic_checkpoint", {
+        reason: "natural-breakpoint",
+        status: "Paused cleanly at a natural breakpoint",
+        done: ["Finished the current verification pass"],
+        next: ["Resume from the drafted handoff"],
+        completionKind: "natural-breakpoint",
+        completionSource: "agent",
+      });
+      assert.equal(checkpoint.isError, false);
+
+      const state = readState(rootDir);
+      assert.equal(state.activeSession?.completionSignal?.kind, "natural-breakpoint");
+      assert.equal(state.activeSession?.completionSignal?.source, "agent");
+
+      const draft = readDraftHandoff(getRuntimePaths(rootDir));
+      assert.ok(draft);
+      assert.equal(draft?.reason, "completion-signal");
+      assert.equal(draft?.handoff.summary, "Paused cleanly at a natural breakpoint");
+
+      const tick = runDaemonTick(rootDir, "claude");
+      assert.equal(tick.changed, false);
+    },
+  },
+  {
+    name: "mcp checkpoint tool ignores malformed completion metadata without blocking checkpoints",
+    run: () => {
+      const { rootDir } = makeRepo();
+      persist(rootDir, createInitialState(rootDir));
+
+      const checkpoint = callHolisticTool(rootDir, "holistic_checkpoint", {
+        reason: "manual-checkpoint",
+        status: "Checkpoint should still save",
+        completionKind: "unsupported-kind",
+        completionSource: "agent",
+      });
+      assert.equal(checkpoint.isError, false);
+
+      const state = readState(rootDir);
+      assert.equal(state.activeSession?.lastCheckpointReason, "manual-checkpoint");
+      assert.equal(state.activeSession?.completionSignal ?? null, null);
+      assert.equal(readDraftHandoff(getRuntimePaths(rootDir)), null);
+    },
+  },
+
+  {
     name: "daemon tick helper triggers an elapsed-time checkpoint at exactly two hours",
     run: () => {
       const nowMs = Date.now();
@@ -823,6 +874,72 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(shouldCheckpointForPendingFiles(["1", "2", "3", "4"]), false);
       assert.equal(shouldCheckpointForPendingFiles([]), false);
       assert.equal(shouldCheckpointForPendingFiles(null), false);
+    },
+  },
+  {
+    name: "daemon tick checkpoints immediately at five meaningful files and clears passive pending state",
+    run: () => {
+      const { rootDir } = makeRepo();
+      let state = createInitialState(rootDir);
+      state = persist(rootDir, state);
+
+      for (const file of ["one.ts", "two.ts", "three.ts", "four.ts", "five.ts"]) {
+        fs.writeFileSync(path.join(rootDir, file), `${file}\n`, "utf8");
+      }
+
+      const tick = runDaemonTick(rootDir, "unknown");
+      assert.equal(tick.changed, true);
+      assert.match(tick.summary, /5 file\(s\)|5 meaningful file\(s\)/);
+
+      const stateFile = readState(rootDir);
+      assert.equal(stateFile.activeSession?.title, "Passive session capture");
+      assert.equal(stateFile.activeSession?.lastCheckpointReason, "daemon-auto-threshold");
+      assert.deepEqual(stateFile.passiveCapture?.pendingFiles, []);
+      assert.equal(stateFile.passiveCapture?.activityTicks, 0);
+      assert.equal(stateFile.passiveCapture?.quietTicks, 0);
+      assert.ok(stateFile.passiveCapture?.lastCheckpointAt);
+
+      const secondTick = runDaemonTick(rootDir, "unknown");
+      assert.equal(secondTick.changed, false);
+      assert.deepEqual(readState(rootDir).passiveCapture?.pendingFiles, []);
+    },
+  },
+  {
+    name: "daemon tick checkpoints on elapsed time with zero changed files",
+    run: () => {
+      const { rootDir } = makeRepo();
+      let state = createInitialState(rootDir);
+      state.passiveCapture = {
+        lastObservedBranch: "main",
+        pendingFiles: [],
+        activityTicks: 0,
+        quietTicks: 0,
+        lastCheckpointAt: new Date(Date.now() - (2 * 60 * 60 * 1000)).toISOString(),
+      };
+      state = persist(rootDir, state);
+
+      const tick = runDaemonTick(rootDir, "unknown");
+      assert.equal(tick.changed, true);
+
+      const stateFile = readState(rootDir);
+      assert.equal(stateFile.activeSession?.title, "Passive session capture");
+      assert.equal(stateFile.activeSession?.lastCheckpointReason, "daemon-auto-elapsed");
+      assert.match(stateFile.activeSession?.latestStatus ?? "", /2 hour|2-hour|two-hour/i);
+      assert.deepEqual(stateFile.passiveCapture?.pendingFiles, []);
+      assert.equal(stateFile.passiveCapture?.activityTicks, 0);
+      assert.equal(stateFile.passiveCapture?.quietTicks, 0);
+      assert.ok(stateFile.passiveCapture?.lastCheckpointAt);
+    },
+  },
+  {
+    name: "completion metadata normalizer ignores malformed inputs",
+    run: () => {
+      assert.equal(normalizeCompletionSignalMetadata({ kind: "task-complete", source: "agent" })?.kind, "task-complete");
+      assert.equal(normalizeCompletionSignalMetadata({ kind: "task-complete", source: "agent" })?.source, "agent");
+      assert.equal(normalizeCompletionSignalMetadata({ kind: "not-supported", source: "agent" }), null);
+      assert.equal(normalizeCompletionSignalMetadata({ kind: "task-complete", source: "robot" }), null);
+      assert.equal(normalizeCompletionSignalMetadata({ kind: "task-complete" }), null);
+      assert.equal(normalizeCompletionSignalMetadata({ source: "agent" }), null);
     },
   },
   {

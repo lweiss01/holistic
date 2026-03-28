@@ -22,6 +22,8 @@ import {
   getRuntimePaths,
   loadSessionById,
   loadState,
+  maybeWriteAutoDraftHandoff,
+  normalizeCompletionSignalMetadata,
   readDraftHandoff,
   saveState,
   startNewSession,
@@ -161,7 +163,7 @@ function runtimeScript(name: "mcp-server"): { scriptPath: string; useStripTypes:
   const useStripTypes = extension === ".ts";
 
   return {
-    scriptPath: path.resolve(runtimeDir, `${name}${useStripTypes ? ".ts" : ".js"}`),
+    scriptPath: path.resolve(runtimeDir, `${name}${useStripTypes ? ".ts" : ".ts"}`),
     useStripTypes,
   };
 }
@@ -483,7 +485,7 @@ async function handleResume(rootDir: string, parsed: ParsedArgs): Promise<number
 
 async function handleCheckpoint(rootDir: string, parsed: ParsedArgs): Promise<number> {
   refreshHooksBeforeCommand(rootDir);
-  const nextState = mutateState(rootDir, (state) => {
+  const nextState = mutateState(rootDir, (state, paths) => {
     const regressions = listFlag(parsed.flags, "regression");
 
     // --fixed / --fix-files / --fix-risk sugar: compose a structured known-fix entry
@@ -516,8 +518,15 @@ async function handleCheckpoint(rootDir: string, parsed: ParsedArgs): Promise<nu
       references: listFlag(parsed.flags, "ref"),
       impacts: listFlag(parsed.flags, "impact"),
       regressions,
+      completionSignal: normalizeCompletionSignalMetadata({
+        kind: firstFlag(parsed.flags, "completion-kind"),
+        source: firstFlag(parsed.flags, "completion-source"),
+        recordedAt: firstFlag(parsed.flags, "completion-recorded-at"),
+      }),
     };
-    return checkpointState(rootDir, state, input);
+    const nextState = checkpointState(rootDir, state, input);
+    maybeWriteAutoDraftHandoff(paths, nextState);
+    return nextState;
   });
 
   process.stdout.write(`Checkpoint saved for ${nextState.activeSession?.id ?? "session"}.\nBranch: ${nextState.activeSession?.branch ?? "unknown"}\nChanged files: ${nextState.activeSession?.changedFiles.length ?? 0}\nHistory doc: ${nextState.docIndex.historyDoc}\nRegression watch: ${nextState.docIndex.regressionDoc}\n`);

@@ -4,18 +4,17 @@ import { writeDerivedDocs } from './core/docs.ts';
 import { refreshHolisticHooks } from './core/setup.ts';
 import { requestAutoSync } from './core/sync.ts';
 import {
-  buildAutoDraftHandoff,
   checkpointState,
   getRuntimePaths,
   loadState,
-  readDraftHandoff,
+  maybeWriteAutoDraftHandoff,
   saveState,
-  shouldAutoDraftHandoff,
+  shouldCheckpointForElapsedTime,
+  shouldCheckpointForPendingFiles,
   startNewSession,
   withStateLock,
-  writeDraftHandoff,
 } from './core/state.ts';
-import type { AgentName, DraftHandoff, HolisticState, PassiveCaptureState, RuntimePaths } from './core/types.ts';
+import type { AgentName, HolisticState, PassiveCaptureState, RuntimePaths } from './core/types.ts';
 
 interface ParsedArgs {
   flags: Record<string, string[]>;
@@ -54,10 +53,6 @@ function asAgent(value: string): AgentName {
 
 const QUIET_TICKS_BEFORE_CHECKPOINT = 1;
 
-function now(): string {
-  return new Date().toISOString();
-}
-
 function defaultPassiveCapture(): PassiveCaptureState {
   return {
     lastObservedBranch: null,
@@ -74,16 +69,6 @@ function uniqueFiles(files: string[]): string[] {
 
 function summarizeFiles(files: string[]): string {
   return files.slice(0, 3).join(", ");
-}
-
-function isSameDraft(left: DraftHandoff | null, right: DraftHandoff | null): boolean {
-  if (!left || !right) {
-    return false;
-  }
-
-  return left.sourceSessionId === right.sourceSessionId
-    && left.sourceSessionUpdatedAt === right.sourceSessionUpdatedAt
-    && left.reason === right.reason;
 }
 
 function persistLocked(rootDir: string, state: HolisticState, paths: RuntimePaths): HolisticState {
@@ -124,6 +109,8 @@ export function runDaemonTick(rootDir: string, agent: AgentName = "unknown"): { 
     const meaningfulFiles = snapshot.changedFiles.filter((file) => !isPortableHolisticPath(file));
     const previousBranch = tracker.lastObservedBranch;
     const branchChanged = Boolean(previousBranch && previousBranch !== snapshot.branch);
+    const currentTimeMs = Date.now();
+    const checkpointedAt = new Date(currentTimeMs).toISOString();
 
     if (branchChanged) {
       let nextState = ensurePassiveSession(rootDir, state, agent);
@@ -140,12 +127,40 @@ export function runDaemonTick(rootDir: string, agent: AgentName = "unknown"): { 
       nextState.passiveCapture = {
         ...defaultPassiveCapture(),
         lastObservedBranch: snapshot.branch,
-        lastCheckpointAt: now(),
+        lastCheckpointAt: checkpointedAt,
       };
       persistLocked(rootDir, nextState, lockedPaths);
       return {
         changed: true,
         summary: `Captured branch switch from ${previousBranch} to ${snapshot.branch}.`,
+        syncTrigger: "checkpoint" as const,
+      };
+    }
+
+    const nextPendingFiles = uniqueFiles([...tracker.pendingFiles, ...meaningfulFiles]);
+
+    if (meaningfulFiles.length > 0 && shouldCheckpointForPendingFiles(nextPendingFiles)) {
+      let nextState = ensurePassiveSession(rootDir, state, agent);
+      const fileSummary = summarizeFiles(nextPendingFiles);
+      nextState = checkpointState(rootDir, nextState, {
+        agent,
+        reason: "daemon-auto-threshold",
+        status: `Detected ${nextPendingFiles.length} meaningful file(s) without waiting for a quiet point; Holistic captured a proactive checkpoint automatically.`,
+        next: nextState.activeSession?.nextSteps.length
+          ? nextState.activeSession.nextSteps
+          : [`Review recent changes in ${fileSummary || "the repo"} and confirm the intended task.`],
+        impacts: ["Passive capture now checkpoints immediately when five or more meaningful files accumulate."],
+        regressions: ["Threshold-based passive checkpoints should clear pending state so the next tick does not refire immediately."],
+      });
+      nextState.passiveCapture = {
+        ...defaultPassiveCapture(),
+        lastObservedBranch: snapshot.branch,
+        lastCheckpointAt: checkpointedAt,
+      };
+      persistLocked(rootDir, nextState, lockedPaths);
+      return {
+        changed: true,
+        summary: `Captured an immediate passive checkpoint for ${nextPendingFiles.length} file(s) on ${snapshot.branch}.`,
         syncTrigger: "checkpoint" as const,
       };
     }
@@ -156,7 +171,7 @@ export function runDaemonTick(rootDir: string, agent: AgentName = "unknown"): { 
         passiveCapture: {
           ...tracker,
           lastObservedBranch: snapshot.branch,
-          pendingFiles: uniqueFiles([...tracker.pendingFiles, ...meaningfulFiles]),
+          pendingFiles: nextPendingFiles,
           activityTicks: tracker.activityTicks + 1,
           quietTicks: 0,
         },
@@ -186,7 +201,7 @@ export function runDaemonTick(rootDir: string, agent: AgentName = "unknown"): { 
         nextState.passiveCapture = {
           ...defaultPassiveCapture(),
           lastObservedBranch: snapshot.branch,
-          lastCheckpointAt: now(),
+          lastCheckpointAt: checkpointedAt,
         };
         persistLocked(rootDir, nextState, lockedPaths);
         return {
@@ -208,6 +223,31 @@ export function runDaemonTick(rootDir: string, agent: AgentName = "unknown"): { 
       return { changed: false, summary: "Waiting for repo activity to settle before checkpointing." };
     }
 
+    if (shouldCheckpointForElapsedTime(tracker.lastCheckpointAt, currentTimeMs)) {
+      let nextState = ensurePassiveSession(rootDir, state, agent);
+      nextState = checkpointState(rootDir, nextState, {
+        agent,
+        reason: "daemon-auto-elapsed",
+        status: `Detected 2 hours of elapsed time since the last passive checkpoint on ${snapshot.branch}; Holistic captured a proactive checkpoint automatically even without new meaningful file changes.`,
+        next: nextState.activeSession?.nextSteps.length
+          ? nextState.activeSession.nextSteps
+          : ["Review the current session status and confirm the intended next task."],
+        impacts: ["Passive capture now checkpoints after two hours even when no meaningful repo changes occurred."],
+        regressions: ["Elapsed-time passive checkpoints should not require pending files or repeated trigger loops."],
+      });
+      nextState.passiveCapture = {
+        ...defaultPassiveCapture(),
+        lastObservedBranch: snapshot.branch,
+        lastCheckpointAt: checkpointedAt,
+      };
+      persistLocked(rootDir, nextState, lockedPaths);
+      return {
+        changed: true,
+        summary: `Captured an elapsed-time passive checkpoint on ${snapshot.branch}.`,
+        syncTrigger: "checkpoint" as const,
+      };
+    }
+
     if (tracker.lastObservedBranch !== snapshot.branch || Object.keys(state.repoSnapshot ?? {}).length === 0) {
       const nextState: HolisticState = {
         ...state,
@@ -219,19 +259,12 @@ export function runDaemonTick(rootDir: string, agent: AgentName = "unknown"): { 
       persistObservedState(nextState, lockedPaths, snapshot.snapshot);
     }
 
-    if (state.activeSession) {
-      const decision = shouldAutoDraftHandoff(state.activeSession);
-      if (decision.should) {
-        const nextDraft = buildAutoDraftHandoff(state, decision.reason);
-        const existingDraft = readDraftHandoff(lockedPaths);
-        if (nextDraft && !isSameDraft(existingDraft, nextDraft)) {
-          writeDraftHandoff(lockedPaths, nextDraft);
-          return {
-            changed: true,
-            summary: `Saved an auto-drafted handoff for ${decision.reason}.`,
-          };
-        }
-      }
+    const autoDraft = maybeWriteAutoDraftHandoff(lockedPaths, state, currentTimeMs);
+    if (autoDraft.changed) {
+      return {
+        changed: true,
+        summary: `Saved an auto-drafted handoff for ${autoDraft.reason}.`,
+      };
     }
 
     return { changed: false, summary: "No repo changes detected." };
