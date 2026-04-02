@@ -50,6 +50,9 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# Dogfooding audit files (local-only planning artifacts)
+holistic-audit-fixes.md
 .next/
 build/
 __pycache__/

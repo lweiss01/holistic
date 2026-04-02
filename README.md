@@ -16,6 +16,8 @@ Shared memory for AI agents, built into your repo.
 
 Holistic gives your AI agents shared memory inside the repo itself. When you switch from Claude to Codex to Gemini, the next agent can see what happened last time, what not to break, and what should happen next.
 
+![Holistic demo: before and after workflow comparison](docs/demo.gif)
+
 ---
 
 ## Get started in 30 seconds ⚡

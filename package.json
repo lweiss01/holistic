@@ -51,6 +51,10 @@
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
+    "gif-encoder-2": "^1.0.5",
+    "jimp": "^1.6.0",
+    "omggif": "^1.0.10",
+    "pngjs": "^7.0.0",
     "typescript": "^5.9.3"
   },
   "files": [
