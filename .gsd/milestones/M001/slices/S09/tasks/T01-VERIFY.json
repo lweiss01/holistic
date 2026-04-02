@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T01",
+  "unitId": "M001/S09/T01",
+  "timestamp": 1775162144090,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "test -f docs/demo.gif",
+      "exitCode": 127,
+      "durationMs": 3,
+      "verdict": "fail"
+    },
+    {
+      "command": "grep -q 'docs/demo.gif' README.md",
+      "exitCode": 127,
+      "durationMs": 2,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

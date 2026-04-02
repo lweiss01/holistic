@@ -8,7 +8,7 @@
   - Estimate: 45m
   - Files: docs/demo.gif, README.md
   - Verify: test -f docs/demo.gif && [ $(stat -c%s docs/demo.gif 2>/dev/null || stat -f%z docs/demo.gif 2>/dev/null) -lt 2097152 ] && grep -q 'docs/demo.gif' README.md
-- [ ] **T02: Draft LinkedIn launch post** — Write a 150-300 word LinkedIn post leading with the problem (context tax when switching AI agents), embedding the demo GIF, explaining the solution (shared repo memory with one bootstrap command), and linking to GitHub and npm. Save as markdown draft for user review before posting. Focus on pain/solution contrast, not feature lists.
+- [x] **T02: Drafted 200-word LinkedIn launch post with pain/solution contrast, demo GIF embed, and links to GitHub/npm** — Write a 150-300 word LinkedIn post leading with the problem (context tax when switching AI agents), embedding the demo GIF, explaining the solution (shared repo memory with one bootstrap command), and linking to GitHub and npm. Save as markdown draft for user review before posting. Focus on pain/solution contrast, not feature lists.
   - Estimate: 30m
   - Files: docs/launch/linkedin-post.md
   - Verify: test -f docs/launch/linkedin-post.md && [ $(wc -w < docs/launch/linkedin-post.md) -ge 100 ] && [ $(wc -w < docs/launch/linkedin-post.md) -le 400 ] && grep -q 'demo.gif' docs/launch/linkedin-post.md
