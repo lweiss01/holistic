@@ -911,11 +911,55 @@ export function normalizeCompletionSignalMetadata(input: {
   };
 }
 
+function deriveCheckpointSessionSeed(rootDir: string, state: HolisticState): {
+  title: string;
+  goal: string;
+  plan: string[];
+} {
+  if (state.lastHandoff) {
+    return {
+      title: "Continue previous handoff",
+      goal: state.lastHandoff.nextAction,
+      plan: ["Read HOLISTIC.md", state.lastHandoff.nextAction],
+    };
+  }
+
+  const nextPending = state.pendingWork[0];
+  if (nextPending) {
+    return {
+      title: nextPending.title,
+      goal: nextPending.recommendedNextStep,
+      plan: ["Read HOLISTIC.md", nextPending.recommendedNextStep],
+    };
+  }
+
+  const inferred = inferSessionStart(rootDir, state);
+  if (inferred.source !== "default") {
+    return {
+      title: inferred.title,
+      goal: inferred.goal,
+      plan: inferred.plan,
+    };
+  }
+
+  return {
+    title: "Capture work and prepare a clean handoff.",
+    goal: "Capture work and prepare a clean handoff.",
+    plan: ["Read HOLISTIC.md", "Confirm next step with the user"],
+  };
+}
+
 export function checkpointState(rootDir: string, state: HolisticState, input: CheckpointInput): HolisticState {
   const agent = input.agent ?? state.activeSession?.agent ?? "unknown";
+  const checkpointSeed = deriveCheckpointSessionSeed(rootDir, state);
   const baseSession = state.activeSession
     ? state.activeSession
-    : createSession(agent, input.goal || "Capture work and prepare a clean handoff.", input.title, input.plan);
+    : createSession(
+        agent,
+        input.goal || checkpointSeed.goal,
+        input.title || checkpointSeed.title,
+        input.plan && input.plan.length > 0 ? input.plan : checkpointSeed.plan,
+      );
 
   const refreshed = refreshSessionFromRepo(rootDir, state, baseSession);
   const nextState = { ...refreshed.state };
