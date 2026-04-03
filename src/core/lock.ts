@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 
 const LOCK_TIMEOUT_MS = 5000;
 const LOCK_WAIT_MS = 50;
@@ -43,6 +44,7 @@ function tryRecoverStaleLock(lockPath: string): boolean {
 }
 
 export function withLockSync<T>(lockPath: string, fn: () => T): T {
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   const startedAt = Date.now();
 
   while (true) {
