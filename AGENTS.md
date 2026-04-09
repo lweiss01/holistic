@@ -41,6 +41,16 @@ Use these helper labels where an agent UI supports slash aliases:
 
 If slash aliases are not available, use CLI equivalents (`holistic resume --continue`, `holistic checkpoint --reason "..."`, `holistic handoff`).
 
+## Troubleshooting
+
+If repo-local CLI helpers (`.holistic/system/holistic.cmd` or `.holistic/system/holistic`) fail or point at a wrong path, run:
+
+```bash
+holistic repair
+```
+
+This regenerates machine-local helpers from the current repo config. Use it after any repo path move, Node reinstall, or broken bootstrap. It does not modify session state.
+
 ## Self-Dogfooding On This Repo
 
 The Holistic repo is a special case.
