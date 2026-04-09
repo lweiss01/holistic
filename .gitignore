@@ -17,8 +17,9 @@ dist/
 gsd-session-*.html
 .bg-shell/
 
-# Local-only media assets (not ready for public repo)
+# Local-only media assets and launch drafts (not ready for public repo)
 docs/demo.gif
+docs/launch/
 
 # Machine-local scripts with absolute paths
 .holistic/
