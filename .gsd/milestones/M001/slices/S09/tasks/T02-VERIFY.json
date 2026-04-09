@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "taskId": "T02",
+  "unitId": "M001/S09/T02",
+  "timestamp": 1775162213949,
+  "passed": false,
+  "discoverySource": "task-plan",
+  "checks": [
+    {
+      "command": "test -f docs/launch/linkedin-post.md",
+      "exitCode": 127,
+      "durationMs": 3,
+      "verdict": "fail"
+    },
+    {
+      "command": "grep -q 'demo.gif' docs/launch/linkedin-post.md",
+      "exitCode": 127,
+      "durationMs": 2,
+      "verdict": "fail"
+    }
+  ],
+  "retryAttempt": 1,
+  "maxRetries": 2
+}

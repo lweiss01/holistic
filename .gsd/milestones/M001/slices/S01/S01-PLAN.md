@@ -22,7 +22,7 @@
 - [x] **T06: Update AGENTS.md with /holistic pattern** — 
   - Files: AGENTS.md, .holistic/context/adapters/*.md (review)
   - Verify: Read AGENTS.md, confirm pattern is clear
-- [ ] **T07: Manual UAT - MCP auto-greeting** — 
+- [x] **T07: Manual UAT - MCP auto-greeting** — 
   - Files: none (testing only)
   - Verify: Agent greets automatically with expected content
 - [x] **T08: Manual UAT - /holistic command** — 
