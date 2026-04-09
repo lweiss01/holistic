@@ -353,6 +353,14 @@ Holistic gives you:
 
 ---
 
+## Beta Feedback Welcome 🙏
+
+Holistic is in early beta. If you hit rough edges, unexpected behavior, or have ideas for improvement, please [open an issue](https://github.com/lweiss01/holistic/issues). Early adopter feedback directly shapes the direction of the project.
+
+For support and troubleshooting, see [SUPPORT.md](./SUPPORT.md).
+
+---
+
 ## Quick links
 
 - [Walkthrough](./docs/handoff-walkthrough.md)
