@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { finalizeDraftHandoffInput, renderDiff, renderHelpText, renderResumeOutput, renderStatus } from "../src/cli.ts";
 import { writeDerivedDocs } from "../src/core/docs.ts";
 import { captureRepoSnapshot } from "../src/core/git.ts";
-import { bootstrapHolistic, initializeHolistic, refreshHolisticHooks } from "../src/core/setup.ts";
+import { bootstrapHolistic, initializeHolistic, refreshHolisticHooks, repairHolistic, runtimeEntryScript } from "../src/core/setup.ts";
 import { planAutoSync } from "../src/core/sync.ts";
 import {
   applyHandoff,
@@ -109,6 +109,44 @@ function archiveSession(
 }
 
 const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
+  {
+    name: "repair rewrites stale repo-local helper targets using current runtime config",
+    run: () => {
+      const { rootDir } = makeRepo();
+      initializeHolistic(rootDir, {
+        installGitHooks: true,
+      });
+
+      const posixHelperPath = path.join(rootDir, ".holistic", "system", "holistic");
+      const windowsHelperPath = path.join(rootDir, ".holistic", "system", "holistic.cmd");
+      fs.writeFileSync(posixHelperPath, "#!/usr/bin/env sh\nexec '/broken/node' '/old/dist/cli.ts' \"$@\"\n", "utf8");
+      fs.writeFileSync(windowsHelperPath, "@echo off\r\n\"C:\\broken\\node.exe\" \"D:\\old\\dist\\cli.ts\" %*\r\n", "utf8");
+
+      const result = repairHolistic(rootDir);
+      assert.equal(result.checks.includes("system-artifacts"), true);
+      assert.equal(result.gitHooksInstalled, true);
+
+      const posixHelper = fs.readFileSync(posixHelperPath, "utf8");
+      const windowsHelper = fs.readFileSync(windowsHelperPath, "utf8");
+      assert.doesNotMatch(posixHelper, /dist[\\/]cli\.ts/);
+      assert.doesNotMatch(windowsHelper, /dist\\cli\.ts/);
+      assert.match(posixHelper, /src[\\/]cli\.ts/);
+      assert.match(windowsHelper, /src\\cli\.ts/);
+    },
+  },
+  {
+    name: "runtime entry script resolves source and built installs correctly",
+    run: () => {
+      const sourceRuntime = runtimeEntryScript("cli", path.join(workspaceRoot, "src", "core", "setup.ts"));
+      assert.equal(sourceRuntime.useStripTypes, true);
+      assert.equal(sourceRuntime.scriptPath, path.join(workspaceRoot, "src", "cli.ts"));
+
+      const builtRuntime = runtimeEntryScript("cli", path.join(workspaceRoot, "dist", "core", "setup.js"));
+      assert.equal(builtRuntime.useStripTypes, false);
+      assert.equal(builtRuntime.scriptPath, path.join(workspaceRoot, "dist", "cli.js"));
+      assert.ok(fs.existsSync(builtRuntime.scriptPath));
+    },
+  },
   {
     name: "init generates zero-touch system artifacts and optional startup hook",
     run: () => {
@@ -274,6 +312,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     run: () => {
       const help = renderHelpText();
 
+      assert.match(help, /holistic repair/);
       assert.match(help, /--completion-kind natural-breakpoint\|task-complete\|slice-complete\|milestone-complete/);
       assert.match(help, /--completion-source agent\|system/);
       assert.match(help, /tests passed/);

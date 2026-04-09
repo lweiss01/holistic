@@ -72,17 +72,23 @@ function summarizeFiles(files: string[]): string {
   return files.slice(0, 3).join(", ");
 }
 
-function persistLocked(rootDir: string, state: HolisticState, paths: RuntimePaths): HolisticState {
+function persistLocked(rootDir: string, state: HolisticState, paths: RuntimePaths): { success: boolean; state?: HolisticState; error?: string } {
   writeDerivedDocs(paths, state, { mode: "runtime" });
   state.repoSnapshot = captureRepoSnapshot(rootDir);
-  saveState(paths, state, { locked: true });
-  return state;
+  const saveResult = saveState(paths, state, { locked: true });
+  if (!saveResult.success) {
+    return { success: false, error: saveResult.error };
+  }
+  return { success: true, state };
 }
 
-function persistObservedState(state: HolisticState, paths: RuntimePaths, snapshot: Record<string, string>): HolisticState {
+function persistObservedState(state: HolisticState, paths: RuntimePaths, snapshot: Record<string, string>): { success: boolean; state?: HolisticState; error?: string } {
   state.repoSnapshot = snapshot;
-  saveState(paths, state, { locked: true });
-  return state;
+  const saveResult = saveState(paths, state, { locked: true });
+  if (!saveResult.success) {
+    return { success: false, error: saveResult.error };
+  }
+  return { success: true, state };
 }
 
 function ensurePassiveSession(rootDir: string, state: HolisticState, agent: AgentName): HolisticState {
@@ -134,7 +140,10 @@ export function runDaemonTick(rootDir: string, agent: AgentName = "unknown"): { 
         lastObservedBranch: snapshot.branch,
         lastCheckpointAt: checkpointedAt,
       };
-      persistLocked(rootDir, nextState, lockedPaths);
+      const persistResult = persistLocked(rootDir, nextState, lockedPaths);
+      if (!persistResult.success) {
+        console.error(`Daemon: Failed to persist state: ${persistResult.error}`);
+      }
       return {
         changed: true,
         summary: `Captured branch switch from ${previousBranch} to ${snapshot.branch}.`,

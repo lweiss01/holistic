@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.3 - 2026-04-09
+
+Hardened state management for fresh repos and path-moved environments, and added a repair command to regenerate stale machine-local helpers.
+
+- Added `holistic repair` to regenerate `.holistic/system/` helpers from the current repo config — fixes repos whose local helpers pointed at stale or moved paths after bootstrap.
+- Fixed fresh-repo state locking — the lock file parent directory is now created before attempting to acquire the lock, preventing silent failures in repos that have never had a checkpoint.
+- Fixed checkpoint seeding — new sessions created from a carryover handoff or pending work now inherit real context instead of boilerplate fallback text.
+- Fixed packaged-install helper generation — generated `.holistic/system/holistic` and `holistic.cmd` now target `dist/*.js` instead of `dist/cli.ts`, so they work correctly in globally-installed (non-source) environments.
+- Wired repair dispatch into the CLI — `holistic repair` now appears in help output and routes correctly.
+
+## 0.5.2 - 2026-03-28
+
+Cross-platform polish and hook-warning noise reduction shipped as part of the S07 technical polish slice.
+
+- Reduced hook refresh warning noise by aggregating custom-hook skip messages instead of emitting one per hook file.
+- Tracked `.gitattributes` under Holistic management and aligned cross-platform line-ending rules for generated Holistic files.
+- Published npm package `holistic@0.5.2` and created GitHub tag/release `v0.5.2`.
+
 ## 0.5.1 - 2026-03-28
 
 Shipped the S04 edge-case health diagnostics slice and released it as `holistic@0.5.1`.

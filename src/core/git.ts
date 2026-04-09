@@ -166,3 +166,112 @@ export function clearPendingCommit(paths: RuntimePaths): void {
     fs.unlinkSync(filePath);
   }
 }
+
+export function commitPendingChanges(
+  rootDir: string,
+  message: string,
+  files: string[],
+): { success: boolean; error?: string; sha?: string } {
+  try {
+    // Check if git is available
+    try {
+      execFileSync("git", ["--version"], { stdio: "ignore" });
+    } catch {
+      return {
+        success: false,
+        error: "Git is not available. Please install git and try again.",
+      };
+    }
+
+    // Check if we're in a git repo
+    const gitDir = resolveGitDir(rootDir);
+    if (!gitDir) {
+      return {
+        success: false,
+        error: "Not a git repository. Cannot commit changes.",
+      };
+    }
+
+    // Stage files
+    try {
+      execFileSync("git", ["-C", rootDir, "add", "--", ...files], {
+        stdio: "pipe",
+        encoding: "utf8",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        error: `Failed to stage files: ${message}`,
+      };
+    }
+
+    // Check if there's anything to commit
+    let hasChanges = false;
+    try {
+      const statusOutput = execFileSync(
+        "git",
+        ["-C", rootDir, "diff", "--cached", "--name-only"],
+        { encoding: "utf8", stdio: "pipe" },
+      );
+      hasChanges = statusOutput.trim().length > 0;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        error: `Failed to check git status: ${message}`,
+      };
+    }
+
+    if (!hasChanges) {
+      return {
+        success: true,
+        error: "No changes to commit (files may already be committed).",
+      };
+    }
+
+    // Commit the changes
+    try {
+      execFileSync("git", ["-C", rootDir, "commit", "-m", message], {
+        stdio: "pipe",
+        encoding: "utf8",
+      });
+    } catch (error) {
+      const stderr = error instanceof Error && "stderr" in error
+        ? String((error as { stderr?: unknown }).stderr)
+        : error instanceof Error
+          ? error.message
+          : String(error);
+      
+      return {
+        success: false,
+        error: `Git commit failed: ${stderr}`,
+      };
+    }
+
+    // Get the commit SHA
+    try {
+      const sha = execFileSync(
+        "git",
+        ["-C", rootDir, "rev-parse", "--short", "HEAD"],
+        { encoding: "utf8", stdio: "pipe" },
+      ).trim();
+
+      return {
+        success: true,
+        sha,
+      };
+    } catch {
+      // Commit succeeded but couldn't get SHA - still success
+      return {
+        success: true,
+      };
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      success: false,
+      error: `Unexpected error during commit: ${message}`,
+    };
+  }
+}

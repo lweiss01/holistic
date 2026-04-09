@@ -5,9 +5,9 @@ import { createInterface, type Interface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { renderRepoLocalCliCommands } from './core/cli-fallback.ts';
-import { captureRepoSnapshot, clearPendingCommit, writePendingCommit } from './core/git.ts';
+import { captureRepoSnapshot, clearPendingCommit, commitPendingChanges, writePendingCommit } from './core/git.ts';
 import { writeDerivedDocs } from './core/docs.ts';
-import { bootstrapHolistic, initializeHolistic, refreshHolisticHooks } from './core/setup.ts';
+import { bootstrapHolistic, initializeHolistic, refreshHolisticHooks, repairHolistic } from './core/setup.ts';
 import { printSplash, printSplashError, renderSplash } from './core/splash.ts';
 import { requestAutoSync } from './core/sync.ts';
 import { runDaemonTick } from './daemon.ts';
@@ -112,6 +112,7 @@ export function renderHelpText(): string {
 Usage:
   holistic init [--install-daemon] [--install-hooks] [--platform win32|darwin|linux] [--interval 30] [--remote origin] [--state-ref refs/holistic/state] [--state-branch holistic/state]
   holistic bootstrap [--platform win32|darwin|linux] [--interval 30] [--remote origin] [--state-ref refs/holistic/state] [--state-branch holistic/state] [--install-daemon false] [--install-hooks false] [--configure-mcp false]
+  holistic repair [--platform win32|darwin|linux] [--refresh-hooks false] [--install-daemon true] [--configure-mcp true]
   holistic start [--agent codex|claude|antigravity|gemini|copilot|cursor|goose|gsd|gsd2] [--continue] [--json]
   holistic resume [--agent codex|claude|antigravity|gemini|copilot|cursor|goose|gsd|gsd2] [--continue] [--json]
   holistic checkpoint --reason "<reason>" [--goal "<goal>"] [--status "<status>"] [--plan "<step>"]... [--completion-kind natural-breakpoint|task-complete|slice-complete|milestone-complete] [--completion-source agent|system] [--completion-recorded-at <iso8601>]
@@ -153,14 +154,17 @@ function refreshHooksBeforeCommand(rootDir: string): void {
   reportHookWarnings(hookResult.warnings);
 }
 
-function persistLocked(rootDir: string, state: HolisticState, paths: RuntimePaths): HolisticState {
+function persistLocked(rootDir: string, state: HolisticState, paths: RuntimePaths): { success: boolean; state?: HolisticState; error?: string } {
   writeDerivedDocs(paths, state, { mode: "runtime" });
   state.repoSnapshot = captureRepoSnapshot(rootDir);
-  saveState(paths, state, { locked: true });
-  return state;
+  const saveResult = saveState(paths, state, { locked: true });
+  if (!saveResult.success) {
+    return { success: false, error: saveResult.error };
+  }
+  return { success: true, state };
 }
 
-function mutateState(rootDir: string, mutator: (state: HolisticState, paths: RuntimePaths) => HolisticState): HolisticState {
+function mutateState(rootDir: string, mutator: (state: HolisticState, paths: RuntimePaths) => HolisticState): { success: boolean; state?: HolisticState; error?: string } {
   const paths = getRuntimePaths(rootDir);
   return withStateLock(paths, () => {
     const { state, paths: lockedPaths } = loadState(rootDir);
@@ -469,12 +473,62 @@ Repo-local CLI: ${bootstrapFallback}
   return 0;
 }
 
+async function handleRepair(rootDir: string, parsed: ParsedArgs): Promise<number> {
+  printSplash({
+    message: "repairing holistic machine-local helpers...",
+  });
+
+  const platformFlag = firstFlag(parsed.flags, "platform", process.platform);
+  const platform = platformFlag === "windows" ? "win32" : platformFlag === "macos" ? "darwin" : platformFlag === "linux" ? "linux" : platformFlag;
+  const result = repairHolistic(rootDir, {
+    platform: platform as NodeJS.Platform,
+    refreshHooks: firstFlag(parsed.flags, "refresh-hooks", "true") !== "false",
+    installDaemon: firstFlag(parsed.flags, "install-daemon", "false") === "true",
+    configureMcp: firstFlag(parsed.flags, "configure-mcp", "false") === "true",
+  });
+  reportHookWarnings(result.gitHookWarnings);
+
+  const statusItems: string[] = ["system helpers regenerated"];
+  if (result.gitHooksInstalled) {
+    statusItems.push("git hooks refreshed");
+  }
+  if (result.installed) {
+    statusItems.push("daemon refreshed");
+  }
+  if (result.mcpConfigured) {
+    statusItems.push("Claude Desktop MCP refreshed");
+  }
+
+  printSplash({
+    showStatus: true,
+    statusItems,
+  });
+
+  const repairFallback = renderRepoLocalCliCommands(path.relative(rootDir, path.join(result.systemDir, "..", "context")).replaceAll("\\", "/"), "resume --agent codex");
+  process.stdout.write(`System files: ${result.systemDir}
+Config: ${result.configFile}
+Platform: ${result.platform}
+Daemon refresh: ${result.installed ? `enabled at ${result.startupTarget}` : "skipped"}
+Git hooks: ${result.gitHooksInstalled ? result.gitHooks.join(", ") : "skipped"}
+MCP config: ${result.mcpConfigured ? result.mcpConfigFile : "skipped"}
+Checks: ${result.checks.join(", ")}
+Repo-local CLI: ${repairFallback}
+`);
+  return 0;
+}
+
 async function handleResume(rootDir: string, parsed: ParsedArgs): Promise<number> {
   refreshHooksBeforeCommand(rootDir);
   const agent = asAgent(firstFlag(parsed.flags, "agent", "unknown"));
 
   if (firstFlag(parsed.flags, "continue") === "true") {
-    const nextState = mutateState(rootDir, (state) => continueFromLatest(rootDir, state, agent));
+    const mutateResult = mutateState(rootDir, (state) => continueFromLatest(rootDir, state, agent));
+    if (!mutateResult.success || !mutateResult.state) {
+      process.stderr.write(`Error: Failed to resume: ${mutateResult.error}\n`);
+      return 1;
+    }
+
+    const nextState = mutateResult.state;
     const payload = getResumePayload(nextState, agent);
     if (firstFlag(parsed.flags, "json") === "true") {
       printJson(payload);
@@ -510,7 +564,7 @@ async function handleResume(rootDir: string, parsed: ParsedArgs): Promise<number
 
 async function handleCheckpoint(rootDir: string, parsed: ParsedArgs): Promise<number> {
   refreshHooksBeforeCommand(rootDir);
-  const nextState = mutateState(rootDir, (state, paths) => {
+  const mutateResult = mutateState(rootDir, (state, paths) => {
     const regressions = listFlag(parsed.flags, "regression");
 
     // --fixed / --fix-files / --fix-risk sugar: compose a structured known-fix entry
@@ -554,6 +608,13 @@ async function handleCheckpoint(rootDir: string, parsed: ParsedArgs): Promise<nu
     return nextState;
   });
 
+  if (!mutateResult.success || !mutateResult.state) {
+    process.stderr.write(`Error: Failed to save checkpoint: ${mutateResult.error}\n`);
+    return 1;
+  }
+
+  const nextState = mutateResult.state;
+
   process.stdout.write(`Checkpoint saved for ${nextState.activeSession?.id ?? "session"}.\nBranch: ${nextState.activeSession?.branch ?? "unknown"}\nChanged files: ${nextState.activeSession?.changedFiles.length ?? 0}\nHistory doc: ${nextState.docIndex.historyDoc}\nRegression watch: ${nextState.docIndex.regressionDoc}\n`);
   requestAutoSync(rootDir, "checkpoint");
   return 0;
@@ -570,8 +631,13 @@ async function handleStartNew(rootDir: string, parsed: ParsedArgs): Promise<numb
     const plan = listFlag(parsed.flags, "plan");
     const finalPlan = plan.length > 0 ? plan : await promptList("Initial plan steps", ["Read HOLISTIC.md", "Confirm the next concrete step"], rl);
 
-    const nextState = mutateState(rootDir, (state) => startNewSession(rootDir, state, agent, goal, finalPlan, title));
-    process.stdout.write(`Started ${nextState.activeSession?.id} for goal: ${nextState.activeSession?.currentGoal}\n`);
+    const mutateResult = mutateState(rootDir, (state) => startNewSession(rootDir, state, agent, goal, finalPlan, title));
+    if (!mutateResult.success || !mutateResult.state) {
+      process.stderr.write(`Error: Failed to start session: ${mutateResult.error}\n`);
+      return 1;
+    }
+
+    process.stdout.write(`Started ${mutateResult.state.activeSession?.id} for goal: ${mutateResult.state.activeSession?.currentGoal}\n`);
     return 0;
   } finally {
     rl.close();
@@ -647,7 +713,7 @@ async function handleHandoff(rootDir: string, parsed: ParsedArgs): Promise<numbe
       }
     }
 
-    const nextState = mutateState(rootDir, (latestState, paths) => {
+    const mutateResult = mutateState(rootDir, (latestState, paths) => {
       const result = applyHandoff(rootDir, latestState, handoffInput);
       if (result.pendingCommit) {
         writePendingCommit(paths, result.pendingCommit.message);
@@ -656,7 +722,55 @@ async function handleHandoff(rootDir: string, parsed: ParsedArgs): Promise<numbe
       return result;
     });
 
-    process.stdout.write(`Handoff complete.\nSummary: ${nextState.lastHandoff?.summary ?? "n/a"}\nPending git commit: ${nextState.pendingCommit?.message ?? "none"}\nHistory doc: ${nextState.docIndex.historyDoc}\nRegression watch: ${nextState.docIndex.regressionDoc}\n`);
+    if (!mutateResult.success || !mutateResult.state) {
+      process.stderr.write(`Error: Failed to apply handoff: ${mutateResult.error}\n`);
+      process.exit(1);
+    }
+
+    const nextState = mutateResult.state;
+
+    // Execute the pending commit
+    let commitResult: { success: boolean; error?: string; sha?: string } | null = null;
+    if (nextState.pendingCommit) {
+      commitResult = commitPendingChanges(
+        rootDir,
+        nextState.pendingCommit.message,
+        nextState.pendingCommit.files,
+      );
+
+      if (commitResult.success) {
+        // Clear pending commit state on success
+        const clearResult = mutateState(rootDir, (latestState, paths) => {
+          clearPendingCommit(paths);
+          return {
+            ...latestState,
+            pendingCommit: null,
+          };
+        });
+        
+        if (!clearResult.success) {
+          process.stderr.write(`Warning: Failed to clear pending commit state: ${clearResult.error}\n`);
+        }
+      }
+    }
+
+    // Show handoff results
+    process.stdout.write(`Handoff complete.\nSummary: ${nextState.lastHandoff?.summary ?? "n/a"}\n`);
+    
+    if (commitResult) {
+      if (commitResult.success) {
+        if (commitResult.sha) {
+          process.stdout.write(`Git commit: ${commitResult.sha} - ${nextState.pendingCommit?.message ?? "docs(holistic): handoff"}\n`);
+        } else {
+          process.stdout.write(`Git commit: ${commitResult.error ?? "No changes to commit"}\n`);
+        }
+      } else {
+        process.stderr.write(`Git commit failed: ${commitResult.error}\n`);
+        process.stderr.write(`Pending commit saved. Run 'holistic commit-done' to clear or retry manually.\n`);
+      }
+    }
+    
+    process.stdout.write(`History doc: ${nextState.docIndex.historyDoc}\nRegression watch: ${nextState.docIndex.regressionDoc}\n`);
     requestAutoSync(rootDir, "handoff");
     return 0;
   } finally {
@@ -813,7 +927,7 @@ async function handleServe(rootDir: string): Promise<number> {
 
 async function handleMarkCommit(rootDir: string, parsed: ParsedArgs): Promise<number> {
   const message = firstFlag(parsed.flags, "message", "docs(holistic): handoff");
-  const nextState = mutateState(rootDir, (state, paths) => {
+  const mutateResult = mutateState(rootDir, (state, paths) => {
     if (state.lastHandoff) {
       state.lastHandoff.committedAt = new Date().toISOString();
     }
@@ -821,7 +935,13 @@ async function handleMarkCommit(rootDir: string, parsed: ParsedArgs): Promise<nu
     clearPendingCommit(paths);
     return state;
   });
-  process.stdout.write(`Marked handoff commit complete: ${message || nextState.lastHandoff?.summary || "docs(holistic): handoff"}\n`);
+
+  if (!mutateResult.success || !mutateResult.state) {
+    process.stderr.write(`Error: Failed to mark commit: ${mutateResult.error}\n`);
+    return 1;
+  }
+
+  process.stdout.write(`Marked handoff commit complete: ${message || mutateResult.state.lastHandoff?.summary || "docs(holistic): handoff"}\n`);
   return 0;
 }
 
@@ -863,6 +983,8 @@ async function main(): Promise<number> {
       return handleInit(rootDir, parsed);
     case "bootstrap":
       return handleBootstrap(rootDir, parsed);
+    case "repair":
+      return handleRepair(rootDir, parsed);
     case "start":   // user-friendly alias for resume
     case "resume":
       return handleResume(rootDir, parsed);

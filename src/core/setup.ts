@@ -48,6 +48,20 @@ export interface BootstrapResult extends InitResult {
   checks: string[];
 }
 
+export interface RepairOptions {
+  platform?: NodeJS.Platform;
+  homeDir?: string;
+  refreshHooks?: boolean;
+  installDaemon?: boolean;
+  configureMcp?: boolean;
+}
+
+export interface RepairResult extends InitResult {
+  mcpConfigured: boolean;
+  mcpConfigFile: string | null;
+  checks: string[];
+}
+
 interface RepoSetupConfigShape {
   syncDefaults?: {
     autoSync?: boolean;
@@ -85,13 +99,12 @@ function configFile(paths: RuntimePaths): string {
   return path.join(paths.holisticDir, "config.json");
 }
 
-function runtimeEntryScript(name: "cli" | "daemon"): { scriptPath: string; useStripTypes: boolean } {
-  const currentFile = fileURLToPath(import.meta.url);
+export function runtimeEntryScript(name: "cli" | "daemon", currentFile = fileURLToPath(import.meta.url)): { scriptPath: string; useStripTypes: boolean } {
   const extension = path.extname(currentFile);
   const runtimeDir = path.dirname(currentFile);
   const useStripTypes = extension === ".ts";
   return {
-    scriptPath: path.resolve(runtimeDir, `../${name}${useStripTypes ? ".ts" : ".ts"}`),
+    scriptPath: path.resolve(runtimeDir, `../${name}${useStripTypes ? ".ts" : ".js"}`),
     useStripTypes,
   };
 }
@@ -377,7 +390,11 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
   const syncPs1 = [
     "$ErrorActionPreference = 'Stop'",
     "if (Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) { $PSNativeCommandUseErrorActionPreference = $false }",
-    `$root = '${quotePowerShell(rootDir)}'`,
+    "$root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)",
+    "if (-not (Test-Path \"$root\\.git\")) {",
+    "  Write-Error \"holistic sync-state: ERROR: Could not find .git directory in resolved ROOT: $root\"",
+    "  exit 1",
+    "}",
     `$remote = '${quotePowerShell(remote)}'`,
     `$stateRef = '${quotePowerShell(syncTarget.ref)}'`,
     `$legacySeedRef = '${quotePowerShell(legacySeedRef)}'`,
@@ -454,7 +471,13 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
 
   const syncSh = [
     "#!/usr/bin/env sh",
-    `ROOT='${shellQuote(rootDir)}'`,
+    "SCRIPT_DIR=\"$(cd \"$(dirname \"$0\")\" && pwd)\"",
+    "ROOT=\"$(cd \"$SCRIPT_DIR/../..\" && pwd)\"",
+    "if [ ! -d \"$ROOT/.git\" ]; then",
+    "  echo 'holistic sync-state: ERROR: Could not find .git directory in resolved ROOT.' >&2",
+    "  echo \"Resolved ROOT: $ROOT\" >&2",
+    "  exit 1",
+    "fi",
     `REMOTE='${shellQuote(remote)}'`,
     `STATE_REF='${shellQuote(syncTarget.ref)}'`,
     `LEGACY_SEED_REF='${shellQuote(legacySeedRef)}'`,
@@ -872,6 +895,45 @@ function readJsonObject(filePath: string): Record<string, unknown> {
   }
 }
 
+function readExistingRuntimeConfig(paths: RuntimePaths): { remote: string; syncTarget: SyncTarget; intervalSeconds: number } {
+  const config = readJsonObject(configFile(paths));
+  const sync = config.sync && typeof config.sync === "object"
+    ? config.sync as Record<string, unknown>
+    : {};
+  const daemon = config.daemon && typeof config.daemon === "object"
+    ? config.daemon as Record<string, unknown>
+    : {};
+
+  const remote = typeof sync.remote === "string" && sync.remote.trim().length > 0
+    ? sync.remote
+    : "origin";
+  const intervalSeconds = typeof daemon.intervalSeconds === "number" && Number.isFinite(daemon.intervalSeconds)
+    ? daemon.intervalSeconds
+    : 30;
+
+  if (typeof sync.stateRef === "string" && sync.stateRef.trim().length > 0) {
+    return {
+      remote,
+      syncTarget: resolveSyncTarget({ stateRef: sync.stateRef }),
+      intervalSeconds,
+    };
+  }
+
+  if (typeof sync.stateBranch === "string" && sync.stateBranch.trim().length > 0) {
+    return {
+      remote,
+      syncTarget: resolveSyncTarget({ stateBranch: sync.stateBranch }),
+      intervalSeconds,
+    };
+  }
+
+  return {
+    remote,
+    syncTarget: resolveSyncTarget({}),
+    intervalSeconds,
+  };
+}
+
 function writeClaudeDesktopMcpConfig(rootDir: string, platform: NodeJS.Platform, homeDir: string): string {
   const configPath = mcpConfigFile(platform, homeDir);
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
@@ -957,6 +1019,66 @@ function verifyBootstrapSetup(rootDir: string, result: InitResult, platform: Nod
 export function refreshHolisticHooks(rootDir: string): GitHookInstallResult {
   const paths = getRuntimePaths(rootDir);
   return refreshGitHooks(rootDir, resolveGitDir(rootDir), buildHookCommand(rootDir, paths));
+}
+
+export function repairHolistic(rootDir: string, options: RepairOptions = {}): RepairResult {
+  const { paths } = loadState(rootDir);
+  writeManagedGitAttributes(rootDir, paths);
+
+  const platform = options.platform ?? process.platform;
+  const homeDir = options.homeDir ?? os.homedir();
+  const config = readExistingRuntimeConfig(paths);
+
+  writeSystemArtifacts(rootDir, paths, config.intervalSeconds, config.remote, config.syncTarget);
+
+  let startupTarget: string | null = null;
+  if (options.installDaemon) {
+    startupTarget = installDaemon(rootDir, paths, platform, homeDir);
+  }
+
+  let gitHooksInstalled = false;
+  let gitHooks: string[] = [];
+  let gitHookWarnings: string[] = [];
+  if (options.refreshHooks !== false) {
+    const hookResult = refreshGitHooks(rootDir, resolveGitDir(rootDir), buildHookCommand(rootDir, paths));
+    gitHooksInstalled = hookResult.installed;
+    gitHooks = hookResult.hooks;
+    gitHookWarnings = hookResult.warnings;
+  }
+
+  if (fs.existsSync(path.join(rootDir, ".claude"))) {
+    const holisticCmd = holisticCmdForPlatform(rootDir, platform);
+    installClaudeCodeHooks(rootDir, holisticCmd, platform);
+  }
+
+  const configuredMcpPath = options.configureMcp
+    ? writeClaudeDesktopMcpConfig(rootDir, platform, homeDir)
+    : null;
+
+  const checks = ["system-artifacts"];
+  if (gitHooksInstalled) {
+    checks.push("git-hooks");
+  }
+  if (configuredMcpPath) {
+    checks.push("mcp-config");
+  }
+  if (startupTarget) {
+    checks.push("daemon");
+  }
+
+  return {
+    installed: Boolean(startupTarget),
+    gitHooksInstalled,
+    gitHooks,
+    gitHookWarnings,
+    platform,
+    startupTarget,
+    systemDir: systemDir(paths),
+    configFile: configFile(paths),
+    mcpConfigured: Boolean(configuredMcpPath),
+    mcpConfigFile: configuredMcpPath,
+    checks,
+  };
 }
 
 export function initializeHolistic(rootDir: string, options: InitOptions = {}): InitResult {

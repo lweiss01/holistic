@@ -26,6 +26,32 @@ import type {
   SessionRecord,
 } from './types.ts';
 
+/**
+ * Safe file write helper - returns {success, error} instead of throwing
+ */
+function safeWriteFile(filePath: string, content: string): { success: boolean; error?: string } {
+  try {
+    fs.writeFileSync(filePath, content, "utf8");
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { success: false, error: `Failed to write ${filePath}: ${message}` };
+  }
+}
+
+/**
+ * Safe file read helper - returns {success, data, error}
+ */
+function safeReadFile(filePath: string): { success: boolean; data?: string; error?: string } {
+  try {
+    const data = fs.readFileSync(filePath, "utf8");
+    return { success: true, data };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { success: false, error: `Failed to read ${filePath}: ${message}` };
+  }
+}
+
 function now(): string {
   return new Date().toISOString();
 }
@@ -367,11 +393,23 @@ function loadStateFromDisk(rootDir: string, paths: RuntimePaths): { state: Holis
     return { state: createInitialState(rootDir), created: true };
   }
 
-  const raw = fs.readFileSync(paths.stateFile, "utf8");
-  return {
-    state: hydrateState(JSON.parse(raw) as HolisticState, paths),
-    created: false,
-  };
+  const result = safeReadFile(paths.stateFile);
+  if (!result.success || !result.data) {
+    // If we can't read state file, create fresh state instead of crashing
+    console.error(`Warning: ${result.error}`);
+    return { state: createInitialState(rootDir), created: true };
+  }
+
+  try {
+    return {
+      state: hydrateState(JSON.parse(result.data) as HolisticState, paths),
+      created: false,
+    };
+  } catch (err) {
+    // JSON parse error - create fresh state
+    console.error(`Warning: Failed to parse state file: ${err instanceof Error ? err.message : String(err)}`);
+    return { state: createInitialState(rootDir), created: true };
+  }
 }
 
 export function withStateLock<T>(paths: RuntimePaths, fn: () => T): T {
@@ -385,20 +423,37 @@ export function loadState(rootDir: string): { state: HolisticState; paths: Runti
   return { state, paths, created };
 }
 
-export function saveState(paths: RuntimePaths, state: HolisticState, options?: { locked?: boolean }): void {
-  const write = () => {
+export function saveState(paths: RuntimePaths, state: HolisticState, options?: { locked?: boolean }): { success: boolean; error?: string } {
+  const write = (): { success: boolean; error?: string } => {
     state.updatedAt = now();
     const tempFile = `${paths.stateFile}.${process.pid}.tmp`;
-    fs.writeFileSync(tempFile, JSON.stringify(state, null, 2) + "\n", "utf8");
-    fs.renameSync(tempFile, paths.stateFile);
+    
+    // Write to temp file
+    const writeResult = safeWriteFile(tempFile, JSON.stringify(state, null, 2) + "\n");
+    if (!writeResult.success) {
+      return writeResult;
+    }
+
+    // Rename temp to actual (atomic operation)
+    try {
+      fs.renameSync(tempFile, paths.stateFile);
+      return { success: true };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { success: false, error: `Failed to rename ${tempFile} to ${paths.stateFile}: ${message}` };
+    }
   };
 
   if (options?.locked) {
-    write();
-    return;
+    return write();
   }
 
-  withStateLock(paths, write);
+  try {
+    return withStateLock(paths, write);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { success: false, error: `Failed to acquire state lock: ${message}` };
+  }
 }
 
 export function draftHandoffFile(paths: RuntimePaths): string {
