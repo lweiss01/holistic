@@ -2,7 +2,7 @@
 
 ## 0.5.4 - 2026-04-09
 
-Security hardening in response to npm AI scanner flags.
+Security hardening in response to socket.dev AI-based package scanner flags.
 
 - Removed `-WindowStyle Hidden` from the Windows daemon startup `.cmd` — the daemon now runs in a visible window, consistent with how macOS and Linux handle it.
 - Downgraded PowerShell execution policy from `-ExecutionPolicy Bypass` to `-ExecutionPolicy RemoteSigned` in all three generation sites (`setup.ts`, `sync.ts`, `bin/holistic.cmd`). `RemoteSigned` is sufficient for locally-generated scripts and does not suppress antivirus or security monitoring.

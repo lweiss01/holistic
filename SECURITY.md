@@ -55,7 +55,7 @@ Holistic writes the following categories of files:
 
 ---
 
-## Known Scanner Flags (False Positives)
+## Known socket.dev Scanner Flags (False Positives)
 
 Automated security scanners may flag Holistic for the following patterns. These are explained here:
 
