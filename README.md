@@ -139,7 +139,7 @@ npm link
 ```bash
 cd my-project
 holistic bootstrap --remote origin
-git add .gitattributes HOLISTIC.md AGENTS.md CLAUDE.md GEMINI.md HISTORY.md
+git add .gitattributes HOLISTIC.md AGENTS.md CLAUDE.md GEMINI.md
 git add .holistic/config.json .holistic/state.json
 git add .holistic/context/
 git commit -m "feat: add holistic"
@@ -250,7 +250,11 @@ my-project/
 |- AGENTS.md
 |- CLAUDE.md
 |- GEMINI.md
-|- HISTORY.md
+|- .cursorrules
+|- .windsurfrules
+|- .gitattributes
+|- .github/
+|  `- copilot-instructions.md
 `- .holistic/
    |- config.json
    |- state.json
@@ -271,11 +275,14 @@ The portable repo memory (config, state, context, sessions) is meant to be commi
 |---|---|
 | `holistic init` | Base repo setup and scaffolding |
 | `holistic bootstrap` | One-step machine setup for repo files, hooks, and by-default local daemon/MCP integration setup |
-| `holistic start --agent <name>` | Opens a session and prints the ASCII banner plus recap |
+| `holistic repair` | Regenerates `.holistic/system/` helpers from the current repo config — use this after a path move or broken bootstrap |
+| `holistic resume / start --agent <name>` | Loads project recap and prints the current state — `start` is an alias for `resume` |
+| `holistic start-new --goal "..."` | Starts a fresh session with a new goal |
 | `holistic checkpoint --reason "..."` | Saves progress and context |
 | `holistic handoff` | Ends a session with a handoff |
 | `holistic status` | Shows the current state |
 | `holistic diff --from <id> --to <id>` | Compares two sessions |
+| `holistic search --id <session-id>` | Finds and reactivates an archived session by ID |
 | `holistic serve` | Runs the thin MCP server and prints a startup banner to `stderr` |
 | `holistic watch` | Foreground daemon mode for automatic checkpoints |
 
