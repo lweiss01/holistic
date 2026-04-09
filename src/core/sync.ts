@@ -104,7 +104,7 @@ export function planAutoSync(rootDir: string, trigger: AutoSyncTrigger, platform
     trigger,
     command: platform === "win32" ? "powershell" : "sh",
     args: platform === "win32"
-      ? ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", resolvedScriptPath]
+      ? ["-NoProfile", "-ExecutionPolicy", "RemoteSigned", "-File", resolvedScriptPath]
       : [resolvedScriptPath],
     scriptPath: resolvedScriptPath,
   };

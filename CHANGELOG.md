@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.4 - 2026-04-09
+
+Security hardening in response to npm AI scanner flags.
+
+- Removed `-WindowStyle Hidden` from the Windows daemon startup `.cmd` — the daemon now runs in a visible window, consistent with how macOS and Linux handle it.
+- Downgraded PowerShell execution policy from `-ExecutionPolicy Bypass` to `-ExecutionPolicy RemoteSigned` in all three generation sites (`setup.ts`, `sync.ts`, `bin/holistic.cmd`). `RemoteSigned` is sufficient for locally-generated scripts and does not suppress antivirus or security monitoring.
+- Fixed a real code quality bug in `bin/holistic.cmd`: the `COMMIT_MSG` variable read from `pending-commit.txt` was used unquoted in a `git commit -m` call. Special characters (`&`, `|`, `>`, `<`, `"`) are now stripped before use to prevent cmd.exe argument injection.
+- Added `SECURITY.md` with transparent disclosure of what Holistic installs (daemon, startup entries, git sync), what it does not do (no exfiltration, no credential access, no external services), and an explanation of known scanner false positives.
+- Added Security & Privacy section to `README.md` linking to `SECURITY.md`.
+
 ## 0.5.3 - 2026-04-09
 
 Hardened state management for fresh repos and path-moved environments, and added a repair command to regenerate stale machine-local helpers.

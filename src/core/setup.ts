@@ -629,7 +629,7 @@ function installWindowsStartup(rootDir: string, paths: RuntimePaths, homeDir: st
   const psScript = path.join(systemDir(paths), "run-daemon.ps1");
   const content = [
     "@echo off",
-    `powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"${psScript}\"`,
+    `powershell -NoProfile -ExecutionPolicy RemoteSigned -File \"${psScript}\"`,
   ].join("\r\n");
   fs.writeFileSync(target, content + "\r\n", "utf8");
   return target;
@@ -735,7 +735,7 @@ function autoCheckpointCommand(repoRoot: string, platform: NodeJS.Platform): str
   const sysDir = path.join(repoRoot, ".holistic", "system");
   if (platform === "win32") {
     const scriptPath = path.join(sysDir, "auto-checkpoint.ps1");
-    return `powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptPath}"`;
+    return `powershell -NoProfile -ExecutionPolicy RemoteSigned -File "${scriptPath}"`;
   }
   const scriptPath = path.join(sysDir, "auto-checkpoint.sh");
   return `sh "${scriptPath}"`;

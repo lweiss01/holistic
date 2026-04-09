@@ -366,12 +366,33 @@ For support and troubleshooting, see [SUPPORT.md](./SUPPORT.md).
 
 ---
 
+## Security & Privacy 🔒
+
+Holistic installs a background daemon and writes helper scripts to your machine. This is fully disclosed and by design — it is what makes zero-touch continuity work.
+
+Short version of what it does:
+- Writes session state into `.holistic/` inside your repo (committed files you control)
+- Installs a daemon via standard OS autostart (Windows Startup folder, macOS LaunchAgents, Linux systemd user)
+- Can push Holistic state to a hidden git ref on your configured remote (opt-in, your repo only)
+
+Short version of what it does NOT do:
+- Does not read or transmit file contents outside your repo
+- Does not access credentials or tokens
+- Does not phone home to any external service
+- Does not use `-ExecutionPolicy Bypass` or hidden PowerShell windows
+
+For the full disclosure, see [SECURITY.md](./SECURITY.md).
+
+---
+
 ## Quick links
 
 - [Walkthrough](./docs/handoff-walkthrough.md)
+- [Security & Privacy](./SECURITY.md)
 - [Changelog](./CHANGELOG.md)
 - [Contributing](./CONTRIBUTING.md)
 - [License](./LICENSE)
+
 
 ---
 
