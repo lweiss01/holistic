@@ -1,17 +1,10 @@
-﻿#!/usr/bin/env sh
+#!/usr/bin/env sh
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 node --experimental-strip-types "$SCRIPT_DIR/../src/cli.ts" "$@"
 status=$?
 if [ "$status" -ne 0 ]; then
   exit "$status"
 fi
-if [ "$1" = "handoff" ] && [ -f "$PWD/.holistic/context/pending-commit.txt" ]; then
-  message=$(head -n 1 "$PWD/.holistic/context/pending-commit.txt")
-  if [ -n "$message" ]; then
-    git add -- HOLISTIC.md AGENTS.md .holistic && git commit -m "$message"
-    if [ "$?" -eq 0 ] && [ -f "$PWD/.holistic/system/sync-state.sh" ]; then
-      /bin/sh "$PWD/.holistic/system/sync-state.sh" || true
-      node --experimental-strip-types "$SCRIPT_DIR/../src/cli.ts" internal-mark-commit --message "$message"
-    fi
-  fi
-fi
+
+# Holistic: Sync logic is now handled inside the Node CLI or gated behind explicit flags.
+# This wrapper is kept simple to avoid shell variable expansion vulnerabilities.

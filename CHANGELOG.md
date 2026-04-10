@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.5 - 2026-04-10
+
+Major Security & Trust Hardening (M005) to eliminate silent automation and improve auditability.
+
+- Added **Consent Gating** to `holistic bootstrap`: The CLI now displays a summary of system-modifying actions (daemon, hooks, Claude setup) and requires an explicit `--yes` flag to apply them.
+- Added `holistic doctor` command for repository setup diagnostics and background sync health monitoring.
+- Implemented **Privacy-First Defaults**: Remote portable-state syncing is now disabled by default. Users must explicitly opt-in by setting `"portableState": true` in the repo config.
+- Eliminated **Silent Error Suppression**: Background sync scripts (PowerShell & Bash) now use timestamped logging to `.holistic/system/sync.log`. Failures are now visible in `holistic doctor` and `holistic status`.
+- Hardened **Git-Native Snapshotting**: Refactored repo snapshotting to use `git ls-files`, ensuring $O(\text{changes})$ performance and native `.gitignore` compliance.
+- Gated **Handoff Commits by Default**: Removed automatic Git commits from the `handoff` command. Holistic now prepares a `pending-commit.txt` for manual review, with an optional `--commit` flag for automated workflows.
+
 ## 0.5.4 - 2026-04-09
 
 Security hardening in response to socket.dev AI-based package scanner flags.

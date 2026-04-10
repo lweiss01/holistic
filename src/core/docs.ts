@@ -1,4 +1,4 @@
-﻿import fs from "node:fs";
+import fs from "node:fs";
 import path from "node:path";
 import { renderCliFallbackNote } from './cli-fallback.ts';
 import { readAllSessions } from './state.ts';
@@ -278,7 +278,7 @@ function renderAgentsMd(state: HolisticState): string {
   const checkpointFallbackNote = renderCliFallbackNote(state.docIndex.contextDir, "checkpoint --reason \"<why>\"");
   const checkpointFixNote = renderCliFallbackNote(state.docIndex.contextDir, "checkpoint --fixed \"<bug>\" --fix-files \"<file>\" --fix-risk \"<what would reintroduce it>\"");
   const handoffFallbackNote = renderCliFallbackNote(state.docIndex.contextDir, "handoff");
-  const startNewNote = renderCliFallbackNote(state.docIndex.contextDir, "start-new --goal \"<goal>\"");
+  const startNewNote = renderCliFallbackNote(state.docIndex.contextDir, "start-new");
   const watchNote = renderCliFallbackNote(state.docIndex.contextDir, "watch");
   return `# AGENTS
 
@@ -322,8 +322,6 @@ ${resumeFallbackNote}
 
 - ${checkpointFallbackNote.slice(3)}
 - ${checkpointFixNote.slice(3)}
-- \`holistic set-phase --phase "<id>" --name "<name>" --goal "<goal>"\`
-- \`holistic complete-phase --phase "<id>" --next-phase "<id>" --next-name "<name>" --next-goal "<goal>"\`
 - ${handoffFallbackNote.slice(3)}
 - ${startNewNote.slice(3)}
 - ${watchNote.slice(3)}

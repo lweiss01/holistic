@@ -7,6 +7,7 @@ export type AutoSyncTrigger = "checkpoint" | "handoff";
 
 interface SyncConfigShape {
   autoSync?: boolean;
+  portableState?: boolean;
   sync?: {
     strategy?: string;
     remote?: string;
@@ -41,7 +42,7 @@ function loadConfig(rootDir: string): SyncConfigShape {
 
 export function planAutoSync(rootDir: string, trigger: AutoSyncTrigger, platform: NodeJS.Platform = process.platform): AutoSyncPlan {
   const config = loadConfig(rootDir);
-  if (config.autoSync === false) {
+  if (config.autoSync === false || config.portableState === false) {
     return {
       enabled: false,
       trigger,

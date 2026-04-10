@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { finalizeDraftHandoffInput, renderDiff, renderHelpText, renderResumeOutput, renderStatus } from "../src/cli.ts";
 import { writeDerivedDocs } from "../src/core/docs.ts";
-import { captureRepoSnapshot } from "../src/core/git.ts";
+import { captureRepoSnapshot, getBranchName } from "../src/core/git.ts";
 import { bootstrapHolistic, initializeHolistic, refreshHolisticHooks, repairHolistic, runtimeEntryScript } from "../src/core/setup.ts";
 import { planAutoSync } from "../src/core/sync.ts";
 import {
@@ -41,9 +43,7 @@ import { tests as mcpNotificationTests } from "../src/__tests__/mcp-notification
 import type { HolisticState } from "../src/core/types.ts";
 
 const workspaceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const testTempRoot = path.join(workspaceRoot, ".tmp-tests");
-
-fs.mkdirSync(testTempRoot, { recursive: true });
+const testTempRoot = os.tmpdir();
 
 function makeTempDir(prefix: string): string {
   return fs.mkdtempSync(path.join(testTempRoot, `${prefix}-`));
@@ -51,9 +51,14 @@ function makeTempDir(prefix: string): string {
 
 function makeRepo(): { rootDir: string; state: HolisticState } {
   const rootDir = makeTempDir("holistic-test");
-  fs.mkdirSync(path.join(rootDir, ".git", "refs", "heads"), { recursive: true });
-  fs.writeFileSync(path.join(rootDir, ".git", "HEAD"), "ref: refs/heads/main\n", "utf8");
-  fs.writeFileSync(path.join(rootDir, ".git", "refs", "heads", "main"), "0000000000000000000000000000000000000000\n", "utf8");
+  try {
+    execFileSync("git", ["init"], { cwd: rootDir });
+    execFileSync("git", ["config", "user.name", "Test User"], { cwd: rootDir });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: rootDir });
+  } catch (e: any) {
+    const stderr = e.stderr?.toString() || e.message;
+    throw new Error(`makeRepo git failed in ${rootDir}: ${stderr}`);
+  }
   fs.writeFileSync(path.join(rootDir, "README.md"), "# test repo\n", "utf8");
   return { rootDir, state: createInitialState(rootDir) };
 }
@@ -440,13 +445,13 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       });
       state = persist(rootDir, state);
       const before = fs.readFileSync(path.join(rootDir, ".holistic", "state.json"), "utf8");
-      const output = renderStatus(state);
-      assert.match(output, /Holistic Status/);
-      assert.match(output, /Goal: Build status command/);
-      assert.match(output, /Status: Status command is in progress/);
-      assert.match(output, /Branch: main/);
-      assert.match(output, /Checkpoints: 1/);
-      assert.match(output, /Changed files:/);
+      const status = renderStatus(rootDir, state);
+      assert.match(status, /Holistic Status/);
+      assert.match(status, /Goal: Build status command/);
+      assert.match(status, /Status: Status command is in progress/);
+      assert.match(status, /Branch: (main|master)/);
+      assert.match(status, /Checkpoints: 1/);
+      assert.match(status, /Changed files:/);
       const after = fs.readFileSync(path.join(rootDir, ".holistic", "state.json"), "utf8");
       assert.equal(after, before);
     },
@@ -471,7 +476,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       });
       state = persist(rootDir, state);
       const before = fs.readFileSync(path.join(rootDir, ".holistic", "state.json"), "utf8");
-      const output = renderStatus(state);
+      const output = renderStatus(rootDir, state);
       assert.match(output, /No active session\./);
       assert.match(output, /Last handoff: Wrapped the current work/);
       assert.match(output, /Pending work: 1 item\(s\)/);
@@ -1302,7 +1307,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
       const stateFile = readState(rootDir);
       assert.equal(stateFile.activeSession?.title, "Passive session capture");
-      assert.match(stateFile.activeSession?.latestStatus ?? "", /branch switch from main to feature/);
+      assert.match(stateFile.activeSession?.latestStatus ?? "", /branch switch from (main|master) to feature/);
       assert.equal(stateFile.activeSession?.lastCheckpointReason, "branch-switch");
     },
   },
@@ -1492,7 +1497,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         fs.writeFileSync(path.join(rootDir, file), `${file}\n`, "utf8");
       }
 
-      const tick = runDaemonTick(rootDir, "unknown");
+      const tick = runDaemonTick(rootDir, "codex");
       assert.equal(tick.changed, true);
       assert.match(tick.summary, /5 file\(s\)|5 meaningful file\(s\)/);
 
@@ -1515,7 +1520,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       const { rootDir } = makeRepo();
       let state = createInitialState(rootDir);
       state.passiveCapture = {
-        lastObservedBranch: "main",
+        lastObservedBranch: getBranchName(rootDir),
         pendingFiles: [],
         activityTicks: 0,
         quietTicks: 0,
@@ -1634,8 +1639,15 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       const { rootDir } = makeRepo();
       initializeHolistic(rootDir);
 
+      // Enable portableState for auto-sync planning tests
+      const configPath = path.join(rootDir, ".holistic", "config.json");
+      const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+      config.autoSync = true;
+      config.portableState = true;
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf8");
+
       const checkpointPlan = planAutoSync(rootDir, "checkpoint", "win32");
-      assert.equal(checkpointPlan.enabled, true);
+      assert.equal(checkpointPlan.enabled, true, "Checkpoint sync should be enabled when portableState is true");
       assert.equal(checkpointPlan.command, "powershell");
       assert.match(checkpointPlan.scriptPath ?? "", /sync-state\.ps1$/);
 
@@ -1644,8 +1656,6 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(handoffPlan.command, "sh");
       assert.match(handoffPlan.scriptPath ?? "", /sync-state\.sh$/);
 
-      const configPath = path.join(rootDir, ".holistic", "config.json");
-      const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
       config.sync.syncOnCheckpoint = false;
       fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf8");
 

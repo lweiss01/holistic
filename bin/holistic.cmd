@@ -3,27 +3,6 @@ setlocal
 set SCRIPT_DIR=%~dp0
 node --experimental-strip-types "%SCRIPT_DIR%..\src\cli.ts" %*
 if errorlevel 1 exit /b %errorlevel%
-if /I "%~1"=="handoff" (
-  set PENDING_FILE=%CD%\.holistic\context\pending-commit.txt
-  if exist "%PENDING_FILE%" (
-    set /p COMMIT_MSG=<"%PENDING_FILE%"
-    if defined COMMIT_MSG (
-      rem Sanitize COMMIT_MSG: strip characters that can break cmd.exe argument quoting
-      set COMMIT_MSG=%COMMIT_MSG:&= %
-      set COMMIT_MSG=%COMMIT_MSG:|= %
-      set COMMIT_MSG=%COMMIT_MSG:>= %
-      set COMMIT_MSG=%COMMIT_MSG:<= %
-      set COMMIT_MSG=%COMMIT_MSG:"=%
-      git add -- HOLISTIC.md AGENTS.md .holistic
-      if not errorlevel 1 (
-        git commit -m "%COMMIT_MSG%"
-        if not errorlevel 1 (
-          if exist "%CD%\.holistic\system\sync-state.ps1" (
-            powershell -NoProfile -ExecutionPolicy RemoteSigned -File "%CD%\.holistic\system\sync-state.ps1"
-          )
-          node --experimental-strip-types "%SCRIPT_DIR%..\src\cli.ts" internal-mark-commit --message "%COMMIT_MSG%"
-        )
-      )
-    )
-  )
-)
+
+rem Holistic: Sync logic is now handled inside the Node CLI or gated behind explicit flags.
+rem This wrapper is kept simple to avoid shell variable injection vulnerabilities.

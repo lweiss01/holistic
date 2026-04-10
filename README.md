@@ -12,11 +12,31 @@ Your repo remembers, so your next agent doesn't have to guess.
 Shared memory for AI agents, built into your repo.
 ```
 
+[![npm version](https://img.shields.io/npm/v/holistic.svg)](https://www.npmjs.com/package/holistic)
+[![Tests](https://img.shields.io/github/actions/workflow/status/lweiss01/holistic/test.yml?branch=main&label=tests)](https://github.com/lweiss01/holistic/actions)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D24-339933.svg)](./package.json)
+
 ### One command. Every agent. Zero re-explaining. ✨
 
 Holistic gives your AI agents shared memory inside the repo itself. When you switch from Claude to Codex to Gemini, the next agent can see what happened last time, what not to break, and what should happen next.
 
+
 ---
+
+
+### Why trust this?
+
+- 🔐 No known security vulnerabilities
+- 🧪 60+ automated tests covering core flows
+- 🛠️ Actively maintained (frequent releases)
+- 🔍 Transparent local setup (see `SECURITY.md`)
+
+> Early beta, but built to be safe, inspectable, and predictable.
+
+
+---
+
 
 ## Get started in 30 seconds ⚡
 
@@ -28,7 +48,7 @@ Run these two commands:
 
 ```bash
 npm install -g holistic
-holistic bootstrap
+holistic bootstrap --yes
 ```
 
 After that, open the repo in your agent app and use this startup prompt:
@@ -41,7 +61,9 @@ That is enough to get the basic Holistic workflow working.
 
 If you want the fuller install and setup details, jump to [Quick start](#quick-start-).
 
+
 ---
+
 
 ## The problem 😵
 
@@ -55,7 +77,9 @@ If you use more than one AI coding assistant, the workflow usually falls apart:
 
 Holistic fixes that by making the repo the source of truth.
 
+
 ---
+
 
 ## What it feels like with HOLISTIC 🌿
 
@@ -76,7 +100,9 @@ Most days, you do not need to keep a terminal process open or manually re-brief 
 
 `holistic bootstrap` is a machine setup command, not just a repo setup command. By default it can install local startup helpers and configure Claude Desktop MCP on that machine.
 
+
 ---
+
 
 ## How it works 🧭
 
@@ -96,7 +122,9 @@ Holistic checkpoints and handoffs keep repo memory current
 The next agent picks up without a long re-explanation
 ```
 
+
 ---
+
 
 ## Quick start 🚀
 
@@ -136,7 +164,7 @@ npm link
 
 ```bash
 cd my-project
-holistic bootstrap --remote origin
+holistic bootstrap --remote origin --yes
 git add .gitattributes HOLISTIC.md AGENTS.md CLAUDE.md GEMINI.md
 git add .holistic/config.json .holistic/state.json
 git add .holistic/context/
@@ -170,7 +198,9 @@ holistic bootstrap --install-daemon false --configure-mcp false
 
 The portable repo memory is meant to be committed and synced. Machine-local helper scripts are generated for each machine and stay local.
 
+
 ---
+
 
 ## Daily workflow 🔄
 
@@ -200,7 +230,9 @@ If `holistic` is not on `PATH` in a given shell, every bootstrapped repo also ha
 - Windows: `.\.holistic\system\holistic.cmd <command>`
 - macOS/Linux: `./.holistic/system/holistic <command>`
 
+
 ---
+
 
 ## Regression protection 🛡️
 
@@ -215,7 +247,9 @@ holistic checkpoint \
 
 Future agents will see that warning in the repo docs before they touch the risky area again.
 
+
 ---
+
 
 ## Works with multiple agent apps 🤝
 
@@ -238,7 +272,9 @@ Use this table to decide whether startup should be automatic (MCP/tooling hook) 
 | Other VS Code forks | `AGENTS.md` and repo docs | ❌ No | Treat as manual-start and run `/holistic` |
 | Web tools | repo docs pasted manually | ❌ No | Manual copy/paste recap from Holistic docs |
 
+
 ---
+
 
 ## What lives in your repo 🗂️
 
@@ -265,23 +301,24 @@ my-project/
 
 The portable repo memory (config, state, context, sessions) is meant to be committed and synced. Machine-local helper scripts and repo-local CLI fallbacks under `.holistic/system/` are generated for each machine and stay local (already in `.gitignore`).
 
+
 ---
+
 
 ## Commands
 
-| Command | What it does |
-|---|---|
 | `holistic init` | Base repo setup and scaffolding |
-| `holistic bootstrap` | One-step machine setup for repo files, hooks, and by-default local daemon/MCP integration setup |
-| `holistic repair` | Regenerates `.holistic/system/` helpers from the current repo config — use this after a path move or broken bootstrap |
-| `holistic resume / start --agent <name>` | Loads project recap and prints the current state — `start` is an alias for `resume` |
-| `holistic start-new --goal "..."` | Starts a fresh session with a new goal |
+| `holistic bootstrap` | One-step machine setup. Required `--yes` to apply system changes. |
+| `holistic doctor` | Runs health checks on machine setup and sync logs |
+| `holistic repair` | Regenerates `.holistic/system/` helpers |
+| `holistic resume / start --agent <name>` | Loads project recap and prints state |
+| `holistic start-new` | Starts a fresh session |
 | `holistic checkpoint --reason "..."` | Saves progress and context |
-| `holistic handoff` | Ends a session with a handoff |
-| `holistic status` | Shows the current state |
+| `holistic handoff` | Ends a session with a handoff message |
+| `holistic status` | Shows current state and recent sync activity |
 | `holistic diff --from <id> --to <id>` | Compares two sessions |
-| `holistic search --id <session-id>` | Finds and reactivates an archived session by ID |
-| `holistic serve` | Runs the thin MCP server and prints a startup banner to `stderr` |
+| `holistic search --id <session-id>` | Finds and reactivates an archived session |
+| `holistic serve` | Runs the thin MCP server |
 | `holistic watch` | Foreground daemon mode for automatic checkpoints |
 
 ### Slash command helper text (agent-facing)
@@ -302,7 +339,9 @@ holistic handoff \
   --blocker "Need refresh token endpoint from backend team"
 ```
 
+
 ---
+
 
 ## Architecture
 
@@ -342,7 +381,9 @@ When you do run `holistic serve` manually in a terminal, Holistic prints its ASC
 }
 ```
 
+
 ---
+
 
 ## Why this matters
 
@@ -356,7 +397,9 @@ Holistic gives you:
 - A durable record of what changed and why
 - Agents that can get to work quickly
 
+
 ---
+
 
 ## Beta Feedback Welcome 🙏
 
@@ -364,26 +407,38 @@ Holistic is in early beta. If you hit rough edges, unexpected behavior, or have 
 
 For support and troubleshooting, see [SUPPORT.md](./SUPPORT.md).
 
+
 ---
 
-## Security & Privacy 🔒
 
-Holistic installs a background daemon and writes helper scripts to your machine. This is fully disclosed and by design — it is what makes zero-touch continuity work.
+## Security, Privacy, and Trust 🔒
 
-Short version of what it does:
+Holistic is designed to be **transparent, audit-safe, and consent-first**. It is a shared memory layer that stays in your repo, not a cloud service that watches your screen.
+
+### Trust Architecture:
+- **Explicit Consent**: `holistic bootstrap` will show you exactly what changes it wants to make to your machine (daemon installation, git hooks, Claude setup) and requires an explicit `--yes` to proceed.
+- **Privacy First**: Remote syncing is **disabled by default**. Set `"portableState": true` in `.holistic/config.json` only if you want to share memory across devices using a hidden git ref.
+- **Traceable Activity**: Background sync operations (PowerShell/Bash) are no longer silent. All activity is logged with timestamps and error details to `.holistic/system/sync.log`.
+- **Health Checks**: Use `holistic doctor` at any time to audit your machine-local setup and verify sync log health.
+- **Git-Native Snapshotting**: The repo snapshot logic uses native `git ls-files`, ensuring that your `.gitignore` rules are perfectly respected and performance stays $O(\text{repo size})$.
+- **Zero Shell Injection**: Internal commit logic has been stripped of shell wrappers to eliminate command injection risks.
+
+### What it does:
 - Writes session state into `.holistic/` inside your repo (committed files you control)
 - Installs a daemon via standard OS autostart (Windows Startup folder, macOS LaunchAgents, Linux systemd user)
 - Can push Holistic state to a hidden git ref on your configured remote (opt-in, your repo only)
 
-Short version of what it does NOT do:
+### What it does NOT do:
 - Does not read or transmit file contents outside your repo
 - Does not access credentials or tokens
 - Does not phone home to any external service
-- Does not use `-ExecutionPolicy Bypass` or hidden PowerShell windows
+- Does not use obfuscated scripts or hidden windows
 
-For the full disclosure, see [SECURITY.md](./SECURITY.md).
+For the full technical disclosure, see [SECURITY.md](./SECURITY.md).
+
 
 ---
+
 
 ## Quick links
 
@@ -394,6 +449,8 @@ For the full disclosure, see [SECURITY.md](./SECURITY.md).
 - [License](./LICENSE)
 
 
+
 ---
+
 
 <p align="center"><em>Built for people who use more than one AI assistant and are tired of paying the context tax.</em></p>

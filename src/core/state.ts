@@ -1,4 +1,4 @@
-﻿import fs from "node:fs";
+import fs from "node:fs";
 import path from "node:path";
 import { renderRepoLocalCliCommands } from './cli-fallback.ts';
 import { getGitSnapshot, getRecentCommitSubjects, isPortableHolisticPath } from './git.ts';
@@ -282,11 +282,11 @@ export function inferSessionStart(rootDir: string, state: HolisticState): Inferr
     const recentCommits = getRecentCommitSubjects(rootDir).filter((subject) => subject !== "docs(holistic): handoff");
     if (recentCommits.length > 0) {
       return {
-        title: "Continue recent git work",
+        title: "Continue recent repo work",
         goal: `Continue work related to: ${sanitizeText(recentCommits[0])}`,
         plan: ["Review the latest commits", "Continue the most recent implementation thread"],
         source: "git",
-        status: "Inferred a session from recent git history.",
+        status: "Inferred a session from recent repo history.",
         nextSteps: ["Review the latest commit context before continuing"],
       };
     }

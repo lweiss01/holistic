@@ -5,9 +5,9 @@ import { createInterface, type Interface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { renderRepoLocalCliCommands } from './core/cli-fallback.ts';
-import { captureRepoSnapshot, clearPendingCommit, commitPendingChanges, writePendingCommit } from './core/git.ts';
+import { captureRepoSnapshot, clearPendingCommit, commitPendingChanges, getBranchName, writePendingCommit } from './core/git.ts';
 import { writeDerivedDocs } from './core/docs.ts';
-import { bootstrapHolistic, initializeHolistic, refreshHolisticHooks, repairHolistic } from './core/setup.ts';
+import { bootstrapHolistic, getSetupStatus, initializeHolistic, refreshHolisticHooks, repairHolistic, type SetupComponentStatus } from './core/setup.ts';
 import { printSplash, printSplashError, renderSplash } from './core/splash.ts';
 import { requestAutoSync } from './core/sync.ts';
 import { runDaemonTick } from './daemon.ts';
@@ -111,14 +111,15 @@ export function renderHelpText(): string {
 
 Usage:
   holistic init [--install-daemon] [--install-hooks] [--platform win32|darwin|linux] [--interval 30] [--remote origin] [--state-ref refs/holistic/state] [--state-branch holistic/state]
-  holistic bootstrap [--platform win32|darwin|linux] [--interval 30] [--remote origin] [--state-ref refs/holistic/state] [--state-branch holistic/state] [--install-daemon false] [--install-hooks false] [--configure-mcp false]
+  holistic bootstrap [--platform win32|darwin|linux] [--interval 30] [--yes]
+  holistic doctor
   holistic repair [--platform win32|darwin|linux] [--refresh-hooks false] [--install-daemon true] [--configure-mcp true]
   holistic start [--agent codex|claude|antigravity|gemini|copilot|cursor|goose|gsd|gsd2] [--continue] [--json]
   holistic resume [--agent codex|claude|antigravity|gemini|copilot|cursor|goose|gsd|gsd2] [--continue] [--json]
-  holistic checkpoint --reason "<reason>" [--goal "<goal>"] [--status "<status>"] [--plan "<step>"]... [--completion-kind natural-breakpoint|task-complete|slice-complete|milestone-complete] [--completion-source agent|system] [--completion-recorded-at <iso8601>]
+  holistic checkpoint --reason "<reason>" [--status "<status>"] [--plan "<step>"]... [--completion-kind natural-breakpoint|task-complete|slice-complete|milestone-complete] [--completion-source agent|system] [--completion-recorded-at <iso8601>]
   holistic checkpoint --fixed "<bug>" [--fix-files "<file>"] [--fix-risk "<what reintroduces it>"]
-  holistic handoff [--draft] [--summary "<summary>"] [--next "<step>"]...
-  holistic start-new --goal "<goal>" [--title "<title>"] [--plan "<step>"]...
+  holistic handoff [--draft] [--summary "<summary>"] [--next "<step>"]... [--commit]
+  holistic start-new [--goal "<goal>"] [--title "<title>"] [--plan "<step>"]...
   holistic status
   holistic diff --from "<session-id>" --to "<session-id>" [--format text|json]
   holistic search --id "<session-id>" [--format text|json]
@@ -307,9 +308,11 @@ export function renderDiff(fromSession: SessionRecord, toSession: SessionRecord,
   return lines.join("\n") + "\n";
 }
 
-export function renderStatus(state: HolisticState): string {
+export function renderStatus(rootDir: string, state: HolisticState): string {
   const lines: string[] = [];
   lines.push("Holistic Status");
+  lines.push("");
+  lines.push(renderSyncStatus(rootDir));
   lines.push("");
 
   if (!state.activeSession) {
@@ -321,7 +324,7 @@ export function renderStatus(state: HolisticState): string {
       lines.push(`Next action: ${state.lastHandoff.nextAction}`);
     }
 
-    if (state.pendingWork.length > 0) {
+    if (state.pendingWork && state.pendingWork.length > 0) {
       lines.push("");
       lines.push(`Pending work: ${state.pendingWork.length} item(s)`);
       for (const item of state.pendingWork.slice(0, 3)) {
@@ -422,14 +425,34 @@ Repo-local CLI: ${initFallback}
 }
 
 async function handleBootstrap(rootDir: string, parsed: ParsedArgs): Promise<number> {
+  const platformFlag = firstFlag(parsed.flags, "platform", process.platform);
+  const platform = platformFlag === "windows" ? "win32" : platformFlag === "macos" ? "darwin" : platformFlag === "linux" ? "linux" : platformFlag;
+  const intervalSeconds = Number.parseInt(firstFlag(parsed.flags, "interval", "30"), 10);
+  const confirmed = firstFlag(parsed.flags, "yes") === "true";
+
+  const status = getSetupStatus(rootDir, {
+    platform: platform as NodeJS.Platform,
+    intervalSeconds,
+  });
+
+  const pending = status.filter(s => s.status !== "ok");
+
+  if (pending.length > 0 && !confirmed) {
+    printSplash({
+      message: "bootstrap pre-flight: pending actions",
+    });
+
+    process.stdout.write("\nHolistic needs to make the following changes to your system:\n\n");
+    printSetupStatusTable(status);
+    process.stdout.write("\nRun with --yes to apply these changes.\n");
+    return 1;
+  }
+
   // Show splash screen
   printSplash({
     message: "bootstrapping holistic on this machine...",
   });
 
-  const platformFlag = firstFlag(parsed.flags, "platform", process.platform);
-  const platform = platformFlag === "windows" ? "win32" : platformFlag === "macos" ? "darwin" : platformFlag === "linux" ? "linux" : platformFlag;
-  const intervalSeconds = Number.parseInt(firstFlag(parsed.flags, "interval", "30"), 10);
   const result = bootstrapHolistic(rootDir, {
     installDaemon: firstFlag(parsed.flags, "install-daemon", "true") !== "false",
     installGitHooks: firstFlag(parsed.flags, "install-hooks", "true") !== "false",
@@ -442,7 +465,6 @@ async function handleBootstrap(rootDir: string, parsed: ParsedArgs): Promise<num
   });
   reportHookWarnings(result.gitHookWarnings);
 
-  // Show status
   const statusItems: string[] = [];
   if (result.installed) {
     statusItems.push("daemon installed");
@@ -469,8 +491,41 @@ Git hooks: ${result.gitHooksInstalled ? result.gitHooks.join(", ") : "not instal
 MCP config: ${result.mcpConfigured ? result.mcpConfigFile : "skipped"}
 Checks: ${result.checks.join(", ")}
 Repo-local CLI: ${bootstrapFallback}
+
+[TIP] To enable remote syncing (Portable State), set "portableState": true in .holistic/config.json
 `);
   return 0;
+}
+
+async function handleDoctor(rootDir: string, parsed: ParsedArgs): Promise<number> {
+  printSplash({
+    message: "running holistic health check...",
+  });
+
+  const status = getSetupStatus(rootDir);
+  process.stdout.write("\nSystem Configuration:\n\n");
+  printSetupStatusTable(status);
+
+  process.stdout.write("\nSync Diagnostics:\n\n");
+  process.stdout.write(renderSyncStatus(rootDir));
+
+  const healthy = status.every(s => s.status === "ok");
+  if (healthy) {
+    process.stdout.write("\n\u2713 Holistic is healthy and correctly configured on this machine.\n");
+  } else {
+    process.stdout.write("\n\u26A0 Some components require attention. Run 'holistic bootstrap' to fix.\n");
+  }
+
+  return 0;
+}
+
+function printSetupStatusTable(status: SetupComponentStatus[]): void {
+  for (const s of status) {
+    const icon = s.status === "ok" ? "\u2713" : s.status === "missing" ? "\u25CB" : s.status === "outdated" ? "\u21BB" : s.status === "info" ? "\u2139" : "!";
+    const label = `${icon} ${s.component.padEnd(20)}`;
+    process.stdout.write(`${label} | ${s.status.padEnd(10)} | ${s.details}\n`);
+    process.stdout.write(`  ${s.description}\n\n`);
+  }
 }
 
 async function handleRepair(rootDir: string, parsed: ParsedArgs): Promise<number> {
@@ -623,25 +678,19 @@ async function handleCheckpoint(rootDir: string, parsed: ParsedArgs): Promise<nu
 async function handleStartNew(rootDir: string, parsed: ParsedArgs): Promise<number> {
   refreshHooksBeforeCommand(rootDir);
   const agent = asAgent(firstFlag(parsed.flags, "agent", "unknown"));
-  const rl = createInterface({ input, output });
 
-  try {
-    const goal = firstFlag(parsed.flags, "goal") || await ask("New session goal", "Capture the next task", rl);
-    const title = firstFlag(parsed.flags, "title");
-    const plan = listFlag(parsed.flags, "plan");
-    const finalPlan = plan.length > 0 ? plan : await promptList("Initial plan steps", ["Read HOLISTIC.md", "Confirm the next concrete step"], rl);
+  const goal = firstFlag(parsed.flags, "goal");
+  const title = firstFlag(parsed.flags, "title");
+  const plan = listFlag(parsed.flags, "plan");
 
-    const mutateResult = mutateState(rootDir, (state) => startNewSession(rootDir, state, agent, goal, finalPlan, title));
-    if (!mutateResult.success || !mutateResult.state) {
-      process.stderr.write(`Error: Failed to start session: ${mutateResult.error}\n`);
-      return 1;
-    }
-
-    process.stdout.write(`Started ${mutateResult.state.activeSession?.id} for goal: ${mutateResult.state.activeSession?.currentGoal}\n`);
-    return 0;
-  } finally {
-    rl.close();
+  const mutateResult = mutateState(rootDir, (state) => startNewSession(rootDir, state, agent, goal, plan, title));
+  if (!mutateResult.success || !mutateResult.state) {
+    process.stderr.write(`Error: Failed to start session: ${mutateResult.error}\n`);
+    return 1;
   }
+
+  process.stdout.write(`Started ${mutateResult.state.activeSession?.id} for goal: ${mutateResult.state.activeSession?.currentGoal}\n`);
+  return 0;
 }
 
 async function handleHandoff(rootDir: string, parsed: ParsedArgs): Promise<number> {
@@ -728,10 +777,11 @@ async function handleHandoff(rootDir: string, parsed: ParsedArgs): Promise<numbe
     }
 
     const nextState = mutateResult.state;
+    const shouldCommit = firstFlag(parsed.flags, "commit") === "true";
 
-    // Execute the pending commit
+    // Execute the pending commit if requested
     let commitResult: { success: boolean; error?: string; sha?: string } | null = null;
-    if (nextState.pendingCommit) {
+    if (nextState.pendingCommit && shouldCommit) {
       commitResult = commitPendingChanges(
         rootDir,
         nextState.pendingCommit.message,
@@ -740,18 +790,28 @@ async function handleHandoff(rootDir: string, parsed: ParsedArgs): Promise<numbe
 
       if (commitResult.success) {
         // Clear pending commit state on success
-        const clearResult = mutateState(rootDir, (latestState, paths) => {
+        mutateState(rootDir, (latestState, paths) => {
           clearPendingCommit(paths);
           return {
             ...latestState,
             pendingCommit: null,
           };
         });
-        
-        if (!clearResult.success) {
-          process.stderr.write(`Warning: Failed to clear pending commit state: ${clearResult.error}\n`);
-        }
       }
+    }
+
+    if (nextState.pendingCommit && !shouldCommit) {
+      process.stdout.write(`
+Handoff prepared successfully!
+Docs updated: ${nextState.pendingCommit.files.join(", ")}
+
+To complete the handoff, review your changes and commit:
+git add .
+git commit -F .holistic/context/pending-commit.txt
+
+Use 'holistic handoff --commit' next time to automate this step safely.
+`);
+      return 0;
     }
 
     // Show handoff results
@@ -819,9 +879,7 @@ function renderSyncStatus(rootDir: string): string {
 async function handleStatus(rootDir: string): Promise<number> {
   refreshHooksBeforeCommand(rootDir);
   const { state } = loadState(rootDir);
-  process.stdout.write(renderStatus(state));
-  process.stdout.write("\n");
-  process.stdout.write(renderSyncStatus(rootDir));
+  process.stdout.write(renderStatus(rootDir, state));
   return 0;
 }
 
@@ -983,6 +1041,8 @@ async function main(): Promise<number> {
       return handleInit(rootDir, parsed);
     case "bootstrap":
       return handleBootstrap(rootDir, parsed);
+    case "doctor":
+      return handleDoctor(rootDir, parsed);
     case "repair":
       return handleRepair(rootDir, parsed);
     case "start":   // user-friendly alias for resume

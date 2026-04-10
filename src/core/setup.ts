@@ -48,6 +48,13 @@ export interface BootstrapResult extends InitResult {
   checks: string[];
 }
 
+export interface SetupComponentStatus {
+  component: "git-hooks" | "git-attributes" | "daemon" | "mcp-config" | "system-helpers" | "claude-code-hooks" | "portable-state";
+  status: "ok" | "missing" | "outdated" | "error" | "info";
+  details: string;
+  description: string;
+}
+
 export interface RepairOptions {
   platform?: NodeJS.Platform;
   homeDir?: string;
@@ -65,6 +72,7 @@ export interface RepairResult extends InitResult {
 interface RepoSetupConfigShape {
   syncDefaults?: {
     autoSync?: boolean;
+    portableState?: boolean;
     syncOnCheckpoint?: boolean;
     syncOnHandoff?: boolean;
     postHandoffPush?: boolean;
@@ -325,6 +333,7 @@ function writeConfig(paths: RuntimePaths, remote: string, syncTarget: SyncTarget
     version: 1,
     autoInferSessions: true,
     autoSync: syncDefaults.autoSync ?? true,
+    portableState: syncDefaults.portableState ?? false,
     sync: syncConfig,
     daemon: {
       intervalSeconds,
@@ -360,18 +369,23 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     `$stateRef = '${quotePowerShell(syncTarget.ref)}'`,
     `$legacySeedRef = '${quotePowerShell(legacySeedRef)}'`,
     `$tracked = @(${powerShellStringArray(trackedPaths)})`,
+    "$log = Join-Path $PSScriptRoot 'sync.log'",
+    "function Log($msg) { \"$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [RESTORE] $msg\" | Out-File -FilePath $log -Append }",
+    "",
     "$status = git -C $root status --porcelain -- $tracked 2>$null",
     "if ($LASTEXITCODE -ne 0) { exit 0 }",
     "if ($status) { Write-Host 'Holistic restore skipped because local Holistic files are dirty.'; exit 0 }",
     "$restored = $false",
     "try {",
-    "  git -C $root fetch --quiet $remote $stateRef *> $null",
+    "  git -C $root fetch --quiet $remote $stateRef 2>> $log",
     "  if ($LASTEXITCODE -eq 0) {",
-    "    git -C $root checkout FETCH_HEAD -- $tracked 2>$null | Out-Null",
+    "    git -C $root checkout FETCH_HEAD -- $tracked 2>> $log | Out-Null",
     "    $restored = $true",
+    "    Log \"Successfully restored state from $stateRef\"",
     "  }",
     "} catch {",
     "  $restored = $false",
+    "  Log \"Failed to restore from $stateRef: $_\"",
     "}",
     "if (-not $restored -and $legacySeedRef) {",
     "  try {",
@@ -390,6 +404,8 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
   const syncPs1 = [
     "$ErrorActionPreference = 'Stop'",
     "if (Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) { $PSNativeCommandUseErrorActionPreference = $false }",
+    "$log = Join-Path $PSScriptRoot 'sync.log'",
+    "function Log($msg) { \"$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [SYNC] $msg\" | Out-File -FilePath $log -Append }",
     "$root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)",
     "if (-not (Test-Path \"$root\\.git\")) {",
     "  Write-Error \"holistic sync-state: ERROR: Could not find .git directory in resolved ROOT: $root\"",
@@ -433,9 +449,14 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     `  git -c core.hooksPath=NUL add ${trackedPaths.map((trackedPath) => `'${quotePowerShell(trackedPath)}'`).join(" ")}`,
     "  git -c core.hooksPath=NUL diff --cached --quiet",
     "  if ($LASTEXITCODE -ne 0) {",
-    "    git -c core.hooksPath=NUL commit -m 'chore(holistic): sync portable state' | Out-Null",
+    "    git -c core.hooksPath=NUL commit -m 'chore(holistic): sync portable state' 2>> $log | Out-Null",
+    "    Log 'Created new sync commit'",
     "  }",
-    "  git -c core.hooksPath=NUL push $remote HEAD:$stateRef",
+    "  git -c core.hooksPath=NUL push $remote HEAD:$stateRef 2>> $log",
+    "  Log \"Successfully pushed state to $remote ($stateRef)\"",
+    "} catch {",
+    "  Log \"Sync failed: $_\"",
+    "  throw $_",
     "} finally {",
     "  Pop-Location",
     "  git -c core.hooksPath=NUL -C $root worktree remove --force $tmp | Out-Null",
@@ -448,14 +469,18 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     `REMOTE='${shellQuote(remote)}'`,
     `STATE_REF='${shellQuote(syncTarget.ref)}'`,
     `LEGACY_SEED_REF='${shellQuote(legacySeedRef)}'`,
+    `LOG_FILE="$(dirname "$0")/sync.log"`,
+    "log_msg() { echo \"$(date '+%Y-%m-%d %H:%M:%S') [RESTORE] $1\" >> \"$LOG_FILE\"; }",
     `if ! git -C "$ROOT" diff --quiet -- ${shellPathList(trackedPaths)} 2>/dev/null; then`,
     "  echo 'Holistic restore skipped because local Holistic files are dirty.'",
     "  exit 0",
     "fi",
     "RESTORED=false",
-    "if git -C \"$ROOT\" fetch \"$REMOTE\" \"$STATE_REF\" >/dev/null 2>&1; then",
-    `  git -C "$ROOT" checkout FETCH_HEAD -- ${shellPathList(trackedPaths)} >/dev/null 2>&1 || true`,
-    "  RESTORED=true",
+    "if git -C \"$ROOT\" fetch \"$REMOTE\" \"$STATE_REF\" >> \"$LOG_FILE\" 2>&1; then",
+    "  if git -C \"$ROOT\" checkout FETCH_HEAD -- ${shellPathList(trackedPaths)} >> \"$LOG_FILE\" 2>&1; then",
+    "    RESTORED=true",
+    "    log_msg \"Successfully restored state from $STATE_REF\"",
+    "  fi",
     "fi",
     "if [ \"$RESTORED\" != \"true\" ] && [ -n \"$LEGACY_SEED_REF\" ]; then",
     "  if git -C \"$ROOT\" fetch \"$REMOTE\" \"$LEGACY_SEED_REF\" >/dev/null 2>&1; then",
@@ -481,6 +506,8 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     `REMOTE='${shellQuote(remote)}'`,
     `STATE_REF='${shellQuote(syncTarget.ref)}'`,
     `LEGACY_SEED_REF='${shellQuote(legacySeedRef)}'`,
+    `LOG_FILE=\"$SCRIPT_DIR/sync.log\"`,
+    "log_msg() { echo \"$(date '+%Y-%m-%d %H:%M:%S') [SYNC] $1\" >> \"$LOG_FILE\"; }",
     "if [ -z \"$REMOTE\" ]; then echo 'holistic sync-state: ERROR: no remote configured. Re-run holistic init --remote <remote>.' >&2; exit 1; fi",
     "TMPDIR=$(mktemp -d 2>/dev/null || mktemp -d -t holistic-state)",
     "git -c core.hooksPath=/dev/null -C \"$ROOT\" worktree add --force \"$TMPDIR\" >/dev/null 2>&1 || exit 1",
@@ -498,19 +525,23 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     "  fi",
     "fi",
     "if [ \"$REMOTE_STATE_EXISTS\" = \"true\" ]; then",
-    "  git -c core.hooksPath=/dev/null fetch --quiet \"$REMOTE\" \"$STATE_REF\" >/dev/null 2>&1 || exit 1",
-    "  git -c core.hooksPath=/dev/null switch --detach FETCH_HEAD >/dev/null 2>&1 || exit 1",
+    "  git -c core.hooksPath=/dev/null fetch --quiet \"$REMOTE\" \"$STATE_REF\" >> \"$LOG_FILE\" 2>&1 || exit 1",
+    "  git -c core.hooksPath=/dev/null switch --detach FETCH_HEAD >> \"$LOG_FILE\" 2>&1 || exit 1",
     "elif [ \"$REMOTE_LEGACY_EXISTS\" = \"true\" ]; then",
-    "  git -c core.hooksPath=/dev/null fetch --quiet \"$REMOTE\" \"$LEGACY_SEED_REF\" >/dev/null 2>&1 || exit 1",
-    "  git -c core.hooksPath=/dev/null switch --detach FETCH_HEAD >/dev/null 2>&1 || exit 1",
+    "  git -c core.hooksPath=/dev/null fetch --quiet \"$REMOTE\" \"$LEGACY_SEED_REF\" >> \"$LOG_FILE\" 2>&1 || exit 1",
+    "  git -c core.hooksPath=/dev/null switch --detach FETCH_HEAD >> \"$LOG_FILE\" 2>&1 || exit 1",
     "else",
-    `  git -c core.hooksPath=/dev/null switch --orphan "${TEMP_SYNC_BRANCH}" >/dev/null 2>&1 || exit 1`,
+    `  git -c core.hooksPath=/dev/null switch --orphan "${TEMP_SYNC_BRANCH}" >> "$LOG_FILE" 2>&1 || exit 1`,
     "fi",
     "find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +",
     ...buildShellCopyCommands(trackedPaths),
     `git -c core.hooksPath=/dev/null add ${trackedPaths.map((trackedPath) => `"${trackedPath}"`).join(" ")}`,
-    "git -c core.hooksPath=/dev/null diff --cached --quiet || git -c core.hooksPath=/dev/null commit -m 'chore(holistic): sync portable state' >/dev/null 2>&1",
-    "git -c core.hooksPath=/dev/null push \"$REMOTE\" HEAD:\"$STATE_REF\"",
+    "if ! git -c core.hooksPath=/dev/null diff --cached --quiet; then",
+    "  git -c core.hooksPath=/dev/null commit -m 'chore(holistic): sync portable state' >> \"$LOG_FILE\" 2>&1",
+    "  log_msg \"Created new sync commit\"",
+    "fi",
+    "git -c core.hooksPath=/dev/null push \"$REMOTE\" HEAD:\"$STATE_REF\" >> \"$LOG_FILE\" 2>&1",
+    "log_msg \"Successfully pushed state to $REMOTE ($STATE_REF)\"",
   ].join("\n");
 
   const runPs1 = [
@@ -1156,4 +1187,132 @@ export function bootstrapHolistic(rootDir: string, options: BootstrapOptions = {
     mcpConfigFile: configuredMcpPath ?? verification.mcpConfigFile,
     checks: verification.checks,
   };
+}
+
+export function getSetupStatus(rootDir: string, options: BootstrapOptions = {}): SetupComponentStatus[] {
+  const { paths } = loadState(rootDir);
+  const platform = options.platform ?? process.platform;
+  const homeDir = options.homeDir ?? os.homedir();
+  const gitDir = resolveGitDir(rootDir);
+  const status: SetupComponentStatus[] = [];
+
+  // 1. Git Attributes
+  const attrPath = path.join(rootDir, ".gitattributes");
+  if (!fs.existsSync(attrPath)) {
+    status.push({
+      component: "git-attributes",
+      status: "missing",
+      details: "No .gitattributes file found.",
+      description: "Registers Holistic files for correct line-ending handling in Git.",
+    });
+  } else {
+    const content = fs.readFileSync(attrPath, "utf8");
+    const hasManaged = content.includes(HOLISTIC_GITATTRIBUTES_BEGIN);
+    status.push({
+      component: "git-attributes",
+      status: hasManaged ? "ok" : "missing",
+      details: hasManaged ? "Managed block detected" : "Managed block missing",
+      description: "Registers Holistic files for correct line-ending handling in Git.",
+    });
+  }
+
+  // 2. Git Hooks
+  if (!gitDir) {
+    status.push({
+      component: "git-hooks",
+      status: "error",
+      details: "Not a git repository",
+      description: "Automates checkpoint creation and state syncing.",
+    });
+  } else {
+    const hookResult = refreshGitHooks(rootDir, gitDir, buildHookCommand(rootDir, paths));
+    const missing = hookResult.hooks.length === 0;
+    const outdated = hookResult.refreshed.length > 0;
+    status.push({
+      component: "git-hooks",
+      status: missing ? "missing" : outdated ? "outdated" : "ok",
+      details: missing ? "No Holistic hooks installed" : outdated ? "Hooks need refresh" : "Hooks are up-to-date",
+      description: "Automates checkpoint creation and state syncing.",
+    });
+  }
+
+  // 3. System Helpers
+  const sysDir = systemDir(paths);
+  const helpersExist = fs.existsSync(localCliCmdPath(sysDir, platform));
+  status.push({
+    component: "system-helpers",
+    status: helpersExist ? "ok" : "missing",
+    details: helpersExist ? "Scripts present in .holistic/system" : "Missing scripts",
+    description: "Repo-local CLI wrappers and sync scripts.",
+  });
+
+  // 4. MCP Config
+  const mcpPath = mcpConfigFile(platform, homeDir);
+  if (!fs.existsSync(mcpPath)) {
+    status.push({
+      component: "mcp-config",
+      status: "missing",
+      details: "Claude Desktop config not found",
+      description: "Integrates Holistic with Claude Desktop.",
+    });
+  } else {
+    const config = readJsonObject(mcpPath);
+    const mcpServers = (config.mcpServers || {}) as Record<string, unknown>;
+    const hasHolistic = "holistic" in mcpServers;
+    status.push({
+      component: "mcp-config",
+      status: hasHolistic ? "ok" : "missing",
+      details: hasHolistic ? "Claude Desktop configured" : "Holistic entry missing in Claude config",
+      description: "Integrates Holistic with Claude Desktop.",
+    });
+  }
+
+  // 5. Daemon
+  const slug = projectSlug(rootDir);
+  const daemonTarget = platform === "win32"
+    ? path.join(homeDir, "AppData", "Roaming", "Microsoft", "Windows", "Start Menu", "Programs", "Startup", `holistic-${slug}.cmd`)
+    : platform === "darwin"
+      ? path.join(homeDir, "Library", "LaunchAgents", `com.holistic.${slug}.plist`)
+      : null;
+
+  if (daemonTarget) {
+    const installed = fs.existsSync(daemonTarget);
+    status.push({
+      component: "daemon",
+      status: installed ? "ok" : "missing",
+      details: installed ? "Startup entry detected" : "No auto-start entry found",
+      description: "Background worker for periodic checkpoints.",
+    });
+  }
+
+  // 6. Claude Code Hooks
+  const claudePresent = fs.existsSync(path.join(rootDir, ".claude"));
+  if (claudePresent) {
+    const hookPath = path.join(rootDir, ".claude", "hooks", "SessionStart");
+    const installed = fs.existsSync(hookPath);
+    status.push({
+      component: "claude-code-hooks",
+      status: installed ? "ok" : "missing",
+      details: installed ? "SessionStart hook present" : "Missing Claude Code hook",
+      description: "Syncs Holistic automatically when starting a Claude Code session.",
+    });
+  }
+
+  // 7. Portable State (Privacy)
+  const config = readExistingRuntimeConfig(paths);
+  // Note: we need to check the raw config file to see if it's explicitly set
+  const rawConfig = readJsonObject(configFile(paths));
+  const isEnabled = rawConfig.portableState === true;
+  status.push({
+    component: "portable-state",
+    status: isEnabled ? "ok" : "info",
+    details: isEnabled ? "Remote-sync enabled" : "Local-only (Privacy Mode)",
+    description: "Syncs session state to a portable Git branch (refs/holistic/state).",
+  });
+
+  return status;
+}
+
+function localCliCmdPath(sysDir: string, platform: NodeJS.Platform): string {
+  return platform === "win32" ? path.join(sysDir, "holistic.cmd") : path.join(sysDir, "holistic");
 }
