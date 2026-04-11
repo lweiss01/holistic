@@ -30,5 +30,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Verify Node.js version
+        run: node --version
+
+      - name: Build
+        run: npm run build
+
       - name: Run tests
         run: npm test
