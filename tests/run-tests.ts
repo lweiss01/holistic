@@ -133,10 +133,10 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
       const posixHelper = fs.readFileSync(posixHelperPath, "utf8");
       const windowsHelper = fs.readFileSync(windowsHelperPath, "utf8");
-      assert.doesNotMatch(posixHelper, /dist[\\/]cli\.ts/);
-      assert.doesNotMatch(windowsHelper, /dist\\cli\.ts/);
-      assert.match(posixHelper, /src[\\/]cli\.ts/);
-      assert.match(windowsHelper, /src\\cli\.ts/);
+      assert.doesNotMatch(posixHelper, /dist[\/\\]cli\.ts/);
+      assert.doesNotMatch(windowsHelper, /dist[\/\\]cli\.ts/);
+      assert.match(posixHelper, /src[\/\\]cli\.ts/);
+      assert.match(windowsHelper, /src[\/\\]cli\.ts/);
     },
   },
   {
