@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.0 - 2026-04-11
+
+Comprehensive Reliability & UX Refinement (M005). This release finalizes the security hardening milestone, introduces granular bootstrap controls, and adds support for explicit portable-state management.
+
+- Added **Granular Bootstrap Flags**: Users can now surgically enable setup items with `--yes-hooks`, `--yes-daemon`, `--yes-mcp`, `--yes-attr`, and `--yes-claude`.
+- Added `--portable` flag to `init` and `bootstrap` to explicitly toggle **Portable State (Privacy Mode)** during setup.
+- Refined **Bootstrap Pre-flight UX**: The pre-flight check now clearly differentiates between "Core Configuration" (covered by `--yes`) and "Optional/Explicit" items.
+- Fixed **Runtime Script Resolution**: Resolved a critical production bug where the CLI incorrectly searched for `.ts` files in built environments; now correctly resolves `.js` files when TypeScript stripping is unavailable.
+- Hardened **Read-Only Diagnostics**: Refactored `holistic doctor` and `getSetupStatus` to be strictly read-only, ensuring health checks never inadvertently modify Git hooks or repository state.
+- Improved **MCP Server Transparency**: Sanitized startup logging to prevent context leakage in system logs while maintaining full context availability via the `holistic_resume` tool.
+- Aligned **Claude Code Hook Detection**: Fixed a bug where `holistic doctor` misreported Claude hook status by incorrectly checking the filesystem instead of `settings.json`.
+
 ## 0.5.5 - 2026-04-10
 
 Major Security & Trust Hardening (M005) to eliminate silent automation and improve auditability.

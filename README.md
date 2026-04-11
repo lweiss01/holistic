@@ -178,12 +178,14 @@ Advanced overrides:
 ```bash
 holistic bootstrap --state-ref refs/holistic/state
 holistic bootstrap --state-branch holistic/state
+holistic bootstrap --portable
 ```
 
-If you want repo scaffolding without changing local desktop integrations or daemon startup on the current machine, use:
+If you want repo scaffolding without changing local desktop integrations or daemon startup on the current machine, you can use granular flags to be surgical:
 
 ```bash
-holistic bootstrap --install-daemon false --configure-mcp false
+# Only install Git hooks and managed attributes
+holistic bootstrap --yes-hooks --yes-attr
 ```
 
 **What to commit:**
@@ -208,7 +210,7 @@ One-time machine setup:
 
 - Run `holistic bootstrap`.
 - By default it scaffolds repo files, installs hooks, sets up daemon startup, and configures supported integrations such as Claude Desktop MCP on the current machine.
-- If you only want repo files and hooks, use `holistic bootstrap --install-daemon false --configure-mcp false`.
+- To be surgical about what is applied, use granular flags like `--yes-hooks`, `--yes-daemon`, or `--yes-mcp`.
 
 Normal use:
 
@@ -308,7 +310,7 @@ The portable repo memory (config, state, context, sessions) is meant to be commi
 ## Commands
 
 | `holistic init` | Base repo setup and scaffolding |
-| `holistic bootstrap` | One-step machine setup. Required `--yes` to apply system changes. |
+| `holistic bootstrap` | One-step machine setup. Required `--yes` for Core Setup, or granular `--yes-*` flags. |
 | `holistic doctor` | Runs health checks on machine setup and sync logs |
 | `holistic repair` | Regenerates `.holistic/system/` helpers |
 | `holistic resume / start --agent <name>` | Loads project recap and prints state |
@@ -416,10 +418,11 @@ For support and troubleshooting, see [SUPPORT.md](./SUPPORT.md).
 Holistic is designed to be **transparent, audit-safe, and consent-first**. It is a shared memory layer that stays in your repo, not a cloud service that watches your screen.
 
 ### Trust Architecture:
-- **Explicit Consent**: `holistic bootstrap` will show you exactly what changes it wants to make to your machine (daemon installation, git hooks, Claude setup) and requires an explicit `--yes` to proceed.
-- **Privacy First**: Remote syncing is **disabled by default**. Set `"portableState": true` in `.holistic/config.json` only if you want to share memory across devices using a hidden git ref.
-- **Traceable Activity**: Background sync operations (PowerShell/Bash) are no longer silent. All activity is logged with timestamps and error details to `.holistic/system/sync.log`.
-- **Health Checks**: Use `holistic doctor` at any time to audit your machine-local setup and verify sync log health.
+- **Granular Consent**: `holistic bootstrap` now uses a "Consent-First" model. It displays a summary of system-modifying actions and requires an explicit `--yes` for the Core Setup (hooks, daemon, MCP, attributes).
+- **Surgical Control**: Use granular flags (`--yes-hooks`, `--yes-daemon`, `--yes-mcp`, `--yes-attr`, `--yes-claude`) to apply only the specific integrations you want.
+- **Privacy Mode vs. Portable Mode**: Holistic defaults to **Privacy Mode** (local-only state). To enable cross-device sync, use the `--portable` flag or set `"portableState": true` in the repo config.
+- **Read-Only Diagnostics**: The `holistic doctor` command and bootstrap pre-flight checks are strictly non-mutating. They audit your environment without making unexpected changes.
+- **Traceable Activity**: Background sync operations (PowerShell/Bash) are visible and logged with timestamps to `.holistic/system/sync.log`.
 - **Git-Native Snapshotting**: The repo snapshot logic uses native `git ls-files`, ensuring that your `.gitignore` rules are perfectly respected and performance stays $O(\text{repo size})$.
 - **Zero Shell Injection**: Internal commit logic has been stripped of shell wrappers to eliminate command injection risks.
 

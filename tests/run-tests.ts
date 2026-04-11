@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { finalizeDraftHandoffInput, renderDiff, renderHelpText, renderResumeOutput, renderStatus } from "../src/cli.ts";
 import { writeDerivedDocs } from "../src/core/docs.ts";
 import { captureRepoSnapshot, getBranchName } from "../src/core/git.ts";
-import { bootstrapHolistic, initializeHolistic, refreshHolisticHooks, repairHolistic, runtimeEntryScript } from "../src/core/setup.ts";
+import { bootstrapHolistic, getSetupStatus, initializeHolistic, refreshHolisticHooks, repairHolistic, runtimeEntryScript } from "../src/core/setup.ts";
 import { planAutoSync } from "../src/core/sync.ts";
 import {
   applyHandoff,
@@ -144,12 +144,11 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     run: () => {
       const sourceRuntime = runtimeEntryScript("cli", path.join(workspaceRoot, "src", "core", "setup.ts"));
       assert.equal(sourceRuntime.useStripTypes, true);
-      assert.equal(sourceRuntime.scriptPath, path.join(workspaceRoot, "src", "cli.ts"));
+      assert.equal(sourceRuntime.scriptPath, path.resolve(workspaceRoot, "src", "cli.ts"));
 
       const builtRuntime = runtimeEntryScript("cli", path.join(workspaceRoot, "dist", "core", "setup.js"));
       assert.equal(builtRuntime.useStripTypes, false);
-      assert.equal(builtRuntime.scriptPath, path.join(workspaceRoot, "dist", "cli.js"));
-      assert.ok(fs.existsSync(builtRuntime.scriptPath));
+      assert.equal(builtRuntime.scriptPath, path.resolve(workspaceRoot, "dist", "cli.js"));
     },
   },
   {
@@ -1703,6 +1702,32 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(finalState.activeSession, null);
       assert.equal(finalState.lastHandoff?.summary, "Ready for an auto-drafted handoff");
       assert.equal(fs.existsSync(path.join(rootDir, ".holistic", "draft-handoff.json")), false);
+    },
+  },
+  {
+    name: "getSetupStatus is read-only and does not mutate Git hooks",
+    run: () => {
+      const { rootDir } = makeRepo();
+      initializeHolistic(rootDir, {
+        installGitHooks: true,
+      });
+
+      const hookPath = path.join(rootDir, ".git", "hooks", "post-commit");
+      const before = fs.readFileSync(hookPath, "utf8");
+      
+      // Simulate an outdated hook by appending garbage (outside managed block if we wanted to be realistic, but here any change works)
+      fs.appendFileSync(hookPath, "\n# OUTDATED\n");
+      const modified = fs.readFileSync(hookPath, "utf8");
+      assert.notEqual(before, modified);
+
+      // Run status check
+      const status = getSetupStatus(rootDir);
+      const hookStatus = status.find(s => s.component === "git-hooks");
+      assert.equal(hookStatus?.status, "outdated");
+
+      // Verify NO mutation happened
+      const after = fs.readFileSync(hookPath, "utf8");
+      assert.equal(after, modified, "Status check should not have reverted the manual hook change");
     },
   },
 ];

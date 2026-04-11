@@ -98,6 +98,71 @@ function writeHookFile(hooksDir: string, hookName: HookName, content: string): v
   fs.writeFileSync(path.join(hooksDir, hookName), content, { encoding: "utf8", mode: 0o755 });
 }
 
+export function getGitHooksStatus(rootDir: string, gitDir: string | null, command: HookCommand): GitHookInstallResult {
+  if (!gitDir || !fs.existsSync(gitDir)) {
+    return { installed: false, hooks: [], refreshed: [], warnings: [] };
+  }
+
+  const hooksDir = path.join(gitDir, "hooks");
+  const rendered = renderGitHooks(rootDir, command);
+  const warnings: string[] = [];
+  const refreshed: string[] = [];
+  const managedHooks = new Set<HookName>();
+  const skippedCustomHooks: HookName[] = [];
+  let hasManagedExistingHook = false;
+
+  for (const hookName of SUPPORTED_HOOKS) {
+    const hookPath = path.join(hooksDir, hookName);
+    if (!fs.existsSync(hookPath)) {
+      continue;
+    }
+
+    const content = fs.readFileSync(hookPath, "utf8");
+    if (isHolisticManagedHook(content)) {
+      hasManagedExistingHook = true;
+      managedHooks.add(hookName);
+      continue;
+    }
+
+    skippedCustomHooks.push(hookName);
+  }
+
+  if (skippedCustomHooks.length > 0) {
+    warnings.push(
+      `Skipped Holistic hook check for ${skippedCustomHooks.join(", ")}: existing hook(s) are user-managed.`,
+    );
+  }
+
+  for (const hookName of SUPPORTED_HOOKS) {
+    const hookPath = path.join(hooksDir, hookName);
+    const expected = rendered[hookName];
+
+    if (!fs.existsSync(hookPath)) {
+      if (hasManagedExistingHook) {
+        refreshed.push(hookName);
+      }
+      continue;
+    }
+
+    const current = fs.readFileSync(hookPath, "utf8");
+    if (!isHolisticManagedHook(current)) {
+      continue;
+    }
+
+    managedHooks.add(hookName);
+    if (normalizeHookContent(current) !== normalizeHookContent(expected)) {
+      refreshed.push(hookName);
+    }
+  }
+
+  return {
+    installed: managedHooks.size > 0,
+    hooks: [...managedHooks],
+    refreshed,
+    warnings,
+  };
+}
+
 function syncGitHooks(rootDir: string, gitDir: string | null, command: HookCommand, mode: HookMode): GitHookInstallResult {
   if (!gitDir || !fs.existsSync(gitDir)) {
     return { installed: false, hooks: [], refreshed: [], warnings: [] };

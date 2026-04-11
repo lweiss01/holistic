@@ -60,7 +60,10 @@ function textResult(text: string, isError = false): CallToolResult {
 function persistLocked(rootDir: string, state: HolisticState, paths: RuntimePaths): HolisticState {
   writeDerivedDocs(paths, state, { mode: "runtime" });
   state.repoSnapshot = captureRepoSnapshot(rootDir);
-  saveState(paths, state, { locked: true });
+  const saveResult = saveState(paths, state, { locked: true });
+  if (!saveResult.success) {
+    throw new Error(`Failed to persist Holistic state: ${saveResult.error}`);
+  }
   return state;
 }
 
@@ -98,14 +101,14 @@ export function buildResumeNotificationText(state: HolisticState, agent: AgentNa
 
 export async function sendResumeNotification(server: Server, rootDir: string, agent: AgentName = DEFAULT_MCP_AGENT): Promise<boolean> {
   const state = ensureMcpResumeState(rootDir, agent);
-  const text = buildResumeNotificationText(state, agent);
-  if (!text) {
-    return false;
-  }
+  
+  // Use a sanitized/minimal message for logging to avoid context leakage.
+  // Agents discover full context by calling holistic_resume tool.
+  const session = state.activeSession;
+  const text = session 
+    ? `🎯 Holistic session active: ${session.title}\nObjective: ${session.currentGoal}\n\nUse holistic_resume tool for full project context.`
+    : `🎯 Holistic: No active session. Use holistic_resume tool to begin.`;
 
-  // Send as logging message for debugging visibility.
-  // NOTE: This is diagnostic only - agents discover context by calling holistic_resume tool.
-  // The enhanced tool description signals importance to agents at startup.
   await server.sendLoggingMessage({
     level: "info",
     logger: "holistic",

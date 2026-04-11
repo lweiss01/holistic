@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { repoLocalCliPaths } from './cli-fallback.ts';
 import { writeDerivedDocs } from './docs.ts';
 import { captureRepoSnapshot, resolveGitDir } from './git.ts';
-import { installGitHooks, refreshGitHooks, type GitHookInstallResult, type HookCommand } from './git-hooks.ts';
+import { installGitHooks, refreshGitHooks, getGitHooksStatus, type GitHookInstallResult, type HookCommand } from './git-hooks.ts';
 import { getRuntimePaths, loadState, saveState } from './state.ts';
 import type { AgentName, HolisticState, RuntimePaths } from './types.ts';
 
@@ -18,6 +18,7 @@ const HOLISTIC_GITATTRIBUTES_END = "# END HOLISTIC MANAGED ATTRIBUTES";
 export interface InitOptions {
   installDaemon?: boolean;
   installGitHooks?: boolean;
+  installGitAttributes?: boolean;
   platform?: NodeJS.Platform;
   homeDir?: string;
   intervalSeconds?: number;
@@ -25,10 +26,12 @@ export interface InitOptions {
   remote?: string;
   stateRef?: string;
   stateBranch?: string;
+  portableState?: boolean;
 }
 
 export interface BootstrapOptions extends InitOptions {
   configureMcp?: boolean;
+  installClaudeHooks?: boolean;
 }
 
 export interface InitResult {
@@ -314,7 +317,7 @@ function buildShellCopyCommands(trackedPaths: string[]): string[] {
   return lines;
 }
 
-function writeConfig(paths: RuntimePaths, remote: string, syncTarget: SyncTarget, intervalSeconds: number): void {
+function writeConfig(paths: RuntimePaths, options: InitOptions, remote: string, syncTarget: SyncTarget, intervalSeconds: number): void {
   const repoConfig = readRepoSetupConfig(paths.rootDir);
   const syncDefaults = repoConfig.syncDefaults ?? {};
   const syncConfig = {
@@ -333,7 +336,7 @@ function writeConfig(paths: RuntimePaths, remote: string, syncTarget: SyncTarget
     version: 1,
     autoInferSessions: true,
     autoSync: syncDefaults.autoSync ?? true,
-    portableState: syncDefaults.portableState ?? false,
+    portableState: options.portableState ?? (syncDefaults.portableState ?? false),
     sync: syncConfig,
     daemon: {
       intervalSeconds,
@@ -1115,12 +1118,15 @@ export function repairHolistic(rootDir: string, options: RepairOptions = {}): Re
 export function initializeHolistic(rootDir: string, options: InitOptions = {}): InitResult {
   const { state, paths } = loadState(rootDir);
   persist(rootDir, state, paths);
-  writeManagedGitAttributes(rootDir, paths);
+
+  if (options.installGitAttributes !== false) {
+    writeManagedGitAttributes(rootDir, paths);
+  }
 
   const intervalSeconds = options.intervalSeconds ?? 30;
   const remote = options.remote ?? "origin";
   const syncTarget = resolveSyncTarget(options);
-  writeConfig(paths, remote, syncTarget, intervalSeconds);
+  writeConfig(paths, options, remote, syncTarget, intervalSeconds);
   writeSystemArtifacts(rootDir, paths, intervalSeconds, remote, syncTarget);
 
   const platform = options.platform ?? process.platform;
@@ -1170,7 +1176,7 @@ export function bootstrapHolistic(rootDir: string, options: BootstrapOptions = {
   const claudeCodePresent = fs.existsSync(path.join(rootDir, ".claude"));
 
   // Slice 3 & 4: install or refresh Claude Code SessionStart hook
-  if (claudeCodePresent) {
+  if (claudeCodePresent && options.installClaudeHooks !== false) {
     const holisticCmd = holisticCmdForPlatform(rootDir, platform);
     installClaudeCodeHooks(rootDir, holisticCmd, platform);
     console.log("\u2713 Claude Code SessionStart hook installed");
@@ -1225,7 +1231,7 @@ export function getSetupStatus(rootDir: string, options: BootstrapOptions = {}):
       description: "Automates checkpoint creation and state syncing.",
     });
   } else {
-    const hookResult = refreshGitHooks(rootDir, gitDir, buildHookCommand(rootDir, paths));
+    const hookResult = getGitHooksStatus(rootDir, gitDir, buildHookCommand(rootDir, paths));
     const missing = hookResult.hooks.length === 0;
     const outdated = hookResult.refreshed.length > 0;
     status.push({
@@ -1288,12 +1294,25 @@ export function getSetupStatus(rootDir: string, options: BootstrapOptions = {}):
   // 6. Claude Code Hooks
   const claudePresent = fs.existsSync(path.join(rootDir, ".claude"));
   if (claudePresent) {
-    const hookPath = path.join(rootDir, ".claude", "hooks", "SessionStart");
-    const installed = fs.existsSync(hookPath);
+    const settingsPath = path.join(rootDir, ".claude", "settings.json");
+    let installed = false;
+    if (fs.existsSync(settingsPath)) {
+      const settings = readJsonObject(settingsPath);
+      const hooks = (settings.hooks || {}) as Record<string, unknown>;
+      const sessionStart = hooks.SessionStart;
+      if (Array.isArray(sessionStart)) {
+        installed = (sessionStart as ClaudeHookGroup[]).some(
+          (group) =>
+            group &&
+            Array.isArray(group.hooks) &&
+            group.hooks.some((h) => h && typeof h.command === "string" && isHolisticCommand(h.command)),
+        );
+      }
+    }
     status.push({
       component: "claude-code-hooks",
       status: installed ? "ok" : "missing",
-      details: installed ? "SessionStart hook present" : "Missing Claude Code hook",
+      details: installed ? "SessionStart hook present in settings.json" : "Missing Claude Code hook",
       description: "Syncs Holistic automatically when starting a Claude Code session.",
     });
   }

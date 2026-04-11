@@ -181,7 +181,7 @@ function runtimeScript(name: "mcp-server"): { scriptPath: string; useStripTypes:
   const useStripTypes = extension === ".ts";
 
   return {
-    scriptPath: path.resolve(runtimeDir, `${name}${useStripTypes ? ".ts" : ".ts"}`),
+    scriptPath: path.resolve(runtimeDir, `${name}${useStripTypes ? ".ts" : ".js"}`),
     useStripTypes,
   };
 }
@@ -381,14 +381,18 @@ async function handleInit(rootDir: string, parsed: ParsedArgs): Promise<number> 
   const platformFlag = firstFlag(parsed.flags, "platform", process.platform);
   const platform = platformFlag === "windows" ? "win32" : platformFlag === "macos" ? "darwin" : platformFlag === "linux" ? "linux" : platformFlag;
   const intervalSeconds = Number.parseInt(firstFlag(parsed.flags, "interval", "30"), 10);
+  const portableState = firstFlag(parsed.flags, "portable") === "true" ? true : firstFlag(parsed.flags, "portable") === "false" ? false : undefined;
+  
   const result = initializeHolistic(rootDir, {
-    installDaemon: firstFlag(parsed.flags, "install-daemon") === "true",
-    installGitHooks: firstFlag(parsed.flags, "install-hooks") === "true",
+    installDaemon: firstFlag(parsed.flags, "yes-daemon") === "true",
+    installGitHooks: firstFlag(parsed.flags, "yes-hooks") === "true",
+    installGitAttributes: firstFlag(parsed.flags, "yes-attr", "true") !== "false",
     platform: platform as NodeJS.Platform,
     intervalSeconds,
     remote: firstFlag(parsed.flags, "remote", "origin"),
     stateRef: firstFlag(parsed.flags, "state-ref"),
     stateBranch: firstFlag(parsed.flags, "state-branch"),
+    portableState,
   });
   reportHookWarnings(result.gitHookWarnings);
 
@@ -442,9 +446,18 @@ async function handleBootstrap(rootDir: string, parsed: ParsedArgs): Promise<num
       message: "bootstrap pre-flight: pending actions",
     });
 
-    process.stdout.write("\nHolistic needs to make the following changes to your system:\n\n");
+    process.stdout.write("\nHolistic needs to make the following changes to your system (some outside this repo):\n\n");
     printSetupStatusTable(status);
-    process.stdout.write("\nRun with --yes to apply these changes.\n");
+    
+    process.stdout.write("\nRun with --yes to apply the Core Configuration:\n");
+    process.stdout.write("  ✓ Git hooks, Background daemon, MCP config, Git attributes\n");
+    
+    process.stdout.write("\nOptional / Explicit flags:\n");
+    process.stdout.write("  --yes-claude   Install Claude Code SessionStart hooks\n");
+    process.stdout.write("  --portable     Enable Portable State (remote-sync via git ref)\n");
+    
+    process.stdout.write("\nGranular overrides:\n");
+    process.stdout.write("  --yes-hooks, --yes-daemon, --yes-mcp, --yes-attr\n");
     return 1;
   }
 
@@ -453,10 +466,20 @@ async function handleBootstrap(rootDir: string, parsed: ParsedArgs): Promise<num
     message: "bootstrapping holistic on this machine...",
   });
 
+  const installDaemon = firstFlag(parsed.flags, "yes-daemon") === "true" || (confirmed && firstFlag(parsed.flags, "install-daemon", "true") !== "false");
+  const installGitHooks = firstFlag(parsed.flags, "yes-hooks") === "true" || (confirmed && firstFlag(parsed.flags, "install-hooks", "true") !== "false");
+  const configureMcp = firstFlag(parsed.flags, "yes-mcp") === "true" || (confirmed && firstFlag(parsed.flags, "configure-mcp", "true") !== "false");
+  const installGitAttributes = firstFlag(parsed.flags, "yes-attr") === "true" || confirmed;
+  const installClaudeHooks = firstFlag(parsed.flags, "yes-claude") === "true";
+  const portableState = firstFlag(parsed.flags, "portable") === "true" ? true : firstFlag(parsed.flags, "portable") === "false" ? false : undefined;
+
   const result = bootstrapHolistic(rootDir, {
-    installDaemon: firstFlag(parsed.flags, "install-daemon", "true") !== "false",
-    installGitHooks: firstFlag(parsed.flags, "install-hooks", "true") !== "false",
-    configureMcp: firstFlag(parsed.flags, "configure-mcp", "true") !== "false",
+    installDaemon,
+    installGitHooks,
+    installGitAttributes,
+    installClaudeHooks,
+    configureMcp,
+    portableState,
     platform: platform as NodeJS.Platform,
     intervalSeconds,
     remote: firstFlag(parsed.flags, "remote", "origin"),
@@ -679,9 +702,18 @@ async function handleStartNew(rootDir: string, parsed: ParsedArgs): Promise<numb
   refreshHooksBeforeCommand(rootDir);
   const agent = asAgent(firstFlag(parsed.flags, "agent", "unknown"));
 
-  const goal = firstFlag(parsed.flags, "goal");
+  let goal = firstFlag(parsed.flags, "goal");
   const title = firstFlag(parsed.flags, "title");
   const plan = listFlag(parsed.flags, "plan");
+
+  if (!goal) {
+    goal = await ask("Current objective / goal");
+  }
+
+  if (!goal) {
+    process.stderr.write("Error: A goal is required to start a new session.\n");
+    return 1;
+  }
 
   const mutateResult = mutateState(rootDir, (state) => startNewSession(rootDir, state, agent, goal, plan, title));
   if (!mutateResult.success || !mutateResult.state) {
