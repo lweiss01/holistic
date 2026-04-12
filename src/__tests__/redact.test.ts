@@ -81,11 +81,22 @@ Keep it safe.`;
     },
   },
   {
-    name: "sanitizeText preserves normal text",
+    name: "sanitizeText preserves common non-secret strings",
     run: () => {
-      const input = "The quick brown fox jumps over the lazy dog.";
-      const output = sanitizeText(input);
-      assert.strictEqual(output, input);
+      const inputs = [
+        "index.js",
+        "file:package.json",
+        "Bearer of bad news",
+        "JWT is a standard",
+        "The project status is ok",
+        "session-123",
+        "taskId: 456",
+        "http://localhost:3000"
+      ];
+      for (const input of inputs) {
+        const output = sanitizeText(input);
+        assert.strictEqual(output, input, `Failed to preserve: ${input}`);
+      }
     },
   },
 ];

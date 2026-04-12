@@ -80,6 +80,7 @@ export interface ConfigFinding {
   field: string;
   message: string;
   status: "missing" | "malformed" | "unsupported" | "safe-fallback";
+  fix?: string;
 }
 
 export interface RuntimeConfig {
@@ -1027,7 +1028,8 @@ export function validateRuntimeConfig(paths: RuntimePaths): ConfigFinding[] {
       level: "warn",
       field: "config.json",
       message: "Configuration file is missing; using system defaults.",
-      status: "missing"
+      status: "missing",
+      fix: "Run 'holistic init' to generate a default configuration."
     }];
   }
 
@@ -1036,16 +1038,40 @@ export function validateRuntimeConfig(paths: RuntimePaths): ConfigFinding[] {
 
   // mcpLogging validation
   if (!("mcpLogging" in raw)) {
-    findings.push({ level: "info", field: "mcpLogging", message: "mcpLogging not specified; defaulting to 'minimal'.", status: "missing" });
+    findings.push({ 
+      level: "info", 
+      field: "mcpLogging", 
+      message: "mcpLogging not specified; defaulting to 'minimal'.", 
+      status: "missing",
+      fix: "Set 'mcpLogging' to off|minimal|default in .holistic/config.json"
+    });
   } else if (typeof raw.mcpLogging !== "string" || !["off", "minimal", "default"].includes(raw.mcpLogging)) {
-    findings.push({ level: "warn", field: "mcpLogging", message: `Invalid value '${raw.mcpLogging}'; using 'minimal'.`, status: "malformed" });
+    findings.push({ 
+      level: "warn", 
+      field: "mcpLogging", 
+      message: `Invalid value '${raw.mcpLogging}'; using 'minimal'.`, 
+      status: "malformed",
+      fix: "Use one of: off, minimal, default"
+    });
   }
 
   // portableState validation
   if (!("portableState" in raw)) {
-    findings.push({ level: "info", field: "portableState", message: "portableState not specified; defaulting to false.", status: "missing" });
+    findings.push({ 
+      level: "info", 
+      field: "portableState", 
+      message: "portableState not specified; defaulting to false.", 
+      status: "missing",
+      fix: "Set 'portableState': true to enable remote sync"
+    });
   } else if (typeof raw.portableState !== "boolean") {
-    findings.push({ level: "warn", field: "portableState", message: "portableState must be a boolean; using false.", status: "malformed" });
+    findings.push({ 
+      level: "warn", 
+      field: "portableState", 
+      message: "portableState must be a boolean; using false.", 
+      status: "malformed",
+      fix: "Set 'portableState' to true or false"
+    });
   }
 
   const daemon = (raw.daemon && typeof raw.daemon === "object") ? raw.daemon as Record<string, unknown> : null;
@@ -1053,9 +1079,21 @@ export function validateRuntimeConfig(paths: RuntimePaths): ConfigFinding[] {
     findings.push({ level: "info", field: "daemon", message: "daemon section missing; using defaults.", status: "missing" });
   } else {
     if (!("intervalSeconds" in daemon)) {
-      findings.push({ level: "info", field: "daemon.intervalSeconds", message: "intervalSeconds missing; using 30s.", status: "missing" });
+      findings.push({ 
+        level: "info", 
+        field: "daemon.intervalSeconds", 
+        message: "intervalSeconds missing; using 30s.", 
+        status: "missing",
+        fix: "Define 'daemon.intervalSeconds' as a positive integer"
+      });
     } else if (typeof daemon.intervalSeconds !== "number" || daemon.intervalSeconds <= 0) {
-      findings.push({ level: "warn", field: "daemon.intervalSeconds", message: "intervalSeconds must be a positive number; using 30s.", status: "malformed" });
+      findings.push({ 
+        level: "warn", 
+        field: "daemon.intervalSeconds", 
+        message: "intervalSeconds must be a positive number; using 30s.", 
+        status: "malformed",
+        fix: "Ensure intervalSeconds is a positive integer (e.g. 30, 60)"
+      });
     }
   }
 
@@ -1064,11 +1102,23 @@ export function validateRuntimeConfig(paths: RuntimePaths): ConfigFinding[] {
     findings.push({ level: "info", field: "sync", message: "sync section missing; using 'origin' and default state branch.", status: "missing" });
   } else {
     if (typeof sync.remote !== "string" || sync.remote.trim() === "") {
-      findings.push({ level: "warn", field: "sync.remote", message: "Invalid or missing remote; using 'origin'.", status: "malformed" });
+      findings.push({ 
+        level: "warn", 
+        field: "sync.remote", 
+        message: "Invalid or missing remote; using 'origin'.", 
+        status: "malformed",
+        fix: "Specify a valid Git remote name (e.g. origin, upstream)"
+      });
     }
     const hasStrategy = (sync.strategy === "state-ref" || sync.strategy === "state-branch");
     if (sync.strategy && !hasStrategy) {
-      findings.push({ level: "warn", field: "sync.strategy", message: "Invalid sync strategy; defaulting to state-ref behavior.", status: "unsupported" });
+      findings.push({ 
+        level: "warn", 
+        field: "sync.strategy", 
+        message: "Invalid sync strategy; defaulting to state-ref behavior.", 
+        status: "unsupported",
+        fix: "Use 'state-ref' (recommended) or 'state-branch'"
+      });
     }
   }
 

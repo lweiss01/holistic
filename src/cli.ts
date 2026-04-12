@@ -446,7 +446,7 @@ async function handleBootstrap(rootDir: string, parsed: ParsedArgs): Promise<num
     intervalSeconds,
   });
 
-  const pending = status.filter(s => s.status !== "ok");
+  const pending = status.filter(s => s.status !== "ok" && s.status !== "info");
 
   if (pending.length > 0 && !confirmed) {
     printSplash({
@@ -528,21 +528,39 @@ Repo-local CLI: ${bootstrapFallback}
 }
 
 async function handleDoctor(rootDir: string, parsed: ParsedArgs): Promise<number> {
-  printSplash({
-    message: "running holistic health check...",
-  });
+  const isJson = firstFlag(parsed.flags, "json") === "true";
+  if (!isJson) {
+    printSplash({
+      message: "running holistic health check...",
+    });
+  }
 
   const paths = getRuntimePaths(rootDir);
   const status = getSetupStatus(rootDir);
+  const findings = validateRuntimeConfig(paths);
+  const syncStatus = getSyncStatus(rootDir);
+
+  if (isJson) {
+    printJson({
+      status: status.every(s => s.status === "ok" || s.status === "info") && findings.every(f => f.level !== "error") ? "healthy" : "attention_needed",
+      composition: status,
+      config: findings,
+      sync: syncStatus,
+    });
+    return 0;
+  }
+
   process.stdout.write("\nSystem Configuration:\n\n");
   printSetupStatusTable(status);
 
-  const findings = validateRuntimeConfig(paths);
   if (findings.length > 0) {
     process.stdout.write("\nConfiguration Diagnostics:\n\n");
     for (const f of findings) {
       const icon = f.level === "error" ? "✖" : f.level === "warn" ? "⚠" : "ℹ";
       process.stdout.write(`${icon} ${f.field.padEnd(20)} | ${f.level.padEnd(10)} | ${f.message}\n`);
+      if (f.fix) {
+        process.stdout.write(`  \u2192 Suggestion: ${f.fix}\n`);
+      }
     }
     const errors = findings.filter(f => f.level === "error").length;
     const warns = findings.filter(f => f.level === "warn").length;
@@ -554,9 +572,9 @@ async function handleDoctor(rootDir: string, parsed: ParsedArgs): Promise<number
   }
 
   process.stdout.write("\nSync Diagnostics:\n\n");
-  process.stdout.write(renderSyncStatus(rootDir));
+  process.stdout.write(renderSyncStatusFromData(syncStatus));
 
-  const healthy = status.every(s => s.status === "ok");
+  const healthy = status.every(s => s.status === "ok" || s.status === "info");
   if (healthy && findings.every(f => f.level !== "error")) {
     process.stdout.write("\n\u2713 Holistic is healthy and correctly configured on this machine.\n");
   } else {
@@ -891,42 +909,54 @@ Use 'holistic handoff --commit' next time to automate this step safely.
   }
 }
 
-function renderSyncStatus(rootDir: string): string {
+export function getSyncStatus(rootDir: string): { fileFound: boolean; lastLine: string | null; recentErrors: string[] } {
   const syncLogPath = path.join(rootDir, ".holistic", "system", "sync.log");
   if (!fs.existsSync(syncLogPath)) {
-    return "Sync log: not found (run holistic init to configure auto-sync)\n";
+    return { fileFound: false, lastLine: null, recentErrors: [] };
   }
 
-  const lines: string[] = [];
   try {
     const content = fs.readFileSync(syncLogPath, "utf8");
     const logLines = content.split("\n").filter(Boolean);
 
     // Find the last non-error line as a proxy for last successful sync timestamp
-    const lastLine = logLines.at(-1) ?? "";
+    const lastLine = logLines.at(-1) ?? null;
     const recentErrors = logLines
       .slice(-50)
       .filter((l) => /error|fatal|failed/i.test(l));
 
-    if (lastLine) {
-      lines.push(`Sync log last entry: ${lastLine.slice(0, 120)}`);
-    } else {
-      lines.push("Sync log: empty");
-    }
-
-    if (recentErrors.length > 0) {
-      lines.push(`Sync errors (last 50 lines): ${recentErrors.length} error(s) found`);
-      for (const err of recentErrors.slice(-3)) {
-        lines.push(`  ${err.slice(0, 120)}`);
-      }
-    } else {
-      lines.push("Sync errors: none detected in recent log");
-    }
+    return { fileFound: true, lastLine, recentErrors };
   } catch {
-    lines.push("Sync log: unable to read");
+    return { fileFound: true, lastLine: "Error reading log", recentErrors: [] };
+  }
+}
+
+export function renderSyncStatusFromData(data: { fileFound: boolean; lastLine: string | null; recentErrors: string[] }): string {
+  if (!data.fileFound) {
+    return "Sync log: not found (run holistic init to configure auto-sync)\n";
+  }
+
+  const lines: string[] = [];
+  if (data.lastLine) {
+    lines.push(`Sync log last entry: ${data.lastLine.slice(0, 120)}`);
+  } else {
+    lines.push("Sync log: empty");
+  }
+
+  if (data.recentErrors.length > 0) {
+    lines.push(`Sync errors (last 50 lines): ${data.recentErrors.length} error(s) found`);
+    for (const err of data.recentErrors.slice(-3)) {
+      lines.push(`  ${err.slice(0, 120)}`);
+    }
+  } else {
+    lines.push("Sync log: healthy (no recent errors detected)");
   }
 
   return lines.join("\n") + "\n";
+}
+
+export function renderSyncStatus(rootDir: string): string {
+  return renderSyncStatusFromData(getSyncStatus(rootDir));
 }
 
 async function handleStatus(rootDir: string): Promise<number> {

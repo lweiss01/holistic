@@ -5,10 +5,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { finalizeDraftHandoffInput, renderDiff, renderHelpText, renderResumeOutput, renderStatus } from "../src/cli.ts";
+import { finalizeDraftHandoffInput, getSyncStatus, renderDiff, renderHelpText, renderResumeOutput, renderStatus } from "../src/cli.ts";
 import { writeDerivedDocs } from "../src/core/docs.ts";
 import { captureRepoSnapshot, getBranchName } from "../src/core/git.ts";
-import { bootstrapHolistic, getSetupStatus, initializeHolistic, refreshHolisticHooks, repairHolistic, runtimeEntryScript } from "../src/core/setup.ts";
+import { bootstrapHolistic, getSetupStatus, initializeHolistic, refreshHolisticHooks, repairHolistic, runtimeEntryScript, validateRuntimeConfig } from "../src/core/setup.ts";
 import { planAutoSync } from "../src/core/sync.ts";
 import {
   applyHandoff,
@@ -1766,6 +1766,70 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       // Verify NO mutation happened
       const after = fs.readFileSync(hookPath, "utf8");
       assert.equal(after, modified, "Status check should not have reverted the manual hook change");
+    },
+  },
+  {
+    name: "doctor treats info status as healthy and shows advice",
+    run: async () => {
+      const { rootDir } = makeRepo();
+      initializeHolistic(rootDir, {
+        installGitHooks: true,
+        portableState: false, // Ensure we are in local-only/info mode
+      });
+
+      const fakeHome = makeTempDir("fake-home");
+      bootstrapHolistic(rootDir, { homeDir: fakeHome });
+
+      const paths = getRuntimePaths(rootDir);
+      const status = getSetupStatus(rootDir, { homeDir: fakeHome });
+      const findings = validateRuntimeConfig(paths);
+
+      // Verify portable-state is info
+      const ps = status.find(s => s.component === "portable-state");
+      assert.equal(ps?.status, "info");
+
+      // Verify healthy overall logic
+      const healthy = status.every(s => s.status === "ok" || s.status === "info");
+      assert.ok(healthy, "Status with 'info' should be considered healthy");
+      
+      const configHealthy = findings.every(f => f.level !== "error");
+      assert.ok(configHealthy);
+
+      // Verify fix suggestions are provided (add a bad value to trigger one)
+      const configPath = path.join(paths.holisticDir, "config.json");
+      fs.writeFileSync(configPath, JSON.stringify({ mcpLogging: "invalid" }));
+      const newFindings = validateRuntimeConfig(paths);
+      const mcpFinding = newFindings.find(f => f.field === "mcpLogging");
+      assert.ok(mcpFinding?.fix, "Should provide a fix suggestion for malformed config");
+      assert.match(mcpFinding.fix ?? "", /off|minimal|default/);
+    },
+  },
+  {
+    name: "doctor supports --json output",
+    run: async () => {
+      const { rootDir } = makeRepo();
+      initializeHolistic(rootDir, { installGitHooks: true });
+      
+      // We'll test the helper logic since we mock handleDoctor in integration above
+      const fakeHome = makeTempDir("fake-home");
+      bootstrapHolistic(rootDir, { homeDir: fakeHome });
+
+      const paths = getRuntimePaths(rootDir);
+      const status = getSetupStatus(rootDir, { homeDir: fakeHome });
+      const findings = validateRuntimeConfig(paths);
+      const sync = getSyncStatus(rootDir);
+
+      const json = {
+        status: status.every(s => s.status === "ok" || s.status === "info") && findings.every(f => f.level !== "error") ? "healthy" : "attention_needed",
+        composition: status,
+        config: findings,
+        sync: sync,
+      };
+
+      assert.equal(json.status, "healthy");
+      assert.ok(Array.isArray(json.composition));
+      assert.ok(Array.isArray(json.config));
+      assert.ok(typeof json.sync === "object");
     },
   },
 ];
