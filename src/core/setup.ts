@@ -2,12 +2,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { repoLocalCliPaths } from './cli-fallback.ts';
-import { writeDerivedDocs } from './docs.ts';
-import { captureRepoSnapshot, resolveGitDir } from './git.ts';
-import { installGitHooks, refreshGitHooks, getGitHooksStatus, type GitHookInstallResult, type HookCommand } from './git-hooks.ts';
-import { getRuntimePaths, loadState, saveState } from './state.ts';
-import type { AgentName, HolisticState, RuntimePaths } from './types.ts';
+import { repoLocalCliPaths } from './cli-fallback.js';
+import { writeDerivedDocs } from './docs.js';
+import { captureRepoSnapshot, resolveGitDir } from './git.js';
+import { installGitHooks, refreshGitHooks, getGitHooksStatus, type GitHookInstallResult, type HookCommand } from './git-hooks.js';
+import { getRuntimePaths, loadState, saveState } from './state.js';
+import type { AgentName, HolisticState, RuntimePaths } from './types.js';
 
 const DEFAULT_STATE_REF = "refs/holistic/state";
 const DEFAULT_LEGACY_STATE_BRANCH = "holistic/state";
@@ -979,6 +979,8 @@ export function readExistingRuntimeConfig(paths: RuntimePaths): { remote: string
       remote,
       syncTarget: resolveSyncTarget({ stateRef: sync.stateRef }),
       intervalSeconds,
+      portableState,
+      mcpLogging,
     };
   }
 
