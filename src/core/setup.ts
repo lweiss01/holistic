@@ -112,7 +112,8 @@ interface SyncTarget {
 }
 
 function persist(rootDir: string, state: HolisticState, paths: RuntimePaths): HolisticState {
-  writeDerivedDocs(paths, state);
+  const config = readExistingRuntimeConfig(paths);
+  writeDerivedDocs(paths, state, { safeMode: config.safeMode });
   state.repoSnapshot = captureRepoSnapshot(rootDir);
   saveState(paths, state);
   return state;

@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { renderRepoLocalCliCommands } from './core/cli-fallback.ts';
 import { captureRepoSnapshot, clearPendingCommit, commitPendingChanges, getBranchName, writePendingCommit } from './core/git.ts';
 import { writeDerivedDocs } from './core/docs.ts';
-import { bootstrapHolistic, checkHolisticHooksStatus, getSetupStatus, initializeHolistic, refreshHolisticHooks, repairHolistic, validateRuntimeConfig, type SetupComponentStatus } from './core/setup.ts';
+import { bootstrapHolistic, checkHolisticHooksStatus, getSetupStatus, initializeHolistic, readExistingRuntimeConfig, refreshHolisticHooks, repairHolistic, validateRuntimeConfig, type SetupComponentStatus } from './core/setup.ts';
 import { printSplash, printSplashError, renderSplash } from './core/splash.ts';
 import { requestAutoSync } from './core/sync.ts';
 import { runDaemonTick } from './daemon.ts';
@@ -116,7 +116,7 @@ Setup Commands:
 
 Read-Only & Diagnostic Commands:
   holistic status       | View current repository health and sync status.
-  holistic doctor       | Run deep diagnostics and configuration validation.
+  holistic doctor [--json] | Run deep diagnostics and verify system health.
   holistic diff         | Compare session state between two points in time.
   holistic search       | Find and retrieve session state by ID.
   holistic resume       | Load the latest project recap and continue work.
@@ -163,7 +163,8 @@ function refreshHooksBeforeCommand(rootDir: string): void {
 }
 
 function persistLocked(rootDir: string, state: HolisticState, paths: RuntimePaths): { success: boolean; state?: HolisticState; error?: string } {
-  writeDerivedDocs(paths, state, { mode: "runtime" });
+  const config = readExistingRuntimeConfig(paths);
+  writeDerivedDocs(paths, state, { mode: "runtime", safeMode: config.safeMode });
   state.repoSnapshot = captureRepoSnapshot(rootDir);
   const saveResult = saveState(paths, state, { locked: true });
   if (!saveResult.success) {

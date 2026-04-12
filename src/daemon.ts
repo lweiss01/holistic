@@ -1,7 +1,7 @@
 import { pathToFileURL } from "node:url";
 import { captureRepoSnapshot, getGitSnapshot, isPortableHolisticPath } from './core/git.ts';
 import { writeDerivedDocs } from './core/docs.ts';
-import { refreshHolisticHooks } from './core/setup.ts';
+import { readExistingRuntimeConfig, refreshHolisticHooks } from './core/setup.ts';
 import { requestAutoSync } from './core/sync.ts';
 import {
   checkpointState,
@@ -73,7 +73,8 @@ function summarizeFiles(files: string[]): string {
 }
 
 function persistLocked(rootDir: string, state: HolisticState, paths: RuntimePaths): { success: boolean; state?: HolisticState; error?: string } {
-  writeDerivedDocs(paths, state, { mode: "runtime" });
+  const config = readExistingRuntimeConfig(paths);
+  writeDerivedDocs(paths, state, { mode: "runtime", safeMode: config.safeMode });
   state.repoSnapshot = captureRepoSnapshot(rootDir);
   const saveResult = saveState(paths, state, { locked: true });
   if (!saveResult.success) {

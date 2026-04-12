@@ -116,17 +116,13 @@ The next agent picks up without a long re-explanation
 
 Holistic is designed to be **transparent, audit-safe, and consent-first**.
 
-- **Read-Only by Default** — routine commands warn instead of mutating  
-- **Explicit Consent** — system changes require `bootstrap` or `repair`  
-- **Granular Control** — apply only what you want (`--yes-*` flags)  
-- **Privacy Mode** — sync disabled by default with enforced guards  
-- **MCP Logging Controls** — configurable visibility  
-- **Redaction** — JWTs, tokens, AWS keys, and PEM blocks scrubbed  
-- **Containment** — Enforced repository boundaries for all output paths (M009)  
-- **Integrity** — Corrupt state files are preserved, not discarded, for auditability (M009)  
-- **Safe Mode** — Minimal instruction mode for privacy-conscious environments (M009)  
-- **Traceable Activity** — logs written locally  
-- **Git-native behavior** — respects `.gitignore`  
+The current version of Holistic (**v0.6.5**) includes:
+
+- **Repository Path Containment**: Enforced boundaries for all repo-configured output paths.
+- **State Integrity Protection**: Corrupted `state.json` files are preserved as `.corrupt-*.json` and surfaced as a **Degraded Mode** diagnostic instead of being silently lost.
+- **Safe Mode**: A minimal-instruction mode for privacy-conscious or highly-constrained environments.
+- **Non-Mutating Build**: The build pipeline now stages sources, ensuring `src/` remains immutable.
+- **Read-Only MCP Server**: The server startup and client connection routines are strictly non-mutating (warning-only staleness checks).
 
 For full details, see [SECURITY.md](./SECURITY.md).
 
@@ -319,7 +315,7 @@ The portable repo memory (config, state, context, sessions) is meant to be commi
 | :--- | :--- |
 | `holistic init` | Base repo setup and scaffolding |
 | `holistic bootstrap` | One-step machine setup. Required `--yes` for Core Setup, or granular `--yes-*` flags. |
-| `holistic doctor` | Health checks and configuration diagnostics **(Read-only)** |
+| `holistic doctor` | Health check & config diagnostics (supports `--json`) |
 | `holistic repair` | Regenerates `.holistic/system/` local helpers |
 | `holistic resume / start` | Loads project recap and prints state **(Read-only)** |
 | `holistic start-new` | Starts a fresh session |
@@ -328,7 +324,7 @@ The portable repo memory (config, state, context, sessions) is meant to be commi
 | `holistic status` | Shows current state and sync activity **(Read-only)** |
 | `holistic diff` | Compares two session IDs **(Read-only)** |
 | `holistic search` | Finds and retrieves session state **(Read-only)** |
-| `holistic serve` | Runs the thin MCP server **(Read-only)** |
+| `holistic serve` | Strictly read-only MCP server (stdio) |
 | `holistic watch` | Foreground daemon; automatically creates checkpoints **(Mutating)** |
 
 ### Slash command helper text (agent-facing)

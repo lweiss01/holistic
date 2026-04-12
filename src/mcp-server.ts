@@ -344,9 +344,12 @@ export async function waitForStdioShutdown(stdin: Pick<NodeJS.ReadStream, "once"
 }
 
 export async function runMcpServer(rootDir: string): Promise<void> {
-  const hookResult = refreshHolisticHooks(rootDir);
+  const hookResult = checkHolisticHooksStatus(rootDir);
   for (const warning of hookResult.warnings) {
     console.error(warning);
+  }
+  if (hookResult.refreshed.length > 0) {
+    console.error(`Holistic: ${hookResult.refreshed.length} hooks need refresh. Run 'holistic repair' to align them.`);
   }
   const transport = new StdioServerTransport();
   const server = createHolisticMcpServer(rootDir);

@@ -323,7 +323,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.match(help, /Setup Commands:/);
       assert.match(help, /Read-Only & Diagnostic Commands:/);
       assert.match(help, /Stateful & Mutating Commands:/);
-      assert.match(help, /holistic doctor\s+\| Run deep diagnostics/);
+      assert.match(help, /holistic doctor \[--json\]\s+\| Run deep diagnostics and verify system health/);
       assert.match(help, /Checkpoint examples:/);
       assert.match(help, /Use handoff as the final safety valve/);
     },
@@ -1831,6 +1831,28 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.ok(Array.isArray(json.composition));
       assert.ok(Array.isArray(json.config));
       assert.ok(typeof json.sync === "object");
+    },
+  },
+  {
+    name: "safeMode propagation: config enables minimal instructions in HOLISTIC.md",
+    run: () => {
+      const { rootDir } = makeRepo();
+      initializeHolistic(rootDir);
+      const paths = getRuntimePaths(rootDir);
+      const state = createInitialState(rootDir);
+      
+      // Control: standard mode
+      writeDerivedDocs(paths, state, { safeMode: false });
+      const fullContent = fs.readFileSync(paths.masterDoc, "utf8");
+      
+      // Experiment: safe mode
+      writeDerivedDocs(paths, state, { safeMode: true });
+      const safeContent = fs.readFileSync(paths.masterDoc, "utf8");
+      
+      assert.ok(fullContent.length > safeContent.length, "Safe mode content should be smaller than full content");
+      assert.match(safeContent, /MINIMAL INSTRUCTIONS/);
+      assert.match(safeContent, /Review the handoff docs/);
+      assert.doesNotMatch(safeContent, /## Core Context/); // Should be omitted in safe mode
     },
   },
 ];

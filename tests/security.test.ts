@@ -117,7 +117,7 @@ export const tests = [
       assert.match(masterDoc, /# HOLISTIC \(Safe Mode\)/);
       assert.match(masterDoc, /MINIMAL INSTRUCTIONS/);
       assert.doesNotMatch(masterDoc, /AGENT INSTRUCTIONS - READ THIS ENTIRE FILE/);
-      assert.match(masterDoc, /<!-- Holistic version: 0.6.4 -->/);
+      assert.match(masterDoc, /<!-- Holistic version: 0.6.5 -->/);
     }
   }
 ];

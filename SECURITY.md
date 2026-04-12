@@ -29,8 +29,8 @@ Holistic is built around a small set of core security and trust principles:
 4. **User control and reversibility**: Every artifact installed by Holistic can be inspected and manually removed.
 5. **Minimal privilege**: Operates entirely in user space with no `sudo` or admin privileges required.
 6. **Transparency over obscurity**: Generated scripts are readable, and hook behavior is clearly marked.
-7. **Containment by Design**: Repository-configured paths are explicitly validated against the repo root to prevent directory traversal (v0.6.4).
-8. **Integrity by Preservation**: Corrupted state files are automatically backed up to prevent silent data loss (v0.6.4).
+7. **Containment by Design**: Repository-configured paths are explicitly validated against the repo root to prevent directory traversal (v0.6.5).
+8. **Integrity by Preservation**: Corrupted state files are automatically backed up to prevent silent data loss (v0.6.5).
 9. **Defense in depth (best effort)**: Includes automated secret redaction and avoids executing shell commands from untrusted or network-provided input.
 
 ---
