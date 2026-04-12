@@ -2,12 +2,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { repoLocalCliPaths } from './cli-fallback.js';
-import { writeDerivedDocs } from './docs.js';
-import { captureRepoSnapshot, resolveGitDir } from './git.js';
-import { installGitHooks, refreshGitHooks, getGitHooksStatus, type GitHookInstallResult, type HookCommand } from './git-hooks.js';
-import { getRuntimePaths, loadState, saveState } from './state.js';
-import type { AgentName, HolisticState, RuntimePaths } from './types.js';
+import { repoLocalCliPaths } from './cli-fallback.ts';
+import { writeDerivedDocs } from './docs.ts';
+import { captureRepoSnapshot, resolveGitDir } from './git.ts';
+import { installGitHooks, refreshGitHooks, getGitHooksStatus, type GitHookInstallResult, type HookCommand } from './git-hooks.ts';
+import { getRuntimePaths, loadState, saveState } from './state.ts';
+import type { AgentName, HolisticState, RuntimePaths } from './types.ts';
 
 const DEFAULT_STATE_REF = "refs/holistic/state";
 const DEFAULT_LEGACY_STATE_BRANCH = "holistic/state";
@@ -53,7 +53,7 @@ export interface BootstrapResult extends InitResult {
 }
 
 export interface SetupComponentStatus {
-  component: "git-hooks" | "git-attributes" | "daemon" | "mcp-config" | "system-helpers" | "claude-code-hooks" | "portable-state";
+  component: "git-hooks" | "git-attributes" | "daemon" | "mcp-config" | "system-helpers" | "claude-code-hooks" | "portable-state" | "config-validation" | "session-hygiene";
   status: "ok" | "missing" | "outdated" | "error" | "info";
   details: string;
   description: string;
@@ -71,6 +71,23 @@ export interface RepairResult extends InitResult {
   mcpConfigured: boolean;
   mcpConfigFile: string | null;
   checks: string[];
+}
+
+export type McpLoggingMode = "off" | "minimal" | "default";
+
+export interface ConfigFinding {
+  level: "info" | "warn" | "error";
+  field: string;
+  message: string;
+  status: "missing" | "malformed" | "unsupported" | "safe-fallback";
+}
+
+export interface RuntimeConfig {
+  remote: string;
+  syncTarget: SyncTarget;
+  intervalSeconds: number;
+  portableState: boolean;
+  mcpLogging: McpLoggingMode;
 }
 
 interface RepoSetupConfigShape {
@@ -1003,6 +1020,61 @@ export function readExistingRuntimeConfig(paths: RuntimePaths): { remote: string
   };
 }
 
+export function validateRuntimeConfig(paths: RuntimePaths): ConfigFinding[] {
+  const filePath = configFile(paths);
+  if (!fs.existsSync(filePath)) {
+    return [{
+      level: "warn",
+      field: "config.json",
+      message: "Configuration file is missing; using system defaults.",
+      status: "missing"
+    }];
+  }
+
+  const findings: ConfigFinding[] = [];
+  const raw = readJsonObject(filePath);
+
+  // mcpLogging validation
+  if (!("mcpLogging" in raw)) {
+    findings.push({ level: "info", field: "mcpLogging", message: "mcpLogging not specified; defaulting to 'minimal'.", status: "missing" });
+  } else if (typeof raw.mcpLogging !== "string" || !["off", "minimal", "default"].includes(raw.mcpLogging)) {
+    findings.push({ level: "warn", field: "mcpLogging", message: `Invalid value '${raw.mcpLogging}'; using 'minimal'.`, status: "malformed" });
+  }
+
+  // portableState validation
+  if (!("portableState" in raw)) {
+    findings.push({ level: "info", field: "portableState", message: "portableState not specified; defaulting to false.", status: "missing" });
+  } else if (typeof raw.portableState !== "boolean") {
+    findings.push({ level: "warn", field: "portableState", message: "portableState must be a boolean; using false.", status: "malformed" });
+  }
+
+  const daemon = (raw.daemon && typeof raw.daemon === "object") ? raw.daemon as Record<string, unknown> : null;
+  if (!daemon) {
+    findings.push({ level: "info", field: "daemon", message: "daemon section missing; using defaults.", status: "missing" });
+  } else {
+    if (!("intervalSeconds" in daemon)) {
+      findings.push({ level: "info", field: "daemon.intervalSeconds", message: "intervalSeconds missing; using 30s.", status: "missing" });
+    } else if (typeof daemon.intervalSeconds !== "number" || daemon.intervalSeconds <= 0) {
+      findings.push({ level: "warn", field: "daemon.intervalSeconds", message: "intervalSeconds must be a positive number; using 30s.", status: "malformed" });
+    }
+  }
+
+  const sync = (raw.sync && typeof raw.sync === "object") ? raw.sync as Record<string, unknown> : null;
+  if (!sync) {
+    findings.push({ level: "info", field: "sync", message: "sync section missing; using 'origin' and default state branch.", status: "missing" });
+  } else {
+    if (typeof sync.remote !== "string" || sync.remote.trim() === "") {
+      findings.push({ level: "warn", field: "sync.remote", message: "Invalid or missing remote; using 'origin'.", status: "malformed" });
+    }
+    const hasStrategy = (sync.strategy === "state-ref" || sync.strategy === "state-branch");
+    if (sync.strategy && !hasStrategy) {
+      findings.push({ level: "warn", field: "sync.strategy", message: "Invalid sync strategy; defaulting to state-ref behavior.", status: "unsupported" });
+    }
+  }
+
+  return findings;
+}
+
 function writeClaudeDesktopMcpConfig(rootDir: string, platform: NodeJS.Platform, homeDir: string): string {
   const configPath = mcpConfigFile(platform, homeDir);
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
@@ -1361,7 +1433,6 @@ export function getSetupStatus(rootDir: string, options: BootstrapOptions = {}):
 
   // 7. Portable State (Privacy)
   const config = readExistingRuntimeConfig(paths);
-  // Note: we need to check the raw config file to see if it's explicitly set
   const rawConfig = readJsonObject(configFile(paths));
   const isEnabled = rawConfig.portableState === true;
   status.push({
@@ -1369,6 +1440,38 @@ export function getSetupStatus(rootDir: string, options: BootstrapOptions = {}):
     status: isEnabled ? "ok" : "info",
     details: isEnabled ? "Remote-sync enabled" : "Local-only (Privacy Mode)",
     description: "Syncs session state to a portable Git branch (refs/holistic/state).",
+  });
+
+  // 8. Configuration Validation
+  const configFindings = validateRuntimeConfig(paths);
+  const configErrors = configFindings.filter(f => f.level === "error").length;
+  const configWarns = configFindings.filter(f => f.level === "warn").length;
+  status.push({
+    component: "config-validation",
+    status: configErrors > 0 ? "error" : configWarns > 0 ? "outdated" : "ok",
+    details: configErrors > 0 ? `${configErrors} errors found` : configWarns > 0 ? `${configWarns} warnings (safe fallbacks applied)` : "Configuration is valid",
+    description: "Checks .holistic/config.json for schema compliance and safe fallbacks.",
+  });
+
+  // 9. Session Health (All files)
+  const sessionsDir = paths.sessionsDir;
+  let sessionErrors = 0;
+  if (fs.existsSync(sessionsDir)) {
+    const files = fs.readdirSync(sessionsDir).filter(f => f.endsWith(".json"));
+    for (const file of files) {
+      try {
+        const content = fs.readFileSync(path.join(sessionsDir, file), "utf8");
+        JSON.parse(content);
+      } catch {
+        sessionErrors++;
+      }
+    }
+  }
+  status.push({
+    component: "session-hygiene",
+    status: sessionErrors > 0 ? "error" : "ok",
+    details: sessionErrors > 0 ? `${sessionErrors} malformed session files detected` : "All session files are well-formed JSON",
+    description: "Scans .holistic/sessions/ to ensure all state files are readable.",
   });
 
   return status;

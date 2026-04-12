@@ -38,9 +38,10 @@ import {
   startNewSession,
 } from "../src/core/state.ts";
 import { runDaemonTick } from "../src/daemon.ts";
-import { buildResumeNotificationText, callHolisticTool, createHolisticMcpServer, listHolisticTools, waitForStdioShutdown } from "../src/mcp-server.ts";
+import { renderResumeNotificationText, callHolisticTool, createHolisticMcpServer, listHolisticTools, waitForStdioShutdown } from "../src/mcp-server.ts";
 import { tests as mcpNotificationTests } from "../src/__tests__/mcp-notification.test.ts";
 import { tests as redactTests } from "../src/__tests__/redact.test.ts";
+import { tests as privacyArtifactTests } from "../src/__tests__/privacy-artifacts.test.ts";
 import type { HolisticState } from "../src/core/types.ts";
 
 const workspaceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -318,12 +319,11 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       const help = renderHelpText();
 
       assert.match(help, /holistic repair/);
-      assert.match(help, /--completion-kind natural-breakpoint\|task-complete\|slice-complete\|milestone-complete/);
-      assert.match(help, /--completion-source agent\|system/);
-      assert.match(help, /tests passed/);
-      assert.match(help, /bug fixed/);
-      assert.match(help, /feature complete/);
-      assert.match(help, /before compaction/);
+      assert.match(help, /Setup Commands:/);
+      assert.match(help, /Read-Only & Diagnostic Commands:/);
+      assert.match(help, /Stateful & Mutating Commands:/);
+      assert.match(help, /holistic doctor\s+\| Run deep diagnostics/);
+      assert.match(help, /Checkpoint examples:/);
       assert.match(help, /Use handoff as the final safety valve/);
     },
   },
@@ -712,11 +712,10 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       });
       state = persist(rootDir, state);
 
-      const text = buildResumeNotificationText(state, "codex");
+      const text = renderResumeNotificationText(state);
       assert.ok(text);
-      assert.match(text ?? "", /Holistic resume/);
-      assert.match(text ?? "", /Phase: 1\.5 - Workflow Disappearance/);
-      assert.match(text ?? "", /Current objective: Reduce startup ceremony for MCP clients/);
+      assert.match(text ?? "", /Holistic session active/);
+      assert.match(text ?? "", /Objective:/);
 
       const server = createHolisticMcpServer(rootDir);
       const sent: Array<{ level: string; logger?: string; data: unknown }> = [];
@@ -767,8 +766,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     run: () => {
       const { rootDir, state } = makeRepo();
       persist(rootDir, state);
-      const text = buildResumeNotificationText(state, "codex");
-      assert.equal(text, null);
+      const text = renderResumeNotificationText(state);
+      assert.equal(text, "");
     },
   },
   {
@@ -1552,6 +1551,44 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(normalizeCompletionSignalMetadata({ source: "agent" }), null);
     },
   },
+  {
+    name: "MCP server respects logging levels for session metadata",
+    run: async () => {
+      const { rootDir } = makeRepo();
+      let state = createInitialState(rootDir);
+      state = startNewSession(rootDir, state, "codex", "test repo", ["work"]);
+      const paths = getRuntimePaths(rootDir);
+      
+      // Ensure .holistic exists
+      const configPath = path.join(paths.holisticDir, "config.json");
+      if (!fs.existsSync(path.dirname(configPath))) {
+        fs.mkdirSync(path.dirname(configPath), { recursive: true });
+      }
+
+      // Default level (full)
+      fs.writeFileSync(configPath, JSON.stringify({
+        mcpLogging: "default"
+      }));
+      const renderFull = renderResumeNotificationText(state, "default");
+      assert.ok(renderFull.includes("test repo"), "Full logging should include title");
+
+      // Minimal level (redacted metadata)
+      fs.writeFileSync(configPath, JSON.stringify({
+        mcpLogging: "minimal"
+      }));
+      const renderMin = renderResumeNotificationText(state, "minimal");
+      assert.ok(renderMin.includes("Holistic session active"), "Minimal logging should keep the status");
+      assert.ok(!renderMin.includes("test repo"), "Minimal logging should redact the title");
+
+      // Off level (no notification text)
+      fs.writeFileSync(configPath, JSON.stringify({
+        mcpLogging: "off"
+      }));
+      const renderOff = renderResumeNotificationText(state, "off");
+      assert.strictEqual(renderOff, "", "Off logging should be empty");
+    },
+  },
+  ...privacyArtifactTests,
   {
     name: "auto-draft handoff triggers immediately for an explicit completion signal",
     run: () => {

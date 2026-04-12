@@ -320,17 +320,17 @@ The portable repo memory (config, state, context, sessions) is meant to be commi
 | :--- | :--- |
 | `holistic init` | Base repo setup and scaffolding |
 | `holistic bootstrap` | One-step machine setup. Required `--yes` for Core Setup, or granular `--yes-*` flags. |
-| `holistic doctor` | Runs health checks on machine setup and sync logs |
-| `holistic repair` | Regenerates `.holistic/system/` helpers |
-| `holistic resume / start --agent <name>` | Loads project recap and prints state |
+| `holistic doctor` | Health checks and configuration diagnostics **(Read-only)** |
+| `holistic repair` | Regenerates `.holistic/system/` local helpers |
+| `holistic resume / start` | Loads project recap and prints state **(Read-only)** |
 | `holistic start-new` | Starts a fresh session |
-| `holistic checkpoint --reason "..."` | Saves progress and context |
-| `holistic handoff` | Ends a session with a handoff message |
-| `holistic status` | Shows current state and recent sync activity |
-| `holistic diff --from <id> --to <id>` | Compares two sessions |
-| `holistic search --id <session-id>` | Finds and reactivates an archived session |
-| `holistic serve` | Runs the thin MCP server |
-| `holistic watch` | Foreground daemon mode for automatic checkpoints |
+| `holistic checkpoint` | Saves progress and context **(Stateful)** |
+| `holistic handoff` | Ends a session with a handoff message **(Stateful)** |
+| `holistic status` | Shows current state and sync activity **(Read-only)** |
+| `holistic diff` | Compares two session IDs **(Read-only)** |
+| `holistic search` | Finds and retrieves session state **(Read-only)** |
+| `holistic serve` | Runs the thin MCP server **(Read-only)** |
+| `holistic watch` | Foreground daemon; automatically creates checkpoints **(Mutating)** |
 
 ### Slash command helper text (agent-facing)
 

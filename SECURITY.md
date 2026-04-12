@@ -37,8 +37,11 @@ Holistic is built around a small set of core security and trust principles:
 
 Holistic operates on a restrictive trust model to ensure your repository remains a safe environment for both humans and AI agents.
 
-### 1. Read-Only by Default
-Routine commands (`status`, `resume`, `diff`, `watch`, `serve`) are designed to be non-mutating and will not intentionally modify your environment or repository state. If configuration drift is detected, Holistic will surface warnings rather than automatically repairing it.
+### 1. Read-first & Read-only
+Routine commands (`status`, `resume`, `diff`, `search`, `doctor`, `serve`) are designed to be strictly non-mutating and will not intentionally modify your repository state. If configuration drift or outdated hooks are detected, Holistic will surface warnings rather than automatically repairing them.
+
+### 2. Guarded Mutation
+Commands that modify state (`checkpoint`, `handoff`, `start-new`, `watch`) are clearly identified. `holistic watch` in particular is a background daemon mode that creates checkpoints automatically based on activity thresholds.
 
 ### 2. Explicit System Modification
 System-level changes (writing git hooks, configuring startup daemons, or modifying MCP settings) are restricted to two high-intent commands:

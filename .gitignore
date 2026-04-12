@@ -69,3 +69,4 @@ coverage/
 .cache/
 tmp/
 .antigravity_session/
+scratch/

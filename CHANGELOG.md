@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.2 - 2026-04-12
+
+Locking in Holistic Maturity (M007). This release hardens the security model, improves diagnostic transparency, and ensures system stability with expanded coverage and robust build processes.
+
+- Implemented **Deep Config Validation**: `holistic doctor` now validates `mcpLogging` levels, sync strategies, and interval settings, providing actionable feedback on configuration drift.
+- Hardened **Secret Redaction Engine**: Redaction now preserves original assignment operators (e.g. `=` vs `:`) and includes robust coverage for Azure and Stripe keys.
+- Categorized **CLI Help Architecture**: Refactored help text into `Setup`, `Read-Only`, and `Mutating` sections to explicitly communicate the project's trust model.
+- Improved **Build Resilience**: Hardened the production build script to guarantee source integrity even during compiler failures.
+- Optimized **MCP Notification Flow**: Suppressed project greetings for idle sessions to reduce log noise and maintain a clean developer experience.
+- Added **Privacy Mode Integration Tests**: Verified mandatory "early-exit" privacy guards in Git hooks and system scripts when `portableState` is disabled.
+
 ## 0.6.1 - 2026-04-12
 
 Trust & Privacy Hardening (M006). This release implements a "Consent-First" read-only architecture, strengthens privacy boundaries for portable state, and introduces configurable MCP logging and enhanced secret redaction.

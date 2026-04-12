@@ -89,14 +89,21 @@ function ensureMcpResumeState(rootDir: string, agent: AgentName = DEFAULT_MCP_AG
   return mutateState(rootDir, (currentState) => continueFromLatest(rootDir, currentState, agent));
 }
 
-export function buildResumeNotificationText(state: HolisticState, agent: AgentName = DEFAULT_MCP_AGENT): string | null {
-  const greeting = buildStartupGreeting(state, agent);
-  if (!greeting) {
-    return null;
+export function renderResumeNotificationText(state: HolisticState, mcpLogging: "off" | "minimal" | "default" = "default"): string {
+  if (mcpLogging === "off") {
+    return "";
   }
 
-  // Add hint about using the tool for debugging
-  return `${greeting}\n\nUse holistic_resume tool for an explicit refresh.`;
+  const session = state.activeSession;
+  if (!session) {
+    return "";
+  }
+
+  if (mcpLogging === "minimal") {
+    return `🎯 Holistic session active. Use holistic_resume tool for full project context.`;
+  }
+
+  return `🎯 Holistic session active: ${session.title}\nObjective: ${session.currentGoal}\n\nUse holistic_resume tool for full project context.`;
 }
 
 export async function sendResumeNotification(server: Server, rootDir: string, agent: AgentName = DEFAULT_MCP_AGENT): Promise<boolean> {
@@ -108,15 +115,7 @@ export async function sendResumeNotification(server: Server, rootDir: string, ag
   }
 
   const state = ensureMcpResumeState(rootDir, agent);
-  
-  // Use a sanitized/minimal message for logging to avoid context leakage.
-  // Agents discover full context by calling holistic_resume tool.
-  const session = state.activeSession;
-  const text = (mcpLogging === "minimal" || !session)
-    ? (session 
-        ? `🎯 Holistic session active. Use holistic_resume tool for full project context.`
-        : `🎯 Holistic: No active session. Use holistic_resume tool to begin.`)
-    : `🎯 Holistic session active: ${session.title}\nObjective: ${session.currentGoal}\n\nUse holistic_resume tool for full project context.`;
+  const text = renderResumeNotificationText(state, mcpLogging);
 
   await server.sendLoggingMessage({
     level: "info",

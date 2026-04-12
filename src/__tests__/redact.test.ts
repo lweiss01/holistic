@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { sanitizeText } from "../core/redact.ts";
+import { sanitizeText } from '../core/redact.ts';
 
 export const tests = [
   {
@@ -61,7 +61,23 @@ Keep it safe.`;
     run: () => {
       const input = "password: mypassword123; secret=shhh";
       const output = sanitizeText(input);
-      assert.strictEqual(output, "password: [REDACTED]; secret: [REDACTED]");
+      assert.strictEqual(output, "password: [REDACTED]; secret= [REDACTED]");
+    },
+  },
+  {
+    name: "sanitizeText redacts Azure keys",
+    run: () => {
+      const input = "azure_key = abc123def456ghi789jkl012mno345pqr";
+      const output = sanitizeText(input);
+      assert.strictEqual(output, "azure_key = [REDACTED]");
+    },
+  },
+  {
+    name: "sanitizeText redacts Stripe keys",
+    run: () => {
+      const input = "stripe_key: sk_test_51...abc";
+      const output = sanitizeText(input);
+      assert.strictEqual(output, "stripe_key: [REDACTED]");
     },
   },
   {

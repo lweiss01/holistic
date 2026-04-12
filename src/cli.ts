@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { renderRepoLocalCliCommands } from './core/cli-fallback.ts';
 import { captureRepoSnapshot, clearPendingCommit, commitPendingChanges, getBranchName, writePendingCommit } from './core/git.ts';
 import { writeDerivedDocs } from './core/docs.ts';
-import { bootstrapHolistic, checkHolisticHooksStatus, getSetupStatus, initializeHolistic, refreshHolisticHooks, repairHolistic, type SetupComponentStatus } from './core/setup.ts';
+import { bootstrapHolistic, checkHolisticHooksStatus, getSetupStatus, initializeHolistic, refreshHolisticHooks, repairHolistic, validateRuntimeConfig, type SetupComponentStatus } from './core/setup.ts';
 import { printSplash, printSplashError, renderSplash } from './core/splash.ts';
 import { requestAutoSync } from './core/sync.ts';
 import { runDaemonTick } from './daemon.ts';
@@ -109,30 +109,29 @@ function getVersion(): string {
 export function renderHelpText(): string {
   return `Holistic CLI v${getVersion()}
 
-Usage:
+Setup Commands:
   holistic init [--install-daemon] [--install-hooks] [--platform win32|darwin|linux] [--interval 30] [--remote origin] [--state-ref refs/holistic/state] [--state-branch holistic/state]
   holistic bootstrap [--platform win32|darwin|linux] [--interval 30] [--yes]
-  holistic doctor
   holistic repair [--platform win32|darwin|linux] [--refresh-hooks false] [--install-daemon true] [--configure-mcp true]
-  holistic start [--agent codex|claude|antigravity|gemini|copilot|cursor|goose|gsd|gsd2] [--continue] [--json]
-  holistic resume [--agent codex|claude|antigravity|gemini|copilot|cursor|goose|gsd|gsd2] [--continue] [--json]
-  holistic checkpoint --reason "<reason>" [--status "<status>"] [--plan "<step>"]... [--completion-kind natural-breakpoint|task-complete|slice-complete|milestone-complete] [--completion-source agent|system] [--completion-recorded-at <iso8601>]
-  holistic checkpoint --fixed "<bug>" [--fix-files "<file>"] [--fix-risk "<what reintroduces it>"]
-  holistic handoff [--draft] [--summary "<summary>"] [--next "<step>"]... [--commit]
-  holistic start-new [--goal "<goal>"] [--title "<title>"] [--plan "<step>"]...
-  holistic status
-  holistic diff --from "<session-id>" --to "<session-id>" [--format text|json]
-  holistic search --id "<session-id>" [--format text|json]
-  holistic serve
-  holistic watch [--agent codex|claude|antigravity|gemini|copilot|cursor|goose|gsd|gsd2] [--interval 60]
+
+Read-Only & Diagnostic Commands:
+  holistic status       | View current repository health and sync status.
+  holistic doctor       | Run deep diagnostics and configuration validation.
+  holistic diff         | Compare session state between two points in time.
+  holistic search       | Find and retrieve session state by ID.
+  holistic resume       | Load the latest project recap and continue work.
+
+Stateful & Mutating Commands:
+  holistic checkpoint   | Capture current work progress (reason required).
+  holistic handoff      | Prepare a narrative handoff for the next session.
+  holistic start-new    | Initialize a new session with a fresh goal.
+  holistic watch        | Foreground daemon mode; may create checkpoints automatically.
 
 Checkpoint examples:
-  holistic checkpoint --reason "tests passed" --status "Focused verification is green" --completion-kind natural-breakpoint --completion-source agent
-  holistic checkpoint --reason "feature complete" --status "Ready for handoff" --completion-kind task-complete --completion-source agent
+  holistic checkpoint --reason "tests passed" --status "Focused verification is green"
+  holistic checkpoint --reason "feature complete" --status "Ready for handoff"
 
-Use checkpoint at natural breakpoints like tests passed, bug fixed, feature complete, focus change, or before compaction. Use handoff as the final safety valve when the session is ending.
-
-  'holistic start' is an alias for 'holistic resume'.
+Use checkpoint at natural breakpoints like tests passed, bug fixed, feature complete, or focus change. Use handoff as the final safety valve when the session is ending.
 `;
 }
 
@@ -154,6 +153,7 @@ function warnIfHooksOutdated(rootDir: string): void {
   const result = checkHolisticHooksStatus(rootDir);
   if (result.refreshed.length > 0) {
     process.stderr.write(`\u26A0 Holistic hooks are outdated. Run 'holistic repair' to refresh them.\n`);
+    process.stderr.write(`  Hint: Keeping hooks current ensures session continuity and privacy guards are active.\n`);
   }
 }
 
@@ -532,15 +532,32 @@ async function handleDoctor(rootDir: string, parsed: ParsedArgs): Promise<number
     message: "running holistic health check...",
   });
 
+  const paths = getRuntimePaths(rootDir);
   const status = getSetupStatus(rootDir);
   process.stdout.write("\nSystem Configuration:\n\n");
   printSetupStatusTable(status);
+
+  const findings = validateRuntimeConfig(paths);
+  if (findings.length > 0) {
+    process.stdout.write("\nConfiguration Diagnostics:\n\n");
+    for (const f of findings) {
+      const icon = f.level === "error" ? "✖" : f.level === "warn" ? "⚠" : "ℹ";
+      process.stdout.write(`${icon} ${f.field.padEnd(20)} | ${f.level.padEnd(10)} | ${f.message}\n`);
+    }
+    const errors = findings.filter(f => f.level === "error").length;
+    const warns = findings.filter(f => f.level === "warn").length;
+    if (errors > 0) process.stdout.write("\n✖ config invalid\n");
+    else if (warns > 0) process.stdout.write("\n⚠ config loaded with safe fallbacks\n");
+    else process.stdout.write("\n✓ config valid\n");
+  } else {
+    process.stdout.write("\n✓ config valid\n");
+  }
 
   process.stdout.write("\nSync Diagnostics:\n\n");
   process.stdout.write(renderSyncStatus(rootDir));
 
   const healthy = status.every(s => s.status === "ok");
-  if (healthy) {
+  if (healthy && findings.every(f => f.level !== "error")) {
     process.stdout.write("\n\u2713 Holistic is healthy and correctly configured on this machine.\n");
   } else {
     process.stdout.write("\n\u26A0 Some components require attention. Run 'holistic bootstrap' to fix.\n");

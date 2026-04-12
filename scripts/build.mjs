@@ -30,14 +30,17 @@ function swapExtensions(from, to) {
   });
 }
 
-// Swap .ts → .js for compilation
-swapExtensions('ts', 'js');
+// Ensure the build process is safe and atomic for the source code
+try {
+  // Swap .ts → .js for compilation
+  swapExtensions('ts', 'js');
 
-// Run TypeScript compiler
-console.log('Running tsc...');
-execSync('tsc', { stdio: 'inherit' });
-
-// Swap .js → .ts to restore source
-swapExtensions('js', 'ts');
+  // Run TypeScript compiler
+  console.log('Running tsc...');
+  execSync('tsc', { stdio: 'inherit' });
+} finally {
+  // Swap .js → .ts to restore source (even if tsc fails)
+  swapExtensions('js', 'ts');
+}
 
 console.log('✓ Build complete!');
