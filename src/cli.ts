@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { renderRepoLocalCliCommands } from './core/cli-fallback.ts';
 import { captureRepoSnapshot, clearPendingCommit, commitPendingChanges, getBranchName, writePendingCommit } from './core/git.ts';
 import { writeDerivedDocs } from './core/docs.ts';
-import { bootstrapHolistic, getSetupStatus, initializeHolistic, refreshHolisticHooks, repairHolistic, type SetupComponentStatus } from './core/setup.ts';
+import { bootstrapHolistic, checkHolisticHooksStatus, getSetupStatus, initializeHolistic, refreshHolisticHooks, repairHolistic, type SetupComponentStatus } from './core/setup.ts';
 import { printSplash, printSplashError, renderSplash } from './core/splash.ts';
 import { requestAutoSync } from './core/sync.ts';
 import { runDaemonTick } from './daemon.ts';
@@ -147,6 +147,13 @@ export function renderResumeOutput(body: string): string {
 function reportHookWarnings(warnings: string[]): void {
   for (const warning of warnings) {
     process.stderr.write(`${warning}\n`);
+  }
+}
+
+function warnIfHooksOutdated(rootDir: string): void {
+  const result = checkHolisticHooksStatus(rootDir);
+  if (result.refreshed.length > 0) {
+    process.stderr.write(`\u26A0 Holistic hooks are outdated. Run 'holistic repair' to refresh them.\n`);
   }
 }
 
@@ -596,7 +603,7 @@ Repo-local CLI: ${repairFallback}
 }
 
 async function handleResume(rootDir: string, parsed: ParsedArgs): Promise<number> {
-  refreshHooksBeforeCommand(rootDir);
+  warnIfHooksOutdated(rootDir);
   const agent = asAgent(firstFlag(parsed.flags, "agent", "unknown"));
 
   if (firstFlag(parsed.flags, "continue") === "true") {
@@ -641,7 +648,6 @@ async function handleResume(rootDir: string, parsed: ParsedArgs): Promise<number
 }
 
 async function handleCheckpoint(rootDir: string, parsed: ParsedArgs): Promise<number> {
-  refreshHooksBeforeCommand(rootDir);
   const mutateResult = mutateState(rootDir, (state, paths) => {
     const regressions = listFlag(parsed.flags, "regression");
 
@@ -699,7 +705,6 @@ async function handleCheckpoint(rootDir: string, parsed: ParsedArgs): Promise<nu
 }
 
 async function handleStartNew(rootDir: string, parsed: ParsedArgs): Promise<number> {
-  refreshHooksBeforeCommand(rootDir);
   const agent = asAgent(firstFlag(parsed.flags, "agent", "unknown"));
 
   let goal = firstFlag(parsed.flags, "goal");
@@ -726,7 +731,6 @@ async function handleStartNew(rootDir: string, parsed: ParsedArgs): Promise<numb
 }
 
 async function handleHandoff(rootDir: string, parsed: ParsedArgs): Promise<number> {
-  refreshHooksBeforeCommand(rootDir);
   const { state, paths } = loadState(rootDir);
   if (!state.activeSession) {
     process.stderr.write("No active session to hand off.\n");
@@ -909,7 +913,7 @@ function renderSyncStatus(rootDir: string): string {
 }
 
 async function handleStatus(rootDir: string): Promise<number> {
-  refreshHooksBeforeCommand(rootDir);
+  warnIfHooksOutdated(rootDir);
   const { state } = loadState(rootDir);
   process.stdout.write(renderStatus(rootDir, state));
   return 0;
@@ -998,7 +1002,6 @@ async function handleSearch(rootDir: string, parsed: ParsedArgs): Promise<number
 }
 
 async function handleServe(rootDir: string): Promise<number> {
-  refreshHooksBeforeCommand(rootDir);
   printSplashError({
     message: "starting MCP server on stdio...",
   });
@@ -1036,7 +1039,6 @@ async function handleMarkCommit(rootDir: string, parsed: ParsedArgs): Promise<nu
 }
 
 async function handleWatch(rootDir: string, parsed: ParsedArgs): Promise<number> {
-  refreshHooksBeforeCommand(rootDir);
   const intervalSeconds = Number.parseInt(firstFlag(parsed.flags, "interval", "60"), 10);
   const agent = asAgent(firstFlag(parsed.flags, "agent", "unknown"));
   process.stdout.write(`Watching repo every ${intervalSeconds}s for checkpoint-worthy changes.\n`);

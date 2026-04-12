@@ -17,34 +17,34 @@ Shared memory for AI agents, built into your repo.
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D24-339933.svg)](./package.json)
 
-### One command. Every agent. Zero re-explaining. ✨
+### One command. Every agent. Zero re-explaining. ✨  
+No context loss. No fragile handoffs.
 
 Holistic gives your AI agents shared memory inside the repo itself. When you switch from Claude to Codex to Gemini, the next agent can see what happened last time, what not to break, and what should happen next.
 
-
 ---
 
+## Why trust Holistic? 🔒
 
-### Why trust this?
+Holistic is designed to be **safe to install, inspectable, and predictable**.
 
-- 🔐 No known security vulnerabilities
-- 🧪 60+ automated tests covering core flows
+- 🔐 **Security-first design** — local-first, no telemetry, no external services  
+- 🧭 **Consent-first model** — system changes only happen via `bootstrap` or `repair`  
+- 👀 **Read-only by default** — routine commands never silently modify your repo or machine  
+- 🔍 **Fully transparent** — readable scripts, visible hooks, no hidden behavior  
+- 🛡️ **Privacy mode by default** — no remote sync unless explicitly enabled  
+- 🧪 60+ automated tests covering core flows  
 - 🛠️ Actively maintained (frequent releases)
-- 🔍 Transparent local setup (see `SECURITY.md`)
 
-> Early beta, but built to be safe, inspectable, and predictable.
-
+> See [SECURITY.md](./SECURITY.md) for full technical details.
 
 ---
-
 
 ## Get started in 30 seconds ⚡
 
 Open your project repo in PowerShell, Terminal, Command Prompt, or whatever shell you normally use.
 
 Requires Node.js 24+.
-
-Run these two commands:
 
 ```bash
 npm install -g holistic
@@ -61,25 +61,21 @@ That is enough to get the basic Holistic workflow working.
 
 If you want the fuller install and setup details, jump to [Quick start](#quick-start-).
 
-
 ---
-
 
 ## The problem 😵
 
 If you use more than one AI coding assistant, the workflow usually falls apart:
 
-- 🔁 You re-explain the project every session.
-- 🐞 Bugs come back because the next agent does not know what was already fixed.
-- 🧠 Progress gets lost when context windows end.
-- 💥 Agents undo each other because there is no durable handoff.
-- 🌫️ It is hard to tell what is actually done.
+- 🔁 You re-explain the project every session  
+- 🐞 Bugs come back because the next agent does not know what was already fixed  
+- 🧠 Progress gets lost when context windows end  
+- 💥 Agents undo each other because there is no durable handoff  
+- 🌫️ It is hard to tell what is actually done  
 
 Holistic fixes that by making the repo the source of truth.
 
-
 ---
-
 
 ## What it feels like with HOLISTIC 🌿
 
@@ -91,18 +87,14 @@ holistic bootstrap
 
 Then daily use is mostly:
 
-1. Open the repo in Codex, Claude, or another supported app.
-2. Start a fresh session.
-3. Ask the agent to read `AGENTS.md` and `HOLISTIC.md`.
-4. Let Holistic carry continuity through checkpoints, handoffs, and repo memory.
+1. Open the repo in Codex, Claude, or another supported app  
+2. Start a fresh session  
+3. Ask the agent to read `AGENTS.md` and `HOLISTIC.md`  
+4. Let Holistic carry continuity through checkpoints, handoffs, and repo memory  
 
 Most days, you do not need to keep a terminal process open or manually re-brief the agent.
 
-`holistic bootstrap` is a machine setup command, not just a repo setup command. By default it can install local startup helpers and configure Claude Desktop MCP on that machine.
-
-
 ---
-
 
 ## How it works 🧭
 
@@ -122,9 +114,24 @@ Holistic checkpoints and handoffs keep repo memory current
 The next agent picks up without a long re-explanation
 ```
 
-
 ---
 
+## 🔒 Security & Trust Model
+
+Holistic is designed to be **transparent, audit-safe, and consent-first**.
+
+- **Read-Only by Default** — routine commands warn instead of mutating  
+- **Explicit Consent** — system changes require `bootstrap` or `repair`  
+- **Granular Control** — apply only what you want (`--yes-*` flags)  
+- **Privacy Mode** — sync disabled by default with enforced guards  
+- **MCP Logging Controls** — configurable visibility  
+- **Redaction** — JWTs, tokens, AWS keys, and PEM blocks scrubbed  
+- **Traceable Activity** — logs written locally  
+- **Git-native behavior** — respects `.gitignore`  
+
+For full details, see [SECURITY.md](./SECURITY.md).
+
+---
 
 ## Quick start 🚀
 
@@ -309,6 +316,8 @@ The portable repo memory (config, state, context, sessions) is meant to be commi
 
 ## Commands
 
+| Command | Description |
+| :--- | :--- |
 | `holistic init` | Base repo setup and scaffolding |
 | `holistic bootstrap` | One-step machine setup. Required `--yes` for Core Setup, or granular `--yes-*` flags. |
 | `holistic doctor` | Runs health checks on machine setup and sync logs |
@@ -413,18 +422,17 @@ For support and troubleshooting, see [SUPPORT.md](./SUPPORT.md).
 ---
 
 
-## Security, Privacy, and Trust 🔒
-
 Holistic is designed to be **transparent, audit-safe, and consent-first**. It is a shared memory layer that stays in your repo, not a cloud service that watches your screen.
 
 ### Trust Architecture:
-- **Granular Consent**: `holistic bootstrap` now uses a "Consent-First" model. It displays a summary of system-modifying actions and requires an explicit `--yes` for the Core Setup (hooks, daemon, MCP, attributes).
+- **Read-Only by Default**: Routine commands (`status`, `resume`, `diff`) are strictly non-mutating. They will only **warn** you if git hooks are missing or outdated, rather than fixing them silently.
+- **Granular Consent**: `holistic bootstrap` uses a "Consent-First" model. It displays a summary of system-modifying actions and requires an explicit `--yes` for the Core Setup (hooks, daemon, MCP, attributes).
 - **Surgical Control**: Use granular flags (`--yes-hooks`, `--yes-daemon`, `--yes-mcp`, `--yes-attr`, `--yes-claude`) to apply only the specific integrations you want.
-- **Privacy Mode vs. Portable Mode**: Holistic defaults to **Privacy Mode** (local-only state). To enable cross-device sync, use the `--portable` flag or set `"portableState": true` in the repo config.
-- **Read-Only Diagnostics**: The `holistic doctor` command and bootstrap pre-flight checks are strictly non-mutating. They audit your environment without making unexpected changes.
+- **Privacy Mode Enforcement**: When `portableState` is disabled (the default), all generated sync scripts and git hooks contain early-exit guards to prevent any accidental remote traffic.
+- **MCP Logging Privacy**: Control what Holistic reports to your agent UI. Set `mcpLogging` to `"off"`, `"minimal"` (default), or `"default"` in `.holistic/config.json`.
+- **Advanced Redaction**: Holistic automatically scrubs JWTs, Bearer tokens, AWS keys, and PEM blocks from all generated session metadata to prevent context leakage.
 - **Traceable Activity**: Background sync operations (PowerShell/Bash) are visible and logged with timestamps to `.holistic/system/sync.log`.
 - **Git-Native Snapshotting**: The repo snapshot logic uses native `git ls-files`, ensuring that your `.gitignore` rules are perfectly respected and performance stays $O(\text{repo size})$.
-- **Zero Shell Injection**: Internal commit logic has been stripped of shell wrappers to eliminate command injection risks.
 
 ### What it does:
 - Writes session state into `.holistic/` inside your repo (committed files you control)

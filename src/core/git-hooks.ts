@@ -9,6 +9,7 @@ export interface HookCommand {
   syncPowerShellPath: string;
   syncShellPath: string;
   syncLogPath: string;
+  portableState: boolean;
 }
 
 export interface GitHookInstallResult {
@@ -84,6 +85,8 @@ exit 0
     "pre-push": `${renderHookHeader("pre-push")}# Holistic portable state sync before push
 
 cd '${shellQuote(rootDir)}' || exit 0
+
+${command.portableState ? "" : "exit 0  # Portable state disabled (Privacy Mode)"}
 
 if [ -f "$PWD/${shellQuote(command.stateFilePath)}" ]; then
   sh "$PWD/${shellQuote(command.syncShellPath)}" 2>>"$PWD/${shellQuote(command.syncLogPath)}" || true

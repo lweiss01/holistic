@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.1 - 2026-04-12
+
+Trust & Privacy Hardening (M006). This release implements a "Consent-First" read-only architecture, strengthens privacy boundaries for portable state, and introduces configurable MCP logging and enhanced secret redaction.
+
+- Implemented **Read-Only Command Policy**: Routine commands (`status`, `resume`, `diff`, `search`) are now strictly non-mutating. They will surface health warnings for outdated hooks but will never fix them silently.
+- Hardened **Privacy Mode Enforcement**: When `portableState` is disabled (Privacy Mode), generated shell scripts and Git hooks now exit early to prevent any accidental remote state synchronization.
+- Added **MCP Logging Privacy**: Introduced `mcpLogging` configuration (`off` | `minimal` | `default`). Defaults to `minimal` to prevent session objectives and titles from leaking into system logs.
+- Expanded **Secret Redaction**: significantly strengthened the redaction engine to identify and scrub JWT tokens, Bearer tokens, AWS keys, and PEM private key blocks.
+- Added **Redaction Quality Tests**: Integrated 8 new unit tests to verify that sensitive patterns are correctly scrubbed while preserving normal text.
+- Added **SECURITY.md**: Published a comprehensive technical disclosure of Holistic's trust model, data residency guarantees, and safety architecture.
+
 ## 0.6.0 - 2026-04-11
 
 Comprehensive Reliability & UX Refinement (M005). This release finalizes the security hardening milestone, introduces granular bootstrap controls, and adds support for explicit portable-state management.

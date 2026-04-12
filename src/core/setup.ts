@@ -27,6 +27,7 @@ export interface InitOptions {
   stateRef?: string;
   stateBranch?: string;
   portableState?: boolean;
+  mcpLogging?: "off" | "minimal" | "default";
 }
 
 export interface BootstrapOptions extends InitOptions {
@@ -338,6 +339,7 @@ function writeConfig(paths: RuntimePaths, options: InitOptions, remote: string, 
     autoSync: syncDefaults.autoSync ?? true,
     portableState: options.portableState ?? (syncDefaults.portableState ?? false),
     sync: syncConfig,
+    mcpLogging: options.mcpLogging ?? "minimal",
     daemon: {
       intervalSeconds,
       agent: "unknown",
@@ -347,7 +349,7 @@ function writeConfig(paths: RuntimePaths, options: InitOptions, remote: string, 
   fs.writeFileSync(configFile(paths), JSON.stringify(config, null, 2) + "\n", "utf8");
 }
 
-function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeconds: number, remote: string, syncTarget: SyncTarget): void {
+function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeconds: number, remote: string, syncTarget: SyncTarget, portableState: boolean): void {
   const sysDir = systemDir(paths);
   fs.mkdirSync(sysDir, { recursive: true });
   const trackedPaths = paths.trackedPaths;
@@ -375,6 +377,11 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     "$log = Join-Path $PSScriptRoot 'sync.log'",
     "function Log($msg) { \"$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [RESTORE] $msg\" | Out-File -FilePath $log -Append }",
     "",
+    ...(portableState ? [] : [
+      "Write-Host 'Holistic restore skipped: portableState is disabled (Privacy Mode).'",
+      "exit 0",
+      ""
+    ]),
     "$status = git -C $root status --porcelain -- $tracked 2>$null",
     "if ($LASTEXITCODE -ne 0) { exit 0 }",
     "if ($status) { Write-Host 'Holistic restore skipped because local Holistic files are dirty.'; exit 0 }",
@@ -410,6 +417,12 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     "$log = Join-Path $PSScriptRoot 'sync.log'",
     "function Log($msg) { \"$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [SYNC] $msg\" | Out-File -FilePath $log -Append }",
     "$root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)",
+    "",
+    ...(portableState ? [] : [
+      "Write-Host 'Holistic sync skipped: portableState is disabled (Privacy Mode).'",
+      "exit 0",
+      ""
+    ]),
     "if (-not (Test-Path \"$root\\.git\")) {",
     "  Write-Error \"holistic sync-state: ERROR: Could not find .git directory in resolved ROOT: $root\"",
     "  exit 1",
@@ -474,6 +487,12 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     `LEGACY_SEED_REF='${shellQuote(legacySeedRef)}'`,
     `LOG_FILE="$(dirname "$0")/sync.log"`,
     "log_msg() { echo \"$(date '+%Y-%m-%d %H:%M:%S') [RESTORE] $1\" >> \"$LOG_FILE\"; }",
+    "",
+    ...(portableState ? [] : [
+      "echo 'Holistic restore skipped: portableState is disabled (Privacy Mode).'",
+      "exit 0",
+      ""
+    ]),
     `if ! git -C "$ROOT" diff --quiet -- ${shellPathList(trackedPaths)} 2>/dev/null; then`,
     "  echo 'Holistic restore skipped because local Holistic files are dirty.'",
     "  exit 0",
@@ -501,6 +520,12 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     "#!/usr/bin/env sh",
     "SCRIPT_DIR=\"$(cd \"$(dirname \"$0\")\" && pwd)\"",
     "ROOT=\"$(cd \"$SCRIPT_DIR/../..\" && pwd)\"",
+    "",
+    ...(portableState ? [] : [
+      "echo 'Holistic sync skipped: portableState is disabled (Privacy Mode).'",
+      "exit 0",
+      ""
+    ]),
     "if [ ! -d \"$ROOT/.git\" ]; then",
     "  echo 'holistic sync-state: ERROR: Could not find .git directory in resolved ROOT.' >&2",
     "  echo \"Resolved ROOT: $ROOT\" >&2",
@@ -929,7 +954,7 @@ function readJsonObject(filePath: string): Record<string, unknown> {
   }
 }
 
-function readExistingRuntimeConfig(paths: RuntimePaths): { remote: string; syncTarget: SyncTarget; intervalSeconds: number } {
+export function readExistingRuntimeConfig(paths: RuntimePaths): { remote: string; syncTarget: SyncTarget; intervalSeconds: number; portableState: boolean; mcpLogging: "off" | "minimal" | "default" } {
   const config = readJsonObject(configFile(paths));
   const sync = config.sync && typeof config.sync === "object"
     ? config.sync as Record<string, unknown>
@@ -944,6 +969,10 @@ function readExistingRuntimeConfig(paths: RuntimePaths): { remote: string; syncT
   const intervalSeconds = typeof daemon.intervalSeconds === "number" && Number.isFinite(daemon.intervalSeconds)
     ? daemon.intervalSeconds
     : 30;
+  const portableState = config.portableState === true;
+  const mcpLogging = (typeof config.mcpLogging === "string" && ["off", "minimal", "default"].includes(config.mcpLogging))
+    ? config.mcpLogging as "off" | "minimal" | "default"
+    : "minimal";
 
   if (typeof sync.stateRef === "string" && sync.stateRef.trim().length > 0) {
     return {
@@ -958,6 +987,8 @@ function readExistingRuntimeConfig(paths: RuntimePaths): { remote: string; syncT
       remote,
       syncTarget: resolveSyncTarget({ stateBranch: sync.stateBranch }),
       intervalSeconds,
+      portableState,
+      mcpLogging,
     };
   }
 
@@ -965,6 +996,8 @@ function readExistingRuntimeConfig(paths: RuntimePaths): { remote: string; syncT
     remote,
     syncTarget: resolveSyncTarget({}),
     intervalSeconds,
+    portableState,
+    mcpLogging,
   };
 }
 
@@ -1002,6 +1035,7 @@ function writeClaudeDesktopMcpConfig(rootDir: string, platform: NodeJS.Platform,
 
 function buildHookCommand(rootDir: string, paths: RuntimePaths): HookCommand {
   const cliRuntime = runtimeEntryScript("cli");
+  const config = readExistingRuntimeConfig(paths);
   return {
     nodePath: process.execPath,
     scriptPath: cliRuntime.scriptPath,
@@ -1010,6 +1044,7 @@ function buildHookCommand(rootDir: string, paths: RuntimePaths): HookCommand {
     syncPowerShellPath: path.relative(rootDir, path.join(systemDir(paths), "sync-state.ps1")).replaceAll("\\", "/"),
     syncShellPath: path.relative(rootDir, path.join(systemDir(paths), "sync-state.sh")).replaceAll("\\", "/"),
     syncLogPath: path.relative(rootDir, path.join(systemDir(paths), "sync.log")).replaceAll("\\", "/"),
+    portableState: config.portableState,
   };
 }
 
@@ -1050,6 +1085,11 @@ function verifyBootstrapSetup(rootDir: string, result: InitResult, platform: Nod
   };
 }
 
+export function checkHolisticHooksStatus(rootDir: string): GitHookInstallResult {
+  const paths = getRuntimePaths(rootDir);
+  return getGitHooksStatus(rootDir, resolveGitDir(rootDir), buildHookCommand(rootDir, paths));
+}
+
 export function refreshHolisticHooks(rootDir: string): GitHookInstallResult {
   const paths = getRuntimePaths(rootDir);
   return refreshGitHooks(rootDir, resolveGitDir(rootDir), buildHookCommand(rootDir, paths));
@@ -1063,7 +1103,7 @@ export function repairHolistic(rootDir: string, options: RepairOptions = {}): Re
   const homeDir = options.homeDir ?? os.homedir();
   const config = readExistingRuntimeConfig(paths);
 
-  writeSystemArtifacts(rootDir, paths, config.intervalSeconds, config.remote, config.syncTarget);
+  writeSystemArtifacts(rootDir, paths, config.intervalSeconds, config.remote, config.syncTarget, config.portableState);
 
   let startupTarget: string | null = null;
   if (options.installDaemon) {
@@ -1127,7 +1167,7 @@ export function initializeHolistic(rootDir: string, options: InitOptions = {}): 
   const remote = options.remote ?? "origin";
   const syncTarget = resolveSyncTarget(options);
   writeConfig(paths, options, remote, syncTarget, intervalSeconds);
-  writeSystemArtifacts(rootDir, paths, intervalSeconds, remote, syncTarget);
+  writeSystemArtifacts(rootDir, paths, intervalSeconds, remote, syncTarget, options.portableState ?? false);
 
   const platform = options.platform ?? process.platform;
   const homeDir = options.homeDir ?? os.homedir();

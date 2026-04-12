@@ -40,6 +40,7 @@ import {
 import { runDaemonTick } from "../src/daemon.ts";
 import { buildResumeNotificationText, callHolisticTool, createHolisticMcpServer, listHolisticTools, waitForStdioShutdown } from "../src/mcp-server.ts";
 import { tests as mcpNotificationTests } from "../src/__tests__/mcp-notification.test.ts";
+import { tests as redactTests } from "../src/__tests__/redact.test.ts";
 import type { HolisticState } from "../src/core/types.ts";
 
 const workspaceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -758,7 +759,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(nextState.activeSession?.title, "Continue recent repo work");
       assert.equal(nextState.activeSession?.agent, "claude");
       assert.equal(sent.length, 1);
-      assert.match(String(sent[0]?.data ?? ""), /Continue work around src\/mcp\.ts/);
+      assert.match(String(sent[0]?.data ?? ""), /Holistic session active. Use holistic_resume tool for full project context/);
     },
   },
   {
@@ -1733,7 +1734,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 ];
 
 // Merge in unit tests from test modules
-const allTests = [...tests, ...mcpNotificationTests];
+const allTests = [...tests, ...mcpNotificationTests, ...redactTests];
 
 const argv = process.argv.slice(2);
 const grepIndex = argv.indexOf("--grep");

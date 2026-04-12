@@ -4,7 +4,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, typ
 import { pathToFileURL } from "node:url";
 import { captureRepoSnapshot } from './core/git.ts';
 import { writeDerivedDocs } from './core/docs.ts';
-import { refreshHolisticHooks } from './core/setup.ts';
+import { readExistingRuntimeConfig, refreshHolisticHooks } from './core/setup.ts';
 import { requestAutoSync } from './core/sync.ts';
 import {
   applyHandoff,
@@ -100,14 +100,23 @@ export function buildResumeNotificationText(state: HolisticState, agent: AgentNa
 }
 
 export async function sendResumeNotification(server: Server, rootDir: string, agent: AgentName = DEFAULT_MCP_AGENT): Promise<boolean> {
+  const paths = getRuntimePaths(rootDir);
+  const { mcpLogging } = readExistingRuntimeConfig(paths);
+
+  if (mcpLogging === "off") {
+    return true;
+  }
+
   const state = ensureMcpResumeState(rootDir, agent);
   
   // Use a sanitized/minimal message for logging to avoid context leakage.
   // Agents discover full context by calling holistic_resume tool.
   const session = state.activeSession;
-  const text = session 
-    ? `🎯 Holistic session active: ${session.title}\nObjective: ${session.currentGoal}\n\nUse holistic_resume tool for full project context.`
-    : `🎯 Holistic: No active session. Use holistic_resume tool to begin.`;
+  const text = (mcpLogging === "minimal" || !session)
+    ? (session 
+        ? `🎯 Holistic session active. Use holistic_resume tool for full project context.`
+        : `🎯 Holistic: No active session. Use holistic_resume tool to begin.`)
+    : `🎯 Holistic session active: ${session.title}\nObjective: ${session.currentGoal}\n\nUse holistic_resume tool for full project context.`;
 
   await server.sendLoggingMessage({
     level: "info",
