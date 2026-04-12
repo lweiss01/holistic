@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.6.4 - 2026-04-12
+
+Hardening Holistic Security & Robustness (M009). This release enforces strict repository path containment, implements robust state integrity preservation, and introduces a non-mutating build pipeline.
+
+- Implemented **Repository Path Containment**: Enforced strict validation for all repo-configured output paths. Any attempt at directory traversal via `holistic.repo.json` is rejected and surfaced as a high-severity security finding in `holistic doctor`.
+- Added **State Integrity Preservation**: Malformed or corrupted `state.json` files are now automatically preserved as `.corrupt-<timestamp>.json` rather than being silently overwritten. The system initializes a fresh, "degraded" state for diagnostic visibility.
+- Refactored **Non-Mutating Build Pipeline**: Updated `scripts/build.mjs` to use a temporary staging area (`.tmp-build-src`) for compilation, ensuring the `src/` directory remains immutable during the build process.
+- Optimized **MCP Hook Staleness Check**: Connection-time hook validation is now a read-only staleness check, reducing disk write pressure for idle or frequent agent connections.
+- Implemented **Safe Mode**: Introduced a minimal-instruction mode for documentation generation, reducing the prompt injection surface in privacy-conscious environments.
+- Added **Versioned Provenance Headers**: All generated documentation now includes a Holistic version header (e.g., `Holistic version: 0.6.4`) to improve traceability.
+- Expanded **Security Integration Testing**: Added 4 new integration tests in `tests/security.test.ts` to verify path containment, corruption handling, and `safeMode`.
+- ACHIEVED **100% Test Pass Rate**: Verified all 87 tests passing across the entire project.
+
+## 0.6.3 - 2026-04-12
+
+Interim release for internal alignment and documentation updates preceding M009 hardening.
+
+- Bumped version to **0.6.3** to synchronize with npm publication.
+- Updated core project documentation for future release alignment.
+
 ## 0.6.2 - 2026-04-12
 
 Locking in Holistic Maturity (M007). This release hardens the security model, improves diagnostic transparency, and ensures system stability with expanded coverage and robust build processes.
@@ -133,7 +153,7 @@ Stopped teaching agents to visibly fail on missing PATH before recovering.
 
 ## 0.2.2 - 2026-03-22
 
-Improved first-run recovery when Holistic is available in the repo but missing from the current shell PATH.
+Improved first-run experience when Holistic is available in the repo but missing from the current shell PATH.
 
 - Added generated repo-local CLI fallback wrappers under `.holistic/system/` for Windows and macOS/Linux.
 - Surfaced repo-local fallback commands in bootstrap output, resume output, and generated Holistic docs.
