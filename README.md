@@ -28,12 +28,8 @@ Holistic gives your AI agents shared memory inside the repo itself. When you swi
 
 Holistic is designed to be **safe to install, inspectable, and predictable**.
 
-- 🔐 **Security-first design** — local-first, no telemetry, no external services  
-- 🧭 **Consent-first model** — system changes only happen via `bootstrap` or `repair`  
-- 👀 **Read-only by default** — routine commands never silently modify your repo or machine  
-- 🔍 **Fully transparent** — readable scripts, visible hooks, no hidden behavior  
-- 🛡️ **Privacy mode by default** — no remote sync unless explicitly enabled  
-- 🧪 60+ automated tests covering core flows  
+- 🛡️ **Security-hardened** — enforced repository containment and state integrity checks (v0.6.4+)
+- 🧪 70+ automated tests covering core flows and security boundaries
 - 🛠️ Actively maintained (frequent releases)
 
 > See [SECURITY.md](./SECURITY.md) for full technical details.
@@ -126,6 +122,9 @@ Holistic is designed to be **transparent, audit-safe, and consent-first**.
 - **Privacy Mode** — sync disabled by default with enforced guards  
 - **MCP Logging Controls** — configurable visibility  
 - **Redaction** — JWTs, tokens, AWS keys, and PEM blocks scrubbed  
+- **Containment** — Enforced repository boundaries for all output paths (M009)  
+- **Integrity** — Corrupt state files are preserved, not discarded, for auditability (M009)  
+- **Safe Mode** — Minimal instruction mode for privacy-conscious environments (M009)  
 - **Traceable Activity** — logs written locally  
 - **Git-native behavior** — respects `.gitignore`  
 

@@ -4,7 +4,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, typ
 import { pathToFileURL } from "node:url";
 import { captureRepoSnapshot } from './core/git.ts';
 import { writeDerivedDocs } from './core/docs.ts';
-import { readExistingRuntimeConfig, refreshHolisticHooks } from './core/setup.ts';
+import { checkHolisticHooksStatus, readExistingRuntimeConfig, refreshHolisticHooks } from './core/setup.ts';
 import { requestAutoSync } from './core/sync.ts';
 import {
   applyHandoff,
@@ -306,9 +306,12 @@ export function createHolisticMcpServer(rootDir: string): Server {
   );
 
   server.oninitialized = () => {
-    // Refresh hooks on each client connection so templates stay current
-    // across long-lived MCP server processes.
-    const hookResult = refreshHolisticHooks(rootDir);
+    // Only perform a read-only staleness check on client connection.
+    // The actual refresh is handled once at server startup in runMcpServer().
+    const hookResult = checkHolisticHooksStatus(rootDir);
+    if (hookResult.refreshed.length > 0) {
+      console.error("Warning: Holistic Git hooks are stale. Use 'holistic repair' to refresh them.");
+    }
     for (const warning of hookResult.warnings) {
       console.error(warning);
     }

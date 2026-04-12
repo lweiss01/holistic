@@ -1,4 +1,4 @@
-﻿export type AgentName = 
+export type AgentName = 
   | "codex" 
   | "claude" 
   | "antigravity" 
@@ -163,6 +163,8 @@ export interface HolisticState {
     files: string[];
   } | null;
   lastAutoCheckpoint?: string;
+  degraded?: boolean;
+  diagnostics?: string[];
 }
 
 export interface RuntimePaths {

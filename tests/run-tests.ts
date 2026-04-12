@@ -39,6 +39,7 @@ import {
 } from "../src/core/state.ts";
 import { runDaemonTick } from "../src/daemon.ts";
 import { renderResumeNotificationText, callHolisticTool, createHolisticMcpServer, listHolisticTools, waitForStdioShutdown } from "../src/mcp-server.ts";
+import { tests as securityTests } from "./security.test.ts";
 import { tests as mcpNotificationTests } from "../src/__tests__/mcp-notification.test.ts";
 import { tests as redactTests } from "../src/__tests__/redact.test.ts";
 import { tests as privacyArtifactTests } from "../src/__tests__/privacy-artifacts.test.ts";
@@ -1835,7 +1836,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 ];
 
 // Merge in unit tests from test modules
-const allTests = [...tests, ...mcpNotificationTests, ...redactTests];
+const allTests = [...tests, ...securityTests, ...mcpNotificationTests, ...redactTests];
 
 const argv = process.argv.slice(2);
 const grepIndex = argv.indexOf("--grep");

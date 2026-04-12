@@ -28,6 +28,7 @@ export interface InitOptions {
   stateBranch?: string;
   portableState?: boolean;
   mcpLogging?: "off" | "minimal" | "default";
+  safeMode?: boolean;
 }
 
 export interface BootstrapOptions extends InitOptions {
@@ -53,7 +54,7 @@ export interface BootstrapResult extends InitResult {
 }
 
 export interface SetupComponentStatus {
-  component: "git-hooks" | "git-attributes" | "daemon" | "mcp-config" | "system-helpers" | "claude-code-hooks" | "portable-state" | "config-validation" | "session-hygiene";
+  component: "git-hooks" | "git-attributes" | "daemon" | "mcp-config" | "system-helpers" | "claude-code-hooks" | "portable-state" | "config-validation" | "session-hygiene" | "state-integrity";
   status: "ok" | "missing" | "outdated" | "error" | "info";
   details: string;
   description: string;
@@ -89,6 +90,7 @@ export interface RuntimeConfig {
   intervalSeconds: number;
   portableState: boolean;
   mcpLogging: McpLoggingMode;
+  safeMode: boolean;
 }
 
 interface RepoSetupConfigShape {
@@ -356,6 +358,7 @@ function writeConfig(paths: RuntimePaths, options: InitOptions, remote: string, 
     autoInferSessions: true,
     autoSync: syncDefaults.autoSync ?? true,
     portableState: options.portableState ?? (syncDefaults.portableState ?? false),
+    safeMode: options.safeMode ?? false,
     sync: syncConfig,
     mcpLogging: options.mcpLogging ?? "minimal",
     daemon: {
@@ -972,7 +975,7 @@ function readJsonObject(filePath: string): Record<string, unknown> {
   }
 }
 
-export function readExistingRuntimeConfig(paths: RuntimePaths): { remote: string; syncTarget: SyncTarget; intervalSeconds: number; portableState: boolean; mcpLogging: "off" | "minimal" | "default" } {
+export function readExistingRuntimeConfig(paths: RuntimePaths): RuntimeConfig {
   const config = readJsonObject(configFile(paths));
   const sync = config.sync && typeof config.sync === "object"
     ? config.sync as Record<string, unknown>
@@ -999,16 +1002,7 @@ export function readExistingRuntimeConfig(paths: RuntimePaths): { remote: string
       intervalSeconds,
       portableState,
       mcpLogging,
-    };
-  }
-
-  if (typeof sync.stateBranch === "string" && sync.stateBranch.trim().length > 0) {
-    return {
-      remote,
-      syncTarget: resolveSyncTarget({ stateBranch: sync.stateBranch }),
-      intervalSeconds,
-      portableState,
-      mcpLogging,
+      safeMode: config.safeMode === true,
     };
   }
 
@@ -1018,22 +1012,39 @@ export function readExistingRuntimeConfig(paths: RuntimePaths): { remote: string
     intervalSeconds,
     portableState,
     mcpLogging,
+    safeMode: config.safeMode === true,
   };
 }
 
 export function validateRuntimeConfig(paths: RuntimePaths): ConfigFinding[] {
   const filePath = configFile(paths);
+  const findings: ConfigFinding[] = [];
+
+  // 1. Repository Containment Validation
+  const containmentDiagnostics: string[] = [];
+  getRuntimePaths(paths.rootDir, containmentDiagnostics);
+  for (const diag of containmentDiagnostics) {
+    findings.push({
+      level: "error",
+      field: "runtime",
+      message: diag,
+      status: "malformed",
+      fix: "Use relative paths that stay inside the repository root in holistic.repo.json."
+    });
+  }
+
+  // 2. Config File Existence
   if (!fs.existsSync(filePath)) {
-    return [{
+    findings.push({
       level: "warn",
       field: "config.json",
       message: "Configuration file is missing; using system defaults.",
       status: "missing",
       fix: "Run 'holistic init' to generate a default configuration."
-    }];
+    });
+    return findings; // No more fields to check if file is missing
   }
 
-  const findings: ConfigFinding[] = [];
   const raw = readJsonObject(filePath);
 
   // mcpLogging validation
@@ -1360,7 +1371,7 @@ export function bootstrapHolistic(rootDir: string, options: BootstrapOptions = {
 }
 
 export function getSetupStatus(rootDir: string, options: BootstrapOptions = {}): SetupComponentStatus[] {
-  const { paths } = loadState(rootDir);
+  const { state, paths } = loadState(rootDir);
   const platform = options.platform ?? process.platform;
   const homeDir = options.homeDir ?? os.homedir();
   const gitDir = resolveGitDir(rootDir);
@@ -1522,6 +1533,16 @@ export function getSetupStatus(rootDir: string, options: BootstrapOptions = {}):
     status: sessionErrors > 0 ? "error" : "ok",
     details: sessionErrors > 0 ? `${sessionErrors} malformed session files detected` : "All session files are well-formed JSON",
     description: "Scans .holistic/sessions/ to ensure all state files are readable.",
+  });
+
+  // 10. State Integrity
+  const stateDegraded = state.degraded === true;
+  const stateDiagnostics = (state.diagnostics || []).filter(d => !d.startsWith("Security Warning")).length;
+  status.push({
+    component: "state-integrity",
+    status: stateDegraded ? "error" : stateDiagnostics > 0 ? "info" : "ok",
+    details: stateDegraded ? "State is degraded (corruption detected)" : stateDiagnostics > 0 ? `${stateDiagnostics} internal diagnostics reported` : "State is healthy",
+    description: "Checks the integrity of the core state.json file.",
   });
 
   return status;

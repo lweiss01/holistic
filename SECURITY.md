@@ -29,7 +29,9 @@ Holistic is built around a small set of core security and trust principles:
 4. **User control and reversibility**: Every artifact installed by Holistic can be inspected and manually removed.
 5. **Minimal privilege**: Operates entirely in user space with no `sudo` or admin privileges required.
 6. **Transparency over obscurity**: Generated scripts are readable, and hook behavior is clearly marked.
-7. **Defense in depth (best effort)**: Includes automated secret redaction and avoids executing shell commands from untrusted or network-provided input.
+7. **Containment by Design**: Repository-configured paths are explicitly validated against the repo root to prevent directory traversal (v0.6.4).
+8. **Integrity by Preservation**: Corrupted state files are automatically backed up to prevent silent data loss (v0.6.4).
+9. **Defense in depth (best effort)**: Includes automated secret redaction and avoids executing shell commands from untrusted or network-provided input.
 
 ---
 
@@ -50,9 +52,18 @@ System-level changes (writing git hooks, configuring startup daemons, or modifyi
 
 Both commands require explicit user confirmation (or a `--yes` flag) before modifying files outside the `.holistic/` directory.
 
-### 3. What Holistic Does Not Do
+### 3. Repository Path Containment (v0.6.4)
+Holistic enforces strict repository boundaries for all output paths configured in `holistic.repo.json`. Any attempt to escape the repository root (e.g., using `../`) will be rejected, and the system will fall back to safe default paths. These violations are surfaced as **Security Warning** findings in `holistic doctor`.
 
+### 4. Non-Mutating Build Pipeline (v0.6.4)
+The Holistic build process (`npm run build`) uses a staging directory approach. Source code transformations happen only on temporary copies, ensuring the `src/` directory is never mutated during compilation.
+
+### 5. Safe Mode (Minimal Instructions)
+For privacy-conscious or strict instruction environments, users can enable `safeMode` in `.holistic/config.json`. This generates minimal instructions in `HOLISTIC.md`, reducing prompt injection surface area and focusing on documentation-first interaction.
+
+### 6. What Holistic Does Not Do
 - Does not execute arbitrary shell commands from untrusted or network-provided input
+- Does not silently discard corrupted state (backups are created for auditability)
 
 ---
 
@@ -119,7 +130,9 @@ Holistic performs **basic automated redaction** of sensitive patterns identified
 | **Unintended system changes** | Explicit `bootstrap` consent; No admin privileges; Human-readable scripts. |
 | **Repository mutation** | Scoped to `.holistic/`; No branch modification; Transparent hook management. |
 | **Data exposure via sync** | Disabled by default; Hidden ref usage; Early-exit privacy guards. |
-| **Background execution** | Standard user mechanisms; Fully removable via manual deletion of installed artifacts or regeneration using `holistic repair`. |
+| **Background execution** | Standard user mechanisms; Fully removable via manual deletion. |
+| **Directory Traversal** | Enforced repository containment guards against malicious `holistic.repo.json` (v0.6.4). |
+| **Silent State Corruption** | Automatic preservation of malformed `.state.json` files for auditability (v0.6.4). |
 
 ---
 

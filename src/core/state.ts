@@ -81,6 +81,28 @@ function relativeToRoot(rootDir: string, absolutePath: string): string {
   return normalizeRelativePath(path.relative(rootDir, absolutePath));
 }
 
+/**
+ * Ensures a resolved path remains inside the repository root.
+ * If path escapes root, falls back to default and records a diagnostic.
+ */
+function resolvePathInsideRoot(rootDir: string, candidate: string, defaultBasename: string, diagnostics?: string[]): string {
+  const normalizedRoot = path.normalize(rootDir);
+  const resolved = path.resolve(normalizedRoot, candidate);
+  
+  // Ensure we check with a trailing separator to prevent matching /path/repo-sibling
+  const rootWithSlash = normalizedRoot.endsWith(path.sep) ? normalizedRoot : normalizedRoot + path.sep;
+  const isInside = resolved === normalizedRoot || resolved.startsWith(rootWithSlash);
+
+  if (!isInside) {
+    if (diagnostics) {
+      diagnostics.push(`Security Warning: Configured path '${candidate}' attempted to escape repository root. Falling back to safe default: '${defaultBasename}'.`);
+    }
+    return path.join(normalizedRoot, defaultBasename);
+  }
+  
+  return resolved;
+}
+
 function readRepoRuntimeConfig(rootDir: string): RepoRuntimeConfigShape {
   const configPath = path.join(rootDir, "holistic.repo.json");
   if (!fs.existsSync(configPath)) {
@@ -94,32 +116,32 @@ function readRepoRuntimeConfig(rootDir: string): RepoRuntimeConfigShape {
   }
 }
 
-export function getRuntimePaths(rootDir: string): RuntimePaths {
+export function getRuntimePaths(rootDir: string, diagnostics?: string[]): RuntimePaths {
   const runtime = readRepoRuntimeConfig(rootDir).runtime ?? {};
-  const holisticDir = path.join(rootDir, runtime.holisticDir ?? ".holistic");
+  
+  // Enforce repository containment for all configurable paths
+  const holisticDir = resolvePathInsideRoot(rootDir, runtime.holisticDir ?? ".holistic", ".holistic", diagnostics);
   const contextDir = path.join(holisticDir, "context");
-  const masterDoc = path.join(rootDir, runtime.masterDoc ?? "HOLISTIC.md");
-  const agentsDoc = path.join(rootDir, runtime.agentsDoc ?? "AGENTS.md");
+  const masterDoc = resolvePathInsideRoot(rootDir, runtime.masterDoc ?? "HOLISTIC.md", "HOLISTIC.md", diagnostics);
+  const agentsDoc = resolvePathInsideRoot(rootDir, runtime.agentsDoc ?? "AGENTS.md", "AGENTS.md", diagnostics);
+  
   const writeRootHistoryDoc = runtime.writeRootHistoryDoc !== false;
   const writeRootAgentDocs = runtime.writeRootAgentDocs !== false;
+  
   const rootHistoryDoc = writeRootHistoryDoc
-    ? path.join(rootDir, runtime.rootHistoryDoc ?? "HISTORY.md")
+    ? resolvePathInsideRoot(rootDir, runtime.rootHistoryDoc ?? "HISTORY.md", "HISTORY.md", diagnostics)
     : null;
   const rootClaudeDoc = writeRootAgentDocs
-    ? path.join(rootDir, runtime.rootClaudeDoc ?? "CLAUDE.md")
+    ? resolvePathInsideRoot(rootDir, runtime.rootClaudeDoc ?? "CLAUDE.md", "CLAUDE.md", diagnostics)
     : null;
   const rootGeminiDoc = writeRootAgentDocs
-    ? path.join(rootDir, runtime.rootGeminiDoc ?? "GEMINI.md")
+    ? resolvePathInsideRoot(rootDir, runtime.rootGeminiDoc ?? "GEMINI.md", "GEMINI.md", diagnostics)
     : null;
-  const rootCursorRulesDoc = writeRootAgentDocs
-    ? path.join(rootDir, ".cursorrules")
-    : null;
-  const rootWindsurfRulesDoc = writeRootAgentDocs
-    ? path.join(rootDir, ".windsurfrules")
-    : null;
-  const rootCopilotInstructionsDoc = writeRootAgentDocs
-    ? path.join(rootDir, ".github", "copilot-instructions.md")
-    : null;
+    
+  // Fixed system paths (not configurable for containment safety)
+  const rootCursorRulesDoc = writeRootAgentDocs ? path.join(rootDir, ".cursorrules") : null;
+  const rootWindsurfRulesDoc = writeRootAgentDocs ? path.join(rootDir, ".windsurfrules") : null;
+  const rootCopilotInstructionsDoc = writeRootAgentDocs ? path.join(rootDir, ".github", "copilot-instructions.md") : null;
 
   const trackedPaths = [
     relativeToRoot(rootDir, masterDoc),
@@ -388,7 +410,7 @@ function hydrateState(state: HolisticState, paths: RuntimePaths): HolisticState 
   return state;
 }
 
-function loadStateFromDisk(rootDir: string, paths: RuntimePaths): { state: HolisticState; created: boolean } {
+function loadStateFromDisk(rootDir: string, paths: RuntimePaths, diagnostics: string[]): { state: HolisticState; created: boolean } {
   if (!fs.existsSync(paths.stateFile)) {
     return { state: createInitialState(rootDir), created: true };
   }
@@ -396,8 +418,10 @@ function loadStateFromDisk(rootDir: string, paths: RuntimePaths): { state: Holis
   const result = safeReadFile(paths.stateFile);
   if (!result.success || !result.data) {
     // If we can't read state file, create fresh state instead of crashing
-    console.error(`Warning: ${result.error}`);
-    return { state: createInitialState(rootDir), created: true };
+    diagnostics.push(`Warning: Could not read state file: ${result.error}`);
+    const state = createInitialState(rootDir);
+    state.degraded = true;
+    return { state, created: true };
   }
 
   try {
@@ -406,9 +430,21 @@ function loadStateFromDisk(rootDir: string, paths: RuntimePaths): { state: Holis
       created: false,
     };
   } catch (err) {
-    // JSON parse error - create fresh state
-    console.error(`Warning: Failed to parse state file: ${err instanceof Error ? err.message : String(err)}`);
-    return { state: createInitialState(rootDir), created: true };
+    // JSON parse error - backup corrupt file and create fresh state
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const corruptBackup = `${paths.stateFile}.corrupt-${timestamp}.json`;
+    try {
+      if (fs.existsSync(paths.stateFile)) {
+        fs.renameSync(paths.stateFile, corruptBackup);
+        diagnostics.push(`Security: Local state file was corrupted. Backed up to ${path.basename(corruptBackup)} for inspection. Initializing fresh state.`);
+      }
+    } catch (renameErr) {
+      diagnostics.push(`Error: State corruption detected but backup failed: ${renameErr instanceof Error ? renameErr.message : String(renameErr)}`);
+    }
+
+    const state = createInitialState(rootDir);
+    state.degraded = true;
+    return { state, created: true };
   }
 }
 
@@ -417,9 +453,16 @@ export function withStateLock<T>(paths: RuntimePaths, fn: () => T): T {
 }
 
 export function loadState(rootDir: string): { state: HolisticState; paths: RuntimePaths; created: boolean } {
-  const paths = getRuntimePaths(rootDir);
+  const diagnostics: string[] = [];
+  const paths = getRuntimePaths(rootDir, diagnostics);
   ensureDirs(paths);
-  const { state, created } = loadStateFromDisk(rootDir, paths);
+  const { state, created } = loadStateFromDisk(rootDir, paths, diagnostics);
+  
+  // Merge any diagnostics gathered during path resolution and state loading
+  if (diagnostics.length > 0) {
+    state.diagnostics = [...(state.diagnostics ?? []), ...diagnostics];
+  }
+  
   return { state, paths, created };
 }
 
