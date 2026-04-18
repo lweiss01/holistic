@@ -1,0 +1,120 @@
+import type { HolisticContext } from "../../holistic-bridge-types/src/index.ts";
+
+export const SESSION_STATUSES = [
+  "running",
+  "queued",
+  "needs_input",
+  "at_risk",
+  "blocked",
+  "awaiting_review",
+  "parked"
+] as const;
+
+export const SESSION_PHASES = ["plan", "research", "execute", "test"] as const;
+
+export const EVENT_TYPES = [
+  "session.started",
+  "session.ended",
+  "session.idle_detected",
+  "session.checkpoint_created",
+  "task.started",
+  "task.completed",
+  "phase.changed",
+  "command.started",
+  "command.finished",
+  "command.failed",
+  "file.changed",
+  "test.started",
+  "test.finished",
+  "test.failed",
+  "agent.question_asked",
+  "agent.summary_emitted",
+  "agent.retry_pattern_detected",
+  "agent.scope_expansion_detected",
+  "user.resumed"
+] as const;
+
+export const EVENT_SOURCES = ["agent", "collector", "system", "user"] as const;
+export const AGENT_RUNTIMES = ["codex", "openharness", "unknown"] as const;
+
+export const RECOMMENDATION_URGENCY = ["low", "medium", "high"] as const;
+
+export type SessionStatus = (typeof SESSION_STATUSES)[number];
+export type SessionPhase = (typeof SESSION_PHASES)[number];
+export type EventType = (typeof EVENT_TYPES)[number];
+export type EventSource = (typeof EVENT_SOURCES)[number];
+export type AgentRuntime = (typeof AGENT_RUNTIMES)[number];
+export type RecommendationUrgency = (typeof RECOMMENDATION_URGENCY)[number];
+
+export interface SessionRecord {
+  id: string;
+  agentName: string;
+  runtime: AgentRuntime;
+  repoPath: string;
+  worktreePath: string;
+  objective: string;
+  currentPhase: SessionPhase;
+  startedAt: string;
+  endedAt: string | null;
+  lastEventAt: string;
+  lastSummary: string | null;
+}
+
+export interface TaskRecord {
+  id: string;
+  sessionId: string;
+  title: string;
+  phase: SessionPhase;
+  state: "active" | "completed";
+  startedAt: string;
+  completedAt: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface AgentEvent<TPayload = Record<string, unknown>> {
+  id: string;
+  sessionId: string;
+  runtime?: AgentRuntime | null;
+  taskId?: string | null;
+  type: EventType;
+  phase?: SessionPhase | null;
+  source: EventSource;
+  timestamp: string;
+  summary?: string | null;
+  payload: TPayload;
+}
+
+export interface StatusDecision {
+  status: SessionStatus;
+  phase: SessionPhase;
+  explanation: string;
+  evidence: string[];
+}
+
+export interface Recommendation {
+  urgency: RecommendationUrgency;
+  title: string;
+  actionLabel: string;
+  description: string;
+}
+
+export interface ActiveSessionResponse {
+  session: SessionRecord | null;
+  activeTask: TaskRecord | null;
+  status: StatusDecision | null;
+  recommendation: Recommendation | null;
+  holisticContext: HolisticContext | null;
+}
+
+export interface SessionDetailResponse {
+  session: SessionRecord;
+  activeTask: TaskRecord | null;
+  status: StatusDecision;
+  recommendation: Recommendation;
+  holisticContext: HolisticContext | null;
+}
+
+export interface TimelineResponse {
+  sessionId: string;
+  items: AgentEvent[];
+}

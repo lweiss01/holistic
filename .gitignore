@@ -70,3 +70,4 @@ coverage/
 tmp/
 .antigravity_session/
 scratch/
+services/andon-api/data/

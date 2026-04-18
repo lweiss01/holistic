@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { renderRepoLocalCliCommands } from './cli-fallback.ts';
 import { getGitSnapshot, getRecentCommitSubjects, isPortableHolisticPath } from './git.ts';
+import { emitAndonEvent } from './andon.ts';
 import { withLockSync } from './lock.ts';
 import { sanitizeList, sanitizeText } from './redact.ts';
 import type {
@@ -1114,6 +1115,32 @@ export function checkpointState(rootDir: string, state: HolisticState, input: Ch
     activeSession: session,
   });
 
+  void emitAndonEvent({
+    type: "session.checkpoint_created",
+    sessionId: session.id,
+    summary: input.reason || "Manual checkpoint saved",
+    payload: { 
+      checkpointCount: session.checkpointCount,
+      objective: session.currentGoal || session.title,
+      agentName: session.agent,
+      currentPhase: "execute",
+      startedAt: session.startedAt
+    }
+  });
+  
+  if (input.completionSignal) {
+    void emitAndonEvent({
+      type: "agent.summary_emitted",
+      sessionId: session.id,
+      summary: "Completion signal detected",
+      payload: { 
+        signal: input.completionSignal,
+        objective: session.currentGoal || session.title,
+        agentName: session.agent
+      }
+    });
+  }
+
   return {
     ...nextState,
     activeSession: session,
@@ -1162,6 +1189,29 @@ export function startNewSession(rootDir: string, state: HolisticState, agent: Ag
   nextState.activeSession = refreshed.session;
   nextState.repoSnapshot = refreshed.state.repoSnapshot;
   nextState.lastHandoff = null;
+
+  void emitAndonEvent({
+    type: "session.started",
+    sessionId: nextState.activeSession.id,
+    summary: `Session started: ${goal}`,
+    payload: { 
+      agentName: agent, 
+      objective: goal || title || "Unknown objective",
+      branch: refreshed.session.branch,
+      startedAt: nextState.activeSession.startedAt
+    }
+  });
+  void emitAndonEvent({
+    type: "task.started",
+    sessionId: nextState.activeSession.id,
+    summary: `Task started: ${goal}`,
+    payload: {
+      agentName: agent, 
+      objective: goal || title || "Unknown objective",
+      startedAt: nextState.activeSession.startedAt
+    }
+  });
+
   return nextState;
 }
 
@@ -1465,6 +1515,18 @@ export function applyHandoff(rootDir: string, state: HolisticState, input: Hando
       }
     }
   }
+
+  void emitAndonEvent({
+    type: "session.ended",
+    sessionId: session.id,
+    summary: `Handoff: ${summary}`,
+    payload: { 
+      nextAction,
+      objective: session.currentGoal || session.title,
+      agentName: session.agent,
+      startedAt: session.startedAt
+    }
+  });
 
   return {
     ...refreshed.state,

@@ -37,6 +37,12 @@
     "holistic": "bin/holistic.js"
   },
   "scripts": {
+    "andon:api": "node --experimental-strip-types services/andon-api/src/server.ts",
+    "andon:collector": "node --experimental-strip-types services/andon-collector/src/index.ts",
+    "andon:dashboard": "npm --prefix apps/andon-dashboard run dev",
+    "andon:db:migrate": "node scripts/andon-migrate.mjs",
+    "andon:db:seed": "node scripts/andon-seed.mjs",
+    "andon:build": "npm --prefix apps/andon-dashboard run build",
     "build": "node scripts/build.mjs",
     "clean": "node scripts/clean.mjs",
     "prepublishOnly": "npm run clean && npm run build && npm test",
@@ -44,6 +50,7 @@
     "daemon": "node --experimental-strip-types ./src/daemon.ts",
     "release:check": "node scripts/release-check.mjs",
     "test": "node --experimental-strip-types ./tests/run-tests.ts",
+    "test:andon": "node --experimental-strip-types ./tests/run-tests.ts --grep Andon",
     "test:smoke": "node scripts/smoke-test.mjs"
   },
   "engines": {

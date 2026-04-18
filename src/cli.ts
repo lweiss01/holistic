@@ -12,6 +12,9 @@ import { printSplash, printSplashError, renderSplash } from './core/splash.ts';
 import { requestAutoSync } from './core/sync.ts';
 import { runDaemonTick } from './daemon.ts';
 import {
+  flushAndonEvents
+} from './core/andon.ts';
+import {
   applyHandoff,
   buildStartupGreeting,
   clearDraftHandoff,
@@ -1157,9 +1160,11 @@ async function main(): Promise<number> {
 const isEntrypoint = process.argv[1] ? pathToFileURL(process.argv[1]).href === import.meta.url : false;
 
 if (isEntrypoint) {
-  main().then((code) => {
+  main().then(async (code) => {
+    await flushAndonEvents();
     process.exit(code);
-  }).catch((error: unknown) => {
+  }).catch(async (error: unknown) => {
+    await flushAndonEvents();
     const message = error instanceof Error ? error.message : String(error);
 
     printSplashError({
