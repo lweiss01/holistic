@@ -13,6 +13,9 @@ dist/
 .claude/
 .tmp-tests/
 
+# Playwright CLI snapshots / artifacts (local agent browser runs)
+.playwright-cli/
+
 # Session/runtime exports
 gsd-session-*.html
 .bg-shell/
