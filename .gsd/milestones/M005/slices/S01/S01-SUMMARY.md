@@ -38,3 +38,9 @@ Validated paths:
 - `S02` should focus on automated coverage for rules and API behavior so the live path is protected
 - `S03` should validate the OpenHarness adapter against real runtime payloads
 - `S04` can refine UX wording and any live-run polish now that the baseline interaction loop is proven
+
+## 2026-04-19 follow-up (automated + integration)
+
+- `npm test` green including new **file-backed Holistic bridge** unit coverage (`createFileHolisticBridge`).
+- Andon API **SSE** now emits **`session_update`** snapshots (active session, status, recommendation, holistic context) instead of a bare `ping`, so the dashboard can stay fresh with a slower safety poll.
+- Operators can set **`HOLISTIC_REPO`** when starting `andon:api` so session detail uses real `.holistic` files for matching session IDs (see `docs/andon-mvp.md` and `SUPPORT.md`).

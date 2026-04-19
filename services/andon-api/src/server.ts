@@ -1,4 +1,7 @@
+import fs from "node:fs";
+import path from "node:path";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import type { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 
 import type { AgentEvent } from "../../../packages/andon-core/src/index.ts";
@@ -6,8 +9,73 @@ import type { HolisticBridge } from "../../../packages/holistic-bridge-types/src
 
 import { DEFAULT_API_PORT } from "./config.ts";
 import { getDatabase } from "./db.ts";
+import { createFileHolisticBridge } from "./holistic/file-bridge.ts";
 import { mockHolisticBridge } from "./holistic/mock-bridge.ts";
-import { getActiveSession, getSessionDetail, getSessionsList, getSessionTimeline, ingestEvents } from "./repository.ts";
+import {
+  getActiveSession,
+  getSessionDetail,
+  getSessionsList,
+  getSessionTimeline,
+  ingestEvents,
+  type TimelinePageOptions
+} from "./repository.ts";
+
+export function resolveHolisticBridge(): HolisticBridge {
+  const raw = process.env.HOLISTIC_REPO?.trim();
+  if (!raw) {
+    return mockHolisticBridge;
+  }
+  const resolved = path.resolve(raw);
+  if (!fs.existsSync(resolved)) {
+    console.warn(`HOLISTIC_REPO points at a missing path (${resolved}); using mock Holistic bridge.`);
+    return mockHolisticBridge;
+  }
+  console.log(`Andon API: file-backed Holistic bridge → ${resolved}`);
+  return createFileHolisticBridge(resolved);
+}
+
+/** Slim SSE payload — clients refetch via HTTP (avoids large JSON on every event). */
+function broadcastSessionUpdate(clients: Set<ServerResponse>): void {
+  if (clients.size === 0) {
+    return;
+  }
+
+  const line = `data: ${JSON.stringify({ type: "session_update" })}\n\n`;
+  for (const client of clients) {
+    try {
+      client.write(line);
+    } catch {
+      clients.delete(client);
+    }
+  }
+}
+
+function parseTimelineQuery(url: URL): TimelinePageOptions {
+  const tail = url.searchParams.get("tail");
+  const limit = url.searchParams.get("limit");
+  const offset = url.searchParams.get("offset");
+  const opts: TimelinePageOptions = {};
+  if (tail !== null && tail !== "") {
+    const n = Number(tail);
+    if (Number.isFinite(n)) {
+      opts.tail = n;
+    }
+    return opts;
+  }
+  if (limit !== null && limit !== "") {
+    const n = Number(limit);
+    if (Number.isFinite(n)) {
+      opts.limit = n;
+    }
+  }
+  if (offset !== null && offset !== "") {
+    const n = Number(offset);
+    if (Number.isFinite(n)) {
+      opts.offset = n;
+    }
+  }
+  return opts;
+}
 
 interface JsonResponse {
   body: string;
@@ -44,6 +112,20 @@ export function createAndonHandler(
   holisticBridge: HolisticBridge = mockHolisticBridge
 ): (request: IncomingMessage, response: ServerResponse) => Promise<void> {
   const clients = new Set<ServerResponse>();
+  let streamBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const scheduleStreamBroadcast = (): void => {
+    if (clients.size === 0) {
+      return;
+    }
+    if (streamBroadcastTimer) {
+      clearTimeout(streamBroadcastTimer);
+    }
+    streamBroadcastTimer = setTimeout(() => {
+      streamBroadcastTimer = null;
+      broadcastSessionUpdate(clients);
+    }, 80);
+  };
 
   return async (request, response) => {
     try {
@@ -99,8 +181,9 @@ export function createAndonHandler(
           "Access-Control-Allow-Methods": "GET,POST,OPTIONS"
         });
 
-        response.write("data: {\"type\":\"connected\"}\n\n");
         clients.add(response);
+        response.write(`data: ${JSON.stringify({ type: "connected" })}\n\n`);
+        broadcastSessionUpdate(clients);
 
         request.on("close", () => {
           clients.delete(response);
@@ -109,7 +192,8 @@ export function createAndonHandler(
       }
 
       if (request.method === "GET" && timelineMatch) {
-        const payload = getSessionTimeline(database, decodeURIComponent(timelineMatch[1]));
+        const sessionId = decodeURIComponent(timelineMatch[1]);
+        const payload = getSessionTimeline(database, sessionId, parseTimelineQuery(url));
         if (!payload) {
           const result = jsonResponse({ error: "Session not found." }, 404);
           response.writeHead(result.status, result.headers);
@@ -150,9 +234,7 @@ export function createAndonHandler(
 
         const payload = ingestEvents(database, events);
 
-        for (const client of clients) {
-          client.write("data: {\"type\":\"ping\"}\n\n");
-        }
+        scheduleStreamBroadcast();
 
         const result = jsonResponse(payload, 202);
         response.writeHead(result.status, result.headers);
@@ -183,9 +265,7 @@ export function createAndonHandler(
         
         if (generatedEvent) {
           ingestEvents(database, [generatedEvent]);
-          for (const client of clients) {
-            client.write("data: {\"type\":\"ping\"}\n\n");
-          }
+          scheduleStreamBroadcast();
           const result = jsonResponse({ ok: true });
           response.writeHead(result.status, result.headers);
           response.end(result.body);
@@ -229,7 +309,7 @@ function isMainModule(): boolean {
 }
 
 if (isMainModule()) {
-  const server = createAndonServer();
+  const server = createAndonServer(getDatabase(), resolveHolisticBridge());
   server.listen(DEFAULT_API_PORT, "127.0.0.1", () => {
     console.log("");
     console.log("  ✅ Andon API (backend) is running.");

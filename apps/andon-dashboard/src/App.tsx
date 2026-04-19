@@ -5,8 +5,7 @@ import type {
   ActiveSessionResponse,
   AgentEvent,
   SessionDetailResponse,
-  SessionRecord,
-  TimelineResponse
+  SessionRecord
 } from "../../../packages/andon-core/src/index.ts";
 
 import {
@@ -25,9 +24,8 @@ function useLiveStream(onPing: () => void) {
   useEffect(() => subscribeToStream(onPing), [onPing]);
 }
 
-/** Poll every 15 seconds so the dashboard never goes stale,
- *  even when Holistic isn't actively emitting events. */
-function useHeartbeat(onTick: () => void, intervalMs = 15_000) {
+/** Fallback poll when SSE is unavailable; SSE `session_update` drives most refreshes. */
+function useHeartbeat(onTick: () => void, intervalMs = 90_000) {
   useEffect(() => {
     const id = setInterval(onTick, intervalMs);
     return () => clearInterval(id);
@@ -182,8 +180,8 @@ function ActiveSessionPage() {
       .then((result) => {
         setData(result);
         if (result.session) {
-          getTimeline(result.session.id)
-            .then((t) => setTimeline(t.items.slice(-10).reverse()))
+          getTimeline(result.session.id, { tail: 10 })
+            .then((t) => setTimeline([...t.items].reverse()))
             .catch(() => setTimeline([]));
         }
       })
@@ -192,7 +190,7 @@ function ActiveSessionPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
   useLiveStream(loadData);
-  useHeartbeat(loadData); // Poll every 15s — catches work not emitting explicit events
+  useHeartbeat(loadData); // Safety poll (~90s) if SSE disconnects
 
   if (error) return <MessageState title="Connection Error" description={`Cannot reach the Andon API: ${error}`} retryText="Retry" onRetry={loadData} />;
   if (!data) return <MessageState title="Connecting…" description="Fetching live session data from the Andon API." />;
@@ -490,30 +488,99 @@ function DetailPage({ sessionId }: { sessionId: string }) {
 /* ═══════════════════════════════════════════════╗
    MOCKUP D — SESSION REPLAY / TIMELINE
 ╚══════════════════════════════════════════════════ */
-function TimelinePage({ sessionId }: { sessionId: string }) {
-  const [data, setData] = useState<TimelineResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+const TIMELINE_FETCH_PAGE = 400;
+const MAX_TIMELINE_ROWS_RENDERED = 600;
 
-  const loadData = useCallback(() => {
+function TimelinePage({ sessionId }: { sessionId: string }) {
+  const [ascItems, setAscItems] = useState<AgentEvent[]>([]);
+  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [initialFetch, setInitialFetch] = useState<"pending" | "done">("pending");
+
+  const loadInitial = useCallback(() => {
     setError(null);
-    getTimeline(sessionId).then(setData).catch((r: Error) => setError(r.message));
+    setLoadingMore(false);
+    setInitialFetch("pending");
+    getTimeline(sessionId, { limit: TIMELINE_FETCH_PAGE, offset: 0 })
+      .then((t) => {
+        setAscItems(t.items);
+        setTotal(t.total);
+        setHasMore(t.hasMore);
+        setInitialFetch("done");
+      })
+      .catch((r: Error) => {
+        setError(r.message);
+        setInitialFetch("done");
+      });
   }, [sessionId]);
 
-  useEffect(() => { loadData(); }, [loadData]);
-  useLiveStream(loadData);
-  useHeartbeat(loadData);
+  useEffect(() => { loadInitial(); }, [loadInitial]);
+  useLiveStream(loadInitial);
+  useHeartbeat(loadInitial);
 
-  if (error) return <MessageState title="Connection Error" description={`Failed to load timeline: ${error}`} retryText="Retry" onRetry={loadData} />;
-  if (!data) return <MessageState title="Loading Timeline" description="Fetching event history…" />;
-  if (data.items.length === 0) return <MessageState title="No Events Yet" description="No events have been recorded for this session." retryText="Refresh" onRetry={loadData} />;
+  const loadOlder = useCallback(() => {
+    if (!hasMore || loadingMore) {
+      return;
+    }
+    setLoadingMore(true);
+    getTimeline(sessionId, { limit: TIMELINE_FETCH_PAGE, offset: ascItems.length })
+      .then((t) => {
+        setAscItems((prev) => [...prev, ...t.items]);
+        setHasMore(t.hasMore);
+      })
+      .catch((r: Error) => setError(r.message))
+      .finally(() => setLoadingMore(false));
+  }, [ascItems.length, hasMore, loadingMore, sessionId]);
 
-  const items = [...data.items].reverse();
+  if (error) {
+    return (
+      <MessageState
+        title="Connection Error"
+        description={`Failed to load timeline: ${error}`}
+        retryText="Retry"
+        onRetry={loadInitial}
+      />
+    );
+  }
+  if (initialFetch === "pending" && !error) {
+    return <MessageState title="Loading Timeline" description="Fetching event history…" />;
+  }
+  if (ascItems.length === 0 && !error) {
+    return (
+      <MessageState
+        title="No Events Yet"
+        description="No events have been recorded for this session."
+        retryText="Refresh"
+        onRetry={loadInitial}
+      />
+    );
+  }
+
+  const itemsNewestFirst = [...ascItems].reverse();
+  const renderItems =
+    itemsNewestFirst.length > MAX_TIMELINE_ROWS_RENDERED
+      ? itemsNewestFirst.slice(0, MAX_TIMELINE_ROWS_RENDERED)
+      : itemsNewestFirst;
+  const omitted = itemsNewestFirst.length - renderItems.length;
 
   return (
     <div className="panel">
       <p className="eyebrow">Session Replay</p>
+      <p className="meta" style={{ marginBottom: "var(--sp-3)" }}>
+        Showing {ascItems.length} of {total} event{total === 1 ? "" : "s"}
+        {hasMore ? " (older events not loaded yet)" : ""}
+      </p>
+      {hasMore && (
+        <p style={{ marginBottom: "var(--sp-3)" }}>
+          <button type="button" className="btn btn-secondary" disabled={loadingMore} onClick={loadOlder}>
+            {loadingMore ? "Loading…" : "Load older events"}
+          </button>
+        </p>
+      )}
       <ul className="timeline">
-        {items.map((item) => (
+        {renderItems.map((item) => (
           <li key={item.id} className="timeline-item">
             <div className={dotClass(item.type)} />
             <div className="t-body">
@@ -531,6 +598,11 @@ function TimelinePage({ sessionId }: { sessionId: string }) {
           </li>
         ))}
       </ul>
+      {omitted > 0 && (
+        <p className="meta" style={{ marginTop: "var(--sp-3)" }}>
+          {omitted} newer event{omitted === 1 ? "" : "s"} hidden for UI performance — load fewer pages or raise MAX_TIMELINE_ROWS_RENDERED in code.
+        </p>
+      )}
       <hr className="divider" />
       <p>
         <a href={`/session/${sessionId}`} style={{ fontSize: "var(--text-xs)" }}>← Back to Detail View</a>

@@ -559,9 +559,11 @@ function createSession(agent: AgentName, goal: string, title?: string, plan?: st
 }
 
 function uniqueMerge(current: string[], incoming: string[]): string[] {
+  const seen = new Set(current);
   const merged = [...current];
   for (const item of incoming) {
-    if (!merged.includes(item)) {
+    if (!seen.has(item)) {
+      seen.add(item);
       merged.push(item);
     }
   }
@@ -574,8 +576,20 @@ function recentFirstMerge(current: string[], incoming: string[]): string[] {
     return [...current];
   }
 
-  const remaining = current.filter((item) => !incomingUnique.includes(item));
+  const incomingSet = new Set(incomingUnique);
+  const remaining = current.filter((item) => !incomingSet.has(item));
   return [...incomingUnique, ...remaining];
+}
+
+const sessionDirListCache = new Map<string, { signature: string; sessions: SessionRecord[] }>();
+
+/** Drop cached session JSON lists (call after writes under `.holistic/sessions/`). */
+export function invalidateSessionDirectoryCache(directory?: string): void {
+  if (directory === undefined) {
+    sessionDirListCache.clear();
+    return;
+  }
+  sessionDirListCache.delete(path.resolve(directory));
 }
 
 function readSessionsFromDir(directory: string): SessionRecord[] {
@@ -583,19 +597,40 @@ function readSessionsFromDir(directory: string): SessionRecord[] {
     return [];
   }
 
+  const resolved = path.resolve(directory);
+  let signature = "";
+  try {
+    const names = fs.readdirSync(resolved).filter((f) => f.endsWith(".json")).sort();
+    const parts: string[] = [];
+    for (const name of names) {
+      const st = fs.statSync(path.join(resolved, name));
+      parts.push(`${name}:${st.size}:${st.mtimeMs}`);
+    }
+    signature = parts.join("|");
+  } catch {
+    sessionDirListCache.delete(resolved);
+    return [];
+  }
+
+  const cached = sessionDirListCache.get(resolved);
+  if (cached && cached.signature === signature) {
+    return cached.sessions;
+  }
+
   const sessions: SessionRecord[] = [];
-  for (const file of fs.readdirSync(directory)) {
+  for (const file of fs.readdirSync(resolved)) {
     if (!file.endsWith(".json")) {
       continue;
     }
 
     try {
-      sessions.push(JSON.parse(fs.readFileSync(path.join(directory, file), "utf8")) as SessionRecord);
+      sessions.push(JSON.parse(fs.readFileSync(path.join(resolved, file), "utf8")) as SessionRecord);
     } catch {
       // Skip corrupt session files instead of crashing the entire tool.
     }
   }
 
+  sessionDirListCache.set(resolved, { signature, sessions });
   return sessions;
 }
 
@@ -731,6 +766,9 @@ export function runSessionHygiene(
     }
   }
 
+  invalidateSessionDirectoryCache(paths.sessionsDir);
+  invalidateSessionDirectoryCache(paths.archiveSessionsDir);
+
   return archived;
 }
 
@@ -766,6 +804,9 @@ export function reactivateArchivedSession(paths: RuntimePaths, sessionId: string
     // If the move fails, leave archive in place.
     return null;
   }
+
+  invalidateSessionDirectoryCache(paths.sessionsDir);
+  invalidateSessionDirectoryCache(paths.archiveSessionsDir);
 
   return session;
 }
@@ -1164,6 +1205,7 @@ function toPendingWork(session: SessionRecord): PendingWorkItem {
 function writeArchivedSession(paths: RuntimePaths, session: SessionRecord): void {
   const filePath = path.join(paths.archiveSessionsDir, `${session.id}.json`);
   fs.writeFileSync(filePath, JSON.stringify(session, null, 2) + "\n", "utf8");
+  invalidateSessionDirectoryCache(paths.archiveSessionsDir);
 }
 
 export function startNewSession(rootDir: string, state: HolisticState, agent: AgentName, goal: string, plan: string[], title?: string): HolisticState {

@@ -21,8 +21,28 @@ Andon is a local-first supervision layer that sits on top of Holistic. This MVP 
 1. Install workspace dependencies from the repo root.
 2. Run `npm run andon:db:migrate`.
 3. Run `npm run andon:db:seed`.
-4. Start the API with `npm run andon:api`.
+4. Start the API with `npm run andon:api` (optional: set `HOLISTIC_REPO` to an absolute path of a Holistic bootstrapped repo so the API loads real grounding from `.holistic/state.json` instead of the mock bridge).
 5. Start the dashboard with `npm run andon:dashboard`.
+
+### Environment variables
+
+| Variable | Where | Purpose |
+|----------|--------|---------|
+| `HOLISTIC_REPO` | Andon API process | File-backed Holistic bridge; if missing or not a directory, the mock bridge is used. |
+| `ANDON_API_BASE_URL` | Holistic CLI | Target for lifecycle events emitted from `src/core/andon.ts` (default `http://127.0.0.1:4318`). |
+| `ANDON_DISABLED` | Holistic CLI | Set to `true` to disable outbound Andon posts. |
+| `ANDON_DEBUG` | Holistic CLI | Log Andon POST failures. |
+| `VITE_ANDON_API_BASE_URL` | Dashboard (`npm run dev`) | API base URL for browser fetches (default `http://127.0.0.1:4318`). |
+
+### Timeline API (`GET /sessions/:id/timeline`)
+
+Query parameters (all optional):
+
+- `limit` — page size (default 500, max 10000).
+- `offset` — skip this many oldest events (chronological paging).
+- `tail` — when set, return only the **last** N events (overrides `offset`; `limit` is derived). Used by the live monitor for a small “last events” strip.
+
+Responses include `total`, `hasMore`, `limit`, and `offset` so clients can load older pages without scanning the full history.
 
 ## OpenHarness Fit
 

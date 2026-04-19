@@ -18,10 +18,6 @@ function sortEvents(events: AgentEvent[]): AgentEvent[] {
   });
 }
 
-function findLatest(events: AgentEvent[], type: AgentEvent["type"]): AgentEvent | undefined {
-  return [...events].reverse().find((event) => event.type === type);
-}
-
 function buildDecision(
   status: SessionStatus,
   phase: SessionPhase,
@@ -54,19 +50,94 @@ function summariesRepeatRejectedApproach(events: AgentEvent[], holisticContext: 
     });
 }
 
-export function deriveStatus(input: StatusInput): StatusDecision {
-  const now = input.now ?? new Date();
-  const events = sortEvents(input.events);
-  const latestEvent = events.at(-1);
-  const phase = input.session.currentPhase;
+interface EventScan {
+  sorted: AgentEvent[];
+  unresolvedQuestion: AgentEvent | undefined;
+  failureEvents: AgentEvent[];
+  scopeExpansion: AgentEvent | undefined;
+  outOfScopeChange: AgentEvent | undefined;
+  latestCompletedTask: AgentEvent | undefined;
+  latestStartedTask: AgentEvent | undefined;
+  latestSummary: AgentEvent | undefined;
+  idleDetected: AgentEvent | undefined;
+  environmentFailure: AgentEvent | undefined;
+}
 
-  const unresolvedQuestion = [...events].reverse().find((event) => {
-    if (event.type !== "agent.question_asked") {
-      return false;
+function scanSortedEvents(events: AgentEvent[], holisticContext: HolisticContext | null): EventScan {
+  const sorted = sortEvents(events);
+  let unresolvedQuestion: AgentEvent | undefined;
+  const failureEvents: AgentEvent[] = [];
+  let scopeExpansion: AgentEvent | undefined;
+  let outOfScopeChange: AgentEvent | undefined;
+  let latestCompletedTask: AgentEvent | undefined;
+  let latestStartedTask: AgentEvent | undefined;
+  let latestSummary: AgentEvent | undefined;
+  let idleDetected: AgentEvent | undefined;
+  let environmentFailure: AgentEvent | undefined;
+
+  for (const event of sorted) {
+    if (event.type === "agent.question_asked" && (event.payload as { resolved?: boolean }).resolved !== true) {
+      unresolvedQuestion = event;
     }
 
-    return (event.payload as { resolved?: boolean }).resolved !== true;
-  });
+    if (event.type === "command.failed" || event.type === "test.failed") {
+      failureEvents.push(event);
+      const failureKind = String(
+        (event.payload as { failureKind?: string; errorKind?: string }).failureKind ??
+          (event.payload as { failureKind?: string; errorKind?: string }).errorKind ??
+          ""
+      );
+      if (failureKind === "environment" || failureKind === "tool") {
+        environmentFailure = event;
+      }
+    }
+
+    if (event.type === "agent.scope_expansion_detected") {
+      scopeExpansion = event;
+    }
+
+    if (holisticContext && !outOfScopeChange && event.type === "file.changed") {
+      const filePath = String((event.payload as { path?: string }).path ?? "");
+      if (filePath.length > 0 && isPathOutsideScope(filePath, holisticContext.expectedScope)) {
+        outOfScopeChange = event;
+      }
+    }
+
+    if (event.type === "session.idle_detected") {
+      idleDetected = event;
+    }
+
+    if (event.type === "task.completed") {
+      latestCompletedTask = event;
+    }
+    if (event.type === "task.started") {
+      latestStartedTask = event;
+    }
+    if (event.type === "agent.summary_emitted") {
+      latestSummary = event;
+    }
+  }
+
+  return {
+    sorted,
+    unresolvedQuestion,
+    failureEvents,
+    scopeExpansion,
+    outOfScopeChange,
+    latestCompletedTask,
+    latestStartedTask,
+    latestSummary,
+    idleDetected,
+    environmentFailure
+  };
+}
+
+export function deriveStatus(input: StatusInput): StatusDecision {
+  const now = input.now ?? new Date();
+  const scan = scanSortedEvents(input.events, input.holisticContext);
+  const { sorted, unresolvedQuestion, failureEvents, scopeExpansion, outOfScopeChange } = scan;
+  const latestEvent = sorted.at(-1);
+  const phase = input.session.currentPhase;
 
   if (unresolvedQuestion) {
     return buildDecision("needs_input", phase, "The agent has asked a question that still needs a human answer.", [
@@ -74,20 +145,8 @@ export function deriveStatus(input: StatusInput): StatusDecision {
     ]);
   }
 
-  const failureEvents = events.filter((event) => event.type === "command.failed" || event.type === "test.failed");
   const recentFailures = failureEvents.slice(-AT_RISK_FAILURE_THRESHOLD);
-  const scopeExpansion = findLatest(events, "agent.scope_expansion_detected");
-  const rejectedApproachRepeats = summariesRepeatRejectedApproach(events, input.holisticContext);
-  const outOfScopeChange = input.holisticContext
-    ? events.find((event) => {
-        if (event.type !== "file.changed") {
-          return false;
-        }
-
-        const filePath = String((event.payload as { path?: string }).path ?? "");
-        return filePath.length > 0 && isPathOutsideScope(filePath, input.holisticContext.expectedScope);
-      })
-    : undefined;
+  const rejectedApproachRepeats = summariesRepeatRejectedApproach(sorted, input.holisticContext);
 
   if (
     recentFailures.length >= AT_RISK_FAILURE_THRESHOLD ||
@@ -117,16 +176,7 @@ export function deriveStatus(input: StatusInput): StatusDecision {
   }
 
   const latestFailure = failureEvents.at(-1);
-  const idleDetected = findLatest(events, "session.idle_detected");
-  const environmentFailure = [...failureEvents].reverse().find((event) => {
-    const failureKind = String(
-      (event.payload as { failureKind?: string; errorKind?: string }).failureKind ??
-        (event.payload as { failureKind?: string; errorKind?: string }).errorKind ??
-        ""
-    );
-
-    return failureKind === "environment" || failureKind === "tool";
-  });
+  const { idleDetected, environmentFailure } = scan;
 
   if (
     environmentFailure ||
@@ -140,11 +190,8 @@ export function deriveStatus(input: StatusInput): StatusDecision {
     ]);
   }
 
-  const latestCompletedTask = findLatest(events, "task.completed");
-  const latestStartedTask = findLatest(events, "task.started");
-  const latestSummary = findLatest(events, "agent.summary_emitted");
-  
-  // If we started a new task AFTER the last completed task, then work is not complete.
+  const { latestCompletedTask, latestStartedTask, latestSummary } = scan;
+
   const taskCompletedTime = latestCompletedTask ? new Date(latestCompletedTask.timestamp).getTime() : 0;
   const taskStartedTime = latestStartedTask ? new Date(latestStartedTask.timestamp).getTime() : 0;
   const isCurrentlyWorkingOnNewTask = taskStartedTime > taskCompletedTime;
@@ -152,7 +199,7 @@ export function deriveStatus(input: StatusInput): StatusDecision {
   const workComplete =
     ((latestSummary?.payload as { workComplete?: boolean } | undefined)?.workComplete === true || Boolean(latestCompletedTask)) &&
     !isCurrentlyWorkingOnNewTask;
-  const laterProblems = events.some((event) => {
+  const laterProblems = sorted.some((event) => {
     if (!latestCompletedTask && !latestSummary) {
       return false;
     }
@@ -163,7 +210,10 @@ export function deriveStatus(input: StatusInput): StatusDecision {
   });
 
   if (workComplete && !laterProblems) {
-    if (input.session.agentName.toLowerCase().includes("holistic") || ["Capture work and prepare a clean handoff.", "system", "background"].some(t => input.session.objective.includes(t))) {
+    if (
+      input.session.agentName.toLowerCase().includes("holistic") ||
+      ["Capture work and prepare a clean handoff.", "system", "background"].some((t) => input.session.objective.includes(t))
+    ) {
       return buildDecision(
         "parked",
         phase,
@@ -171,7 +221,7 @@ export function deriveStatus(input: StatusInput): StatusDecision {
         [latestSummary?.summary ?? latestCompletedTask?.summary ?? "System task reached completion."]
       );
     }
-    
+
     return buildDecision(
       "awaiting_review",
       phase,
@@ -181,7 +231,7 @@ export function deriveStatus(input: StatusInput): StatusDecision {
   }
 
   const latestEventTime = new Date(input.session.lastEventAt).getTime();
-  if (events.length <= 1 && latestEvent?.type === "session.started") {
+  if (sorted.length <= 1 && latestEvent?.type === "session.started") {
     return buildDecision("queued", phase, "The session has started but meaningful work has not begun yet.", [
       latestEvent.summary ?? "Waiting for the first substantial action."
     ]);

@@ -117,4 +117,12 @@ export interface SessionDetailResponse {
 export interface TimelineResponse {
   sessionId: string;
   items: AgentEvent[];
+  /** Total rows for this session (for pagination). */
+  total: number;
+  /** Requested page size (may be clamped server-side). */
+  limit: number;
+  /** Offset from oldest event (chronological paging). */
+  offset: number;
+  /** True when more older events exist beyond this page. */
+  hasMore: boolean;
 }

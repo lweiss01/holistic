@@ -28,9 +28,9 @@ Even if everything else got stripped away, agents must be able to pick up where 
 - **Phase tracking removed** - workflow-neutral refactor complete (March 21, 2026)
 - **State sync validated on Windows** - `main` and `holistic/state` now sync successfully in dogfooding
 - **~3900 LOC TypeScript** - core state engine, CLI, MCP server, daemon, git hooks, cross-device sync
-- **23 targeted tests passing** - proactive capture and continuity coverage verified during S02 slice completion
+- **Automated tests** - run `npm test` for the current count (core, security, redaction, MCP, Andon); the suite grows as modules land
 - **Working in production** - dogfooding in this repo
-- **Andon MVP scaffold now exists locally** - initial monorepo structure, SQLite-backed API, rules engine, collector, mock Holistic bridge, and React dashboard are in place for the first supervision-layer prototype
+- **Andon MVP scaffold in-repo** - SQLite-backed API, rules engine, collector, React dashboard, mock or **file-backed** Holistic bridge (`HOLISTIC_REPO`), SSE `session_update` snapshots, Holistic CLI telemetry hooks
 
 **What works:**
 - `holistic bootstrap` - one-command machine setup
@@ -93,8 +93,8 @@ See `.gsd/REQUIREMENTS.md` for the explicit capability contract, requirement sta
 - [ ] M002: Team/Org Mode - Planned (contributor identity, team sessions, regression ownership, PR export)
 - [ ] M003: Focused Integrations - Planned (MCP patterns, thin editor setups, compatibility tests)
 - [ ] M004: Reliability Bug Hunt - Planned/partial (commit execution, sync portability, daemon reliability, repo snapshot performance)
-- [ ] M005: Andon MVP - Complete (single-agent supervision layer, local API/dashboard, live session health, Holistic grounding, OpenHarness-ready collection)
-- [ ] M006: Andon V2 (Closing the Loop) - Complete (real-time SSE, interactive callbacks, CLI IDE telemetry, multi-session history)
+- [ ] M005: Andon MVP — In progress (scaffold, tests, local runbook, file-backed grounding, richer SSE; live UX polish continues)
+- [ ] M006: Andon V2 (Closing the Loop) — Planned (CLI `holistic andon watch`, deeper real-time UX, multi-session archive, bidirectional workflows beyond MVP callbacks)
 - [ ] M007: Andon V3 (Fine-Grained Operational Telemetry) - Planned (Layer 1 & 2 integration, SQLite high-volume timelines)
 - [ ] M008: Andon V4 (State Rules Engine & Attention Routing) - Planned (Layer 4 deterministic rules, Intervention Inbox, multi-status color engine)
 - [ ] M009: Andon V5 (Holistic Level 2 Drift Detection) - Planned (Layer 3 semantic scope bounds, Strategy and Context drift, Mockup C detail overlays)

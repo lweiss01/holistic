@@ -75,10 +75,35 @@ function getActiveTask(database: DatabaseSync, sessionId: string): TaskRecord | 
   return row ? mapTask(row) : null;
 }
 
-function getEvents(database: DatabaseSync, sessionId: string): AgentEvent[] {
+/** Default page size for GET /sessions/:id/timeline (chronological, oldest first in `items`). */
+export const DEFAULT_TIMELINE_LIMIT = 500;
+export const MAX_TIMELINE_LIMIT = 10_000;
+/** Max events loaded for rules engines (status + recommendation tail). */
+export const MAX_EVENTS_FOR_RULES = 8000;
+
+function countEventsForSession(database: DatabaseSync, sessionId: string): number {
+  const row = database
+    .prepare("SELECT COUNT(*) AS c FROM events WHERE session_id = ?")
+    .get(sessionId) as { c: number | bigint } | undefined;
+
+  if (!row) {
+    return 0;
+  }
+  return Number(row.c);
+}
+
+/** Last N events in chronological order (for status / recommendation). */
+function getEventsTailForRules(database: DatabaseSync, sessionId: string, maxRows: number): AgentEvent[] {
+  const capped = Math.min(Math.max(maxRows, 1), MAX_TIMELINE_LIMIT);
   const rows = database
-    .prepare("SELECT * FROM events WHERE session_id = ? ORDER BY created_at ASC")
-    .all(sessionId) as Record<string, unknown>[];
+    .prepare(
+      `
+        SELECT * FROM (
+          SELECT * FROM events WHERE session_id = ? ORDER BY created_at DESC LIMIT ?
+        ) ORDER BY created_at ASC
+      `
+    )
+    .all(sessionId, capped) as Record<string, unknown>[];
 
   return rows.map(mapEvent);
 }
@@ -89,7 +114,7 @@ async function buildSessionDetail(
   holisticBridge: HolisticBridge
 ): Promise<SessionDetailResponse> {
   const activeTask = getActiveTask(database, session.id);
-  const events = getEvents(database, session.id);
+  const events = getEventsTailForRules(database, session.id, MAX_EVENTS_FOR_RULES);
   const holisticContext = await holisticBridge.getContext(session.id);
   const status = deriveStatus({ session, events, holisticContext });
   const recommendation = deriveRecommendation({ session, events, holisticContext, status });
@@ -154,15 +179,61 @@ export function getSessionsList(database: DatabaseSync): SessionRecord[] {
   return rows.map(mapSession);
 }
 
-export function getSessionTimeline(database: DatabaseSync, sessionId: string): TimelineResponse | null {
+export interface TimelinePageOptions {
+  limit?: number;
+  offset?: number;
+  /** When set, return the last N events (ignores offset; still respects max cap). */
+  tail?: number;
+}
+
+export function getSessionTimeline(
+  database: DatabaseSync,
+  sessionId: string,
+  page: TimelinePageOptions = {}
+): TimelineResponse | null {
   const session = getSessionRow(database, sessionId);
   if (!session) {
     return null;
   }
 
+  const total = countEventsForSession(database, sessionId);
+  if (total === 0) {
+    return {
+      sessionId,
+      items: [],
+      total: 0,
+      limit: page.limit ?? page.tail ?? DEFAULT_TIMELINE_LIMIT,
+      offset: 0,
+      hasMore: false
+    };
+  }
+
+  let limit = page.limit ?? DEFAULT_TIMELINE_LIMIT;
+  limit = Math.min(Math.max(limit, 1), MAX_TIMELINE_LIMIT);
+  let offset = Math.max(page.offset ?? 0, 0);
+
+  if (page.tail != null) {
+    const tail = Math.min(Math.max(page.tail, 1), MAX_TIMELINE_LIMIT);
+    limit = Math.min(tail, total);
+    offset = Math.max(0, total - limit);
+  } else if (offset + limit > total) {
+    limit = Math.min(limit, Math.max(0, total - offset));
+  }
+
+  const rows = database
+    .prepare("SELECT * FROM events WHERE session_id = ? ORDER BY created_at ASC LIMIT ? OFFSET ?")
+    .all(sessionId, limit, offset) as Record<string, unknown>[];
+
+  const items = rows.map(mapEvent);
+  const hasMore = offset + items.length < total;
+
   return {
     sessionId,
-    items: getEvents(database, sessionId)
+    items,
+    total,
+    limit,
+    offset,
+    hasMore
   };
 }
 

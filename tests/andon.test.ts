@@ -7,6 +7,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import { deriveRecommendation, deriveStatus, type AgentEvent, type SessionRecord } from "../packages/andon-core/src/index.ts";
+import { getSessionTimeline, ingestEvents } from "../services/andon-api/src/repository.ts";
 import { createAndonHandler } from "../services/andon-api/src/server.ts";
 import { shouldPostProgressHeartbeat } from "../services/andon-collector/src/index.ts";
 import { normalizeOpenHarnessStreamEvent } from "../services/andon-collector/src/openharness-adapter.ts";
@@ -404,8 +405,17 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
         const timelineResponse = await fetch(`http://127.0.0.1:${port}/sessions/session-andon-mvp/timeline`);
         assert.equal(timelineResponse.status, 200);
-        const timelinePayload = (await timelineResponse.json()) as { items: AgentEvent[] };
+        const timelinePayload = (await timelineResponse.json()) as {
+          items: AgentEvent[];
+          total: number;
+          hasMore: boolean;
+          limit: number;
+          offset: number;
+        };
         assert.equal(timelinePayload.items.length, 3);
+        assert.equal(timelinePayload.total, 3);
+        assert.equal(timelinePayload.hasMore, false);
+        assert.equal(timelinePayload.offset, 0);
 
         const collectorEvent: AgentEvent = {
           id: "collector-heartbeat",
@@ -444,6 +454,42 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         database.close();
         httpServer.close();
       }
+    }
+  },
+  {
+    name: "Andon timeline pagination and tail slice",
+    run: () => {
+      const tempDir = makeTempDir("andon-timeline-page");
+      const databasePath = path.join(tempDir, "andon.sqlite");
+      createDatabase(databasePath);
+      const database = new DatabaseSync(databasePath);
+
+      const batch: AgentEvent[] = [];
+      for (let i = 0; i < 5; i += 1) {
+        batch.push(
+          makeEvent({
+            id: `e-page-${i}`,
+            type: "agent.summary_emitted",
+            timestamp: `2026-04-18T15:0${i}:00.000Z`,
+            summary: `Event ${i}`
+          })
+        );
+      }
+      ingestEvents(database, batch);
+
+      const firstPage = getSessionTimeline(database, "session-andon-test", { limit: 2, offset: 0 });
+      assert.ok(firstPage);
+      assert.equal(firstPage!.total, 5);
+      assert.equal(firstPage!.items.length, 2);
+      assert.equal(firstPage!.hasMore, true);
+
+      const tailPage = getSessionTimeline(database, "session-andon-test", { tail: 3 });
+      assert.ok(tailPage);
+      assert.equal(tailPage!.items.length, 3);
+      assert.equal(tailPage!.offset, 2);
+      assert.equal(tailPage!.hasMore, false);
+
+      database.close();
     }
   },
   {
@@ -487,6 +533,49 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         options
       );
       assert.equal(unknownEvent, null);
+    }
+  },
+  {
+    name: "File HolisticBridge returns grounding from state.json activeSession",
+    run: async () => {
+      const root = makeTempDir("andon-file-bridge");
+      fs.mkdirSync(path.join(root, ".holistic"), { recursive: true });
+      fs.writeFileSync(
+        path.join(root, ".holistic", "state.json"),
+        JSON.stringify({
+          version: 1,
+          activeSession: {
+            id: "sess-ground-1",
+            currentGoal: "Wire Andon grounding",
+            title: "T",
+            updatedAt: "2026-04-18T12:00:00.000Z",
+            assumptions: ["Assume A"],
+            blockers: ["Block B"],
+            triedItems: ["Try 1"],
+            workDone: ["Done 1"],
+            changedFiles: ["src/foo.ts"],
+            nextSteps: ["Next 1"],
+            status: "active"
+          }
+        }),
+        "utf8"
+      );
+
+      const { createFileHolisticBridge } = await import("../services/andon-api/src/holistic/file-bridge.ts");
+      const bridge = createFileHolisticBridge(root);
+      const ctx = await bridge.getContext("sess-ground-1");
+      assert.ok(ctx);
+      assert.equal(ctx!.objective, "Wire Andon grounding");
+      assert.equal(ctx!.currentPhase, "execute");
+      assert.ok(ctx!.constraints.includes("Assume A"));
+      assert.ok(ctx!.constraints.includes("Block B"));
+      assert.deepEqual(ctx!.priorAttempts, ["Try 1"]);
+      assert.deepEqual(ctx!.acceptedApproaches, ["Done 1"]);
+      assert.deepEqual(ctx!.expectedScope, ["src/foo.ts"]);
+      assert.deepEqual(ctx!.successCriteria, ["Next 1"]);
+
+      const missing = await bridge.getContext("other-id");
+      assert.equal(missing, null);
     }
   }
 ];

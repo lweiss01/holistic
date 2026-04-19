@@ -29,7 +29,7 @@ Holistic gives your AI agents shared memory inside the repo itself. When you swi
 Holistic is designed to be **safe to install, inspectable, and predictable**.
 
 - 🛡️ **Security-hardened** — enforced repository containment and state integrity checks (v0.6.4+)
-- 🧪 70+ automated tests covering core flows and security boundaries
+- 🧪 Broad automated test suite (`npm test`) covering core flows, security boundaries, and Andon MVP paths
 - 🛠️ Actively maintained (frequent releases)
 
 > See [SECURITY.md](./SECURITY.md) for full technical details.

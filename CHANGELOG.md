@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.5 - 2026-04-18
+
+Development-tree updates for the optional **Andon** supervision scaffold and Holistic telemetry hooks.
+
+- Added an **in-repo Andon stack** (SQLite API, React dashboard, collector shim, shared `andon-core` rules) with documented local run steps in `docs/andon-mvp.md`.
+- Holistic CLI **emits optional lifecycle events** to a local Andon API (`session.started`, `task.started`, `session.checkpoint_created`, `agent.summary_emitted`, `session.ended`) via `src/core/andon.ts`, with `flushAndonEvents()` on CLI exit. Disable with `ANDON_DISABLED=true` or point elsewhere with `ANDON_API_BASE_URL`.
+- Andon API supports **`HOLISTIC_REPO`** for a **file-backed Holistic bridge** (reads `.holistic/state.json` and session JSON under `.holistic/sessions/`), falling back to the mock bridge when unset or invalid.
+- Andon **SSE** `/sessions/stream` now pushes structured **`session_update`** payloads (full active-session snapshot) after connect, after event ingest, and after supervisor callbacks; the dashboard treats these as the primary refresh signal with a slower safety poll.
+
 ## 0.6.4 - 2026-04-12
 
 Hardening Holistic Security & Robustness (M009). This release enforces strict repository path containment, implements robust state integrity preservation, and introduces a non-mutating build pipeline.

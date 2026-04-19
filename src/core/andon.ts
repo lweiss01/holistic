@@ -53,4 +53,5 @@ export function emitAndonEvent(
 export async function flushAndonEvents(): Promise<void> {
   if (pendingEvents.length === 0) return;
   await Promise.allSettled(pendingEvents);
+  pendingEvents.length = 0;
 }

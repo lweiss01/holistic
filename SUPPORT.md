@@ -59,6 +59,20 @@ holistic repair
 
 Running `repair` after an update ensures your repo-local helpers point at the newly installed version.
 
+### Andon (optional supervision layer)
+
+Andon is a **local-first** companion stack in this repository (not part of the published `holistic` npm tarball). It ingests events, stores them in SQLite, and serves a small dashboard. Holistic can **emit lifecycle events** to Andon when the API is reachable.
+
+| Variable | Purpose |
+|----------|---------|
+| `ANDON_API_BASE_URL` | Base URL for the Andon API (default `http://127.0.0.1:4318`). |
+| `ANDON_DISABLED` | Set to `true` to stop Holistic from posting events. |
+| `ANDON_DEBUG` | Set to `true` to log dropped events or connection errors from Holistic. |
+| `HOLISTIC_REPO` | Absolute path to a Holistic-enabled repo; the Andon API uses it for a **file-backed** Holistic bridge (reads `.holistic/state.json` and session files). If unset or invalid, the API uses a mock bridge for demos. |
+| `VITE_ANDON_API_BASE_URL` | Dashboard dev server override for the API base URL (see `apps/andon-dashboard`). |
+
+From the repo root after `npm install`, see [docs/andon-mvp.md](./docs/andon-mvp.md) for migrate, seed, and `npm run andon:*` scripts.
+
 ---
 
 ## Filing an Issue
