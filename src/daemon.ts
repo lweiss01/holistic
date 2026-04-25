@@ -299,13 +299,25 @@ export function runDaemonTick(rootDir: string, agent: AgentName = "unknown"): { 
 const ANDON_API_PORT = 4318;
 const ANDON_DASHBOARD_PORT = 5173;
 
-function isPortFree(port: number): Promise<boolean> {
+export function isPortFree(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const probe = createServer();
     probe.once("error", () => resolve(false));
     probe.once("listening", () => probe.close(() => resolve(true)));
     probe.listen(port, "127.0.0.1");
   });
+}
+
+export function isDaemonRunning(pidFile: string): boolean {
+  if (!fs.existsSync(pidFile)) return false;
+  const existing = Number(fs.readFileSync(pidFile, "utf8").trim());
+  if (!existing || existing === process.pid) return false;
+  try {
+    process.kill(existing, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function killTree(child: ChildProcess): void {
@@ -364,17 +376,9 @@ async function main(): Promise<number> {
   const pidFile = path.join(rootDir, ".holistic-local", "daemon.pid");
 
   // Bail if another daemon instance is already running for this repo.
-  if (!runOnce && fs.existsSync(pidFile)) {
-    const existingPid = Number(fs.readFileSync(pidFile, "utf8").trim());
-    if (existingPid && existingPid !== process.pid) {
-      try {
-        process.kill(existingPid, 0); // throws if process is gone
-        process.stdout.write(`Holistic daemon already running (pid ${existingPid}).\n`);
-        return 0;
-      } catch {
-        // Stale PID — previous daemon died without cleanup. Continue.
-      }
-    }
+  if (!runOnce && isDaemonRunning(pidFile)) {
+    process.stdout.write(`Holistic daemon already running (pid ${fs.readFileSync(pidFile, "utf8").trim()}).\n`);
+    return 0;
   }
 
   if (!runOnce) {

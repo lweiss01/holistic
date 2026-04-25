@@ -44,6 +44,7 @@ import { tests as mcpNotificationTests } from "../src/__tests__/mcp-notification
 import { tests as redactTests } from "../src/__tests__/redact.test.ts";
 import { tests as privacyArtifactTests } from "../src/__tests__/privacy-artifacts.test.ts";
 import { tests as andonTests } from "./andon.test.ts";
+import { tests as daemonTests } from "./daemon.test.ts";
 import type { HolisticState } from "../src/core/types.ts";
 
 const workspaceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -1859,7 +1860,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 ];
 
 // Merge in unit tests from test modules
-const allTests = [...tests, ...securityTests, ...mcpNotificationTests, ...redactTests, ...andonTests];
+const allTests = [...tests, ...securityTests, ...mcpNotificationTests, ...redactTests, ...andonTests, ...daemonTests];
 
 const argv = process.argv.slice(2);
 const grepIndex = argv.indexOf("--grep");
