@@ -8,6 +8,10 @@ Development-tree updates for the optional **Andon** supervision scaffold and Hol
 - Holistic CLI **emits optional lifecycle events** to a local Andon API (`session.started`, `task.started`, `session.checkpoint_created`, `agent.summary_emitted`, `session.ended`) via `src/core/andon.ts`, with `flushAndonEvents()` on CLI exit. Disable with `ANDON_DISABLED=true` or point elsewhere with `ANDON_API_BASE_URL`.
 - Andon API supports **`HOLISTIC_REPO`** for a **file-backed Holistic bridge** (reads `.holistic/state.json` and session JSON under `.holistic/sessions/`), falling back to the mock bridge when unset or invalid.
 - Andon **SSE** `/sessions/stream` now pushes structured **`session_update`** payloads (full active-session snapshot) after connect, after event ingest, and after supervisor callbacks; the dashboard treats these as the primary refresh signal with a slower safety poll.
+- Andon **`supervision`** on `GET /sessions/active` and `GET /sessions/:id` (`lastMeaningfulEventAt`, `supervisionSeverity`) for Build A attention density; live monitor shows a severity strip + last-signal time, with Focus Now layout emphasizing the primary action.
+- Andon **status “Why” evidence** now prefers the latest substantive event summary and skips `session.checkpoint_created` / `session.idle_detected` for that headline, so Holistic checkpoint text no longer overrides the active task line when both are present.
+- Andon **Why** for healthy **running** (and inactive **parked**) sessions adds a **second** evidence line, `Latest Holistic checkpoint: …`, when the newest event is `session.checkpoint_created` with a distinct summary (so GSD / milestone text like M010 stays visible beside the workstream line).
+- Andon dashboard **active session headline** stays **Andon-native** (open task title → session `objective` from telemetry), with an optional **latest agent summary** line from SQLite `last_summary` when it differs; **Holistic** is shown on the live monitor as a labeled **work-memory (context)** block when the bridge supplies it, matching the spec stack (Holistic = context layer; Andon = live supervision).
 
 ## 0.6.4 - 2026-04-12
 

@@ -5,12 +5,18 @@ export declare const EVENT_TYPES: readonly ["session.started", "session.ended", 
 export declare const EVENT_SOURCES: readonly ["agent", "collector", "system", "user"];
 export declare const AGENT_RUNTIMES: readonly ["codex", "openharness", "unknown"];
 export declare const RECOMMENDATION_URGENCY: readonly ["low", "medium", "high"];
+export declare const SUPERVISION_SEVERITIES: readonly ["info", "low", "medium", "high", "critical"];
 export type SessionStatus = (typeof SESSION_STATUSES)[number];
 export type SessionPhase = (typeof SESSION_PHASES)[number];
 export type EventType = (typeof EVENT_TYPES)[number];
 export type EventSource = (typeof EVENT_SOURCES)[number];
 export type AgentRuntime = (typeof AGENT_RUNTIMES)[number];
 export type RecommendationUrgency = (typeof RECOMMENDATION_URGENCY)[number];
+export type SupervisionSeverity = (typeof SUPERVISION_SEVERITIES)[number];
+export interface SupervisionSignals {
+    lastMeaningfulEventAt: string | null;
+    supervisionSeverity: SupervisionSeverity;
+}
 export interface SessionRecord {
     id: string;
     agentName: string;
@@ -64,6 +70,7 @@ export interface ActiveSessionResponse {
     status: StatusDecision | null;
     recommendation: Recommendation | null;
     holisticContext: HolisticContext | null;
+    supervision: SupervisionSignals | null;
 }
 export interface SessionDetailResponse {
     session: SessionRecord;
@@ -71,9 +78,14 @@ export interface SessionDetailResponse {
     status: StatusDecision;
     recommendation: Recommendation;
     holisticContext: HolisticContext | null;
+    supervision: SupervisionSignals;
 }
 export interface TimelineResponse {
     sessionId: string;
     items: AgentEvent[];
+    total: number;
+    limit: number;
+    offset: number;
+    hasMore: boolean;
 }
 //# sourceMappingURL=types.d.ts.map

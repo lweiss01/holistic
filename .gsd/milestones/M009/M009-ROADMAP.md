@@ -1,8 +1,10 @@
 # Milestone 009: Andon V5 (Holistic Level 2 Drift Detection)
 
-M009 bridges the operational metrics (Layer 1/2) with Semantic Scope (Layer 3 Context). 
+M009 bridges the operational metrics (Layer 1/2) with Semantic Scope (Layer 3 Context).
 
 Level 2 Drift detects when an agent is technically executing successful commands, testing correctly, and outputting code, but actively straying outside its predetermined Holistic constraints, bounds, or prior context. We introduce Semantic Drift Flags by validating the real-time operational events against the agent's intent.
+
+**Non-goal:** M009 does **not** remove the need for a proper **Layer 1–2** ingest path (see **M007** and **[OpenHarness](https://github.com/HKUDS/OpenHarness)**); it **compares** streams to Holistic-stated bounds. See [`.planning/CANON-LAYERS.md`](../../../.planning/CANON-LAYERS.md).
 
 ## Slice Definition
 

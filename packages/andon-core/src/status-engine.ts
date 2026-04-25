@@ -1,6 +1,6 @@
 import type { HolisticContext } from "../../holistic-bridge-types/src/index.ts";
 
-import type { AgentEvent, SessionPhase, SessionRecord, SessionStatus, StatusDecision } from "./types.ts";
+import type { AgentEvent, EventType, SessionPhase, SessionRecord, SessionStatus, StatusDecision } from "./types.ts";
 
 const RECENT_ACTIVITY_WINDOW_MS = 10 * 60 * 1000;
 const AT_RISK_FAILURE_THRESHOLD = 2;
@@ -16,6 +16,60 @@ function sortEvents(events: AgentEvent[]): AgentEvent[] {
   return [...events].sort((left, right) => {
     return new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime();
   });
+}
+
+/**
+ * Event types whose summaries are continuity/housekeeping — poor fit for the main
+ * "Why" bullet when a substantive task or agent event exists earlier in the tail.
+ */
+const EVIDENCE_SUMMARY_SKIP_TYPES: ReadonlySet<EventType> = new Set([
+  "session.checkpoint_created",
+  "session.idle_detected"
+]);
+
+/** Newest-first scan for a one-line Why evidence string (Holistic checkpoints must not eclipse active work). */
+function pickEvidenceSummaryLine(sorted: AgentEvent[]): string {
+  if (sorted.length === 0) {
+    return "No recent events recorded.";
+  }
+
+  for (let index = sorted.length - 1; index >= 0; index--) {
+    const event = sorted[index]!;
+    if (!EVIDENCE_SUMMARY_SKIP_TYPES.has(event.type)) {
+      const text = event.summary?.trim();
+      if (text && text.length > 0) {
+        return text;
+      }
+      return event.type;
+    }
+  }
+
+  const fallback = sorted.at(-1)!;
+  const fallbackText = fallback.summary?.trim();
+  if (fallbackText && fallbackText.length > 0) {
+    return fallbackText;
+  }
+  return "No recent healthy activity detected.";
+}
+
+/**
+ * Primary Why line = substantive work (checkpoints skipped). When the newest event is a
+ * Holistic checkpoint with its own summary, add a second line so continuity (e.g. M010
+ * planning) stays visible next to the active task narrative.
+ */
+function evidenceSubstantivePlusLatestCheckpoint(sorted: AgentEvent[]): string[] {
+  const primary = pickEvidenceSummaryLine(sorted);
+  const lines = [primary];
+  const latest = sorted.at(-1);
+  if (latest?.type !== "session.checkpoint_created") {
+    return lines;
+  }
+  const checkpointSummary = latest.summary?.trim();
+  if (!checkpointSummary || checkpointSummary === primary.trim()) {
+    return lines;
+  }
+  lines.push(`Latest Holistic checkpoint: ${checkpointSummary}`);
+  return lines;
 }
 
 function buildDecision(
@@ -238,12 +292,18 @@ export function deriveStatus(input: StatusInput): StatusDecision {
   }
 
   if (latestEvent?.type === "session.ended" || now.getTime() - latestEventTime > RECENT_ACTIVITY_WINDOW_MS) {
-    return buildDecision("parked", phase, "The session is inactive and likely waiting to be resumed later.", [
-      latestEvent?.summary ?? "No recent healthy activity detected."
-    ]);
+    return buildDecision(
+      "parked",
+      phase,
+      "The session is inactive and likely waiting to be resumed later.",
+      evidenceSubstantivePlusLatestCheckpoint(sorted)
+    );
   }
 
-  return buildDecision("running", phase, "Recent activity looks healthy and the agent is making progress.", [
-    latestEvent?.summary ?? "Recent activity is flowing normally."
-  ]);
+  return buildDecision(
+    "running",
+    phase,
+    "Recent activity looks healthy and the agent is making progress.",
+    evidenceSubstantivePlusLatestCheckpoint(sorted)
+  );
 }

@@ -1,30 +1,29 @@
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useState } from "react";
-
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   ActiveSessionResponse,
   AgentEvent,
+  RecommendationUrgency,
   SessionDetailResponse,
-  SessionRecord
+  SessionRecord,
+  SessionStatus,
+  TimelineResponse,
 } from "../../../packages/andon-core/src/index.ts";
-
 import {
   getActiveSession,
   getSessionDetail,
   getSessionsList,
   getTimeline,
   postCallback,
-  subscribeToStream
+  subscribeToStream,
 } from "./api.ts";
 
-/* ═══════════════════════════════════════════════╗
-   HOOKS
-╚══════════════════════════════════════════════════ */
+/* ───────────────────────────── hooks ───────────────────────────── */
+
 function useLiveStream(onPing: () => void) {
   useEffect(() => subscribeToStream(onPing), [onPing]);
 }
 
-/** Fallback poll when SSE is unavailable; SSE `session_update` drives most refreshes. */
 function useHeartbeat(onTick: () => void, intervalMs = 90_000) {
   useEffect(() => {
     const id = setInterval(onTick, intervalMs);
@@ -33,38 +32,69 @@ function useHeartbeat(onTick: () => void, intervalMs = 90_000) {
 }
 
 function useTheme() {
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    return (localStorage.getItem('andon-theme') as 'light' | 'dark') ?? 'dark';
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    return (localStorage.getItem("andon-theme") as "light" | "dark") ?? "dark";
   });
 
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('andon-theme', theme);
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("andon-theme", theme);
   }, [theme]);
 
-  const toggle = () => setTheme(t => t === 'light' ? 'dark' : 'light');
-  return { theme, toggle };
+  return {
+    theme,
+    toggle: () => setTheme((value) => (value === "light" ? "dark" : "light")),
+  };
 }
 
-/* ═══════════════════════════════════════════════╗
-   UTILITIES
-╚══════════════════════════════════════════════════ */
+/* ───────────────────────────── utilities ───────────────────────────── */
+
+const statusLabels: Record<SessionStatus, string> = {
+  running: "Flowing",
+  queued: "Queued",
+  needs_input: "Needs input",
+  at_risk: "At risk",
+  blocked: "Stopped",
+  awaiting_review: "Review",
+  parked: "Parked",
+};
+
+const phaseLabels: Record<string, string> = {
+  plan: "Plan",
+  research: "Research",
+  execute: "Execute",
+  test: "Test",
+};
+
+const phaseMarks: Record<string, string> = {
+  plan: "計画",
+  research: "調査",
+  execute: "実装",
+  test: "検証",
+};
+
 function formatTime(value: string | null | undefined): string {
   if (!value) return "—";
-  return new Date(value).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  return new Date(value).toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function formatDateTime(value: string | null | undefined): string {
   if (!value) return "—";
   return new Date(value).toLocaleString(undefined, {
-    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
 function timeAgo(value: string | null | undefined): string {
   if (!value) return "—";
   const ms = Date.now() - new Date(value).getTime();
-  const s = Math.floor(ms / 1000);
+  const s = Math.max(0, Math.floor(ms / 1000));
   if (s < 60) return `${s}s ago`;
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m ago`;
@@ -75,100 +105,186 @@ function repoName(repoPath: string): string {
   return repoPath.split(/[\\/]/).filter(Boolean).at(-1) ?? repoPath;
 }
 
-function typeClass(type: string): string {
-  if (type.includes("failed") || type.includes("blocked")) return "t-type t-type-error";
-  if (type.includes("risk") || type.includes("scope") || type.includes("retry")) return "t-type t-type-warn";
-  if (type.includes("session") || type.includes("phase") || type.includes("checkpoint")) return "t-type t-type-system";
-  return "t-type t-type-default";
+function statusTone(status: string | undefined | null): string {
+  return (status ?? "parked").replace(/_/g, "-");
 }
 
-function dotClass(type: string): string {
-  if (type.includes("failed") || type.includes("blocked")) return "t-dot t-dot-blocked";
-  if (type.includes("risk") || type.includes("scope") || type.includes("retry")) return "t-dot t-dot-risk";
-  if (type.includes("session.started") || type.includes("session.checkpoint")) return "t-dot t-dot-running";
-  return "t-dot t-dot-system";
+function eventTone(type: string): string {
+  if (type.includes("failed") || type.includes("blocked")) return "critical";
+  if (type.includes("risk") || type.includes("scope") || type.includes("retry")) return "warning";
+  if (type.includes("checkpoint") || type.includes("session")) return "memory";
+  if (type.includes("test")) return "test";
+  return "neutral";
 }
 
-/* ═══════════════════════════════════════════════╗
-   SHARED COMPONENTS
-╚══════════════════════════════════════════════════ */
-// Status as a colored rule + text label — not a pill badge
-function StatusIndicator({ value }: { value: string }) {
-  const label: Record<string, string> = {
-    running:         "Running",
-    queued:          "Queued",
-    needs_input:     "Needs Input",
-    at_risk:         "At Risk",
-    blocked:         "Blocked",
-    awaiting_review: "Awaiting Review",
-    parked:          "Parked"
-  };
-  return (
-    <span className={`status-indicator status-${value.replace(/_/g, "-")}`}>
-      <span className="status-indicator-bar" />
-      {label[value] ?? value.replace(/_/g, " ")}
-    </span>
-  );
+function urgencyTone(urgency: RecommendationUrgency | undefined): string {
+  if (urgency === "high") return "critical";
+  if (urgency === "medium") return "warning";
+  return "quiet";
 }
 
-// Keep StatusPill as an alias for table views
-const StatusPill = StatusIndicator;
+function byAttention(a: SessionRecord, b: SessionRecord) {
+  return new Date(b.lastEventAt).getTime() - new Date(a.lastEventAt).getTime();
+}
 
-function MessageState({ title, description, retryText, onRetry }: {
-  title: string; description: string; retryText?: string; onRetry?: () => void;
+/* ───────────────────────────── shared components ───────────────────────────── */
+
+function Navigation({
+  theme,
+  onToggleTheme,
+}: {
+  theme: "light" | "dark";
+  onToggleTheme: () => void;
 }) {
   return (
-    <div className="panel message-state">
-      <h2>{title}</h2>
-      <p>{description}</p>
-      {onRetry && <button className="btn btn-secondary" onClick={onRetry}>{retryText ?? "Retry"}</button>}
-    </div>
-  );
-}
+    <header className="nav">
+      <a className="brand" href="/" aria-label="Andon home">
+        <span className="brand-mark" aria-hidden="true">全</span>
+        <span>
+          <strong>HOLISTIC</strong>
+          <em>Andon</em>
+        </span>
+      </a>
 
-function Navigation({ theme, onToggleTheme }: { theme: 'light' | 'dark'; onToggleTheme: () => void }) {
-  return (
-    <header className="topbar">
-      <div className="topbar-brand">
-        <div className="lamp-bar" />
-        <div className="brand-lockup">
-          <span className="brand-wordmark">Andon</span>
-          <span className="brand-tagline">Agent Supervision</span>
-        </div>
-      </div>
-      <div className="topbar-right">
-        <nav className="topbar-nav">
-          <a href="/">Monitor</a>
-          <a href="/history">History</a>
-        </nav>
-        <button className="theme-toggle" onClick={onToggleTheme} aria-label="Toggle theme">
-          {theme === 'light' ? (
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-            </svg>
-          ) : (
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="5" />
-              <line x1="12" y1="1" x2="12" y2="3" />
-              <line x1="12" y1="21" x2="12" y2="23" />
-              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-              <line x1="1" y1="12" x2="3" y2="12" />
-              <line x1="21" y1="12" x2="23" y2="12" />
-              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-            </svg>
-          )}
-          {theme === 'light' ? 'Dark' : 'Light'}
-        </button>
-      </div>
+      <nav className="nav-links" aria-label="Dashboard navigation">
+        <a href="/">Live</a>
+        <a href="/history">History</a>
+      </nav>
+
+      <button className="theme-button" type="button" onClick={onToggleTheme}>
+        {theme === "light" ? "Dark" : "Light"}
+      </button>
     </header>
   );
 }
 
-/* ═══════════════════════════════════════════════╗
-   MOCKUP A — ACTIVE SESSION FOCUS BOARD
-╚══════════════════════════════════════════════════ */
+function MessageState({
+  title,
+  description,
+  retryText,
+  onRetry,
+}: {
+  title: string;
+  description: string;
+  retryText?: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <section className="empty-state">
+      <p className="kicker">Andon</p>
+      <h1>{title}</h1>
+      <p>{description}</p>
+      {onRetry && (
+        <button className="button primary" type="button" onClick={onRetry}>
+          {retryText ?? "Retry"}
+        </button>
+      )}
+    </section>
+  );
+}
+
+function StatusLine({ status }: { status: string }) {
+  const tone = statusTone(status);
+  return (
+    <span className={`status-line status-${tone}`}>
+      <span />
+      {statusLabels[status as SessionStatus] ?? status.replace(/_/g, " ")}
+    </span>
+  );
+}
+
+function PhaseRail({ activePhase }: { activePhase: string }) {
+  const phases = ["plan", "research", "execute", "test"];
+
+  return (
+    <ol className="phase-rail" aria-label="Session phase">
+      {phases.map((phase) => (
+        <li
+          key={phase}
+          className={phase === activePhase ? "is-active" : undefined}
+        >
+          <span className="phase-jp">{phaseMarks[phase]}</span>
+          <span>{phaseLabels[phase]}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function QuoteBlock() {
+  return (
+    <aside className="quote-card" aria-label="Andon principle">
+      <p>“Surface the problem early. Keep the work humane.”</p>
+      <span>改善</span>
+    </aside>
+  );
+}
+
+function EvidenceList({ evidence }: { evidence: string[] }) {
+  if (evidence.length === 0) {
+    return <p className="muted">No warning evidence recorded.</p>;
+  }
+
+  return (
+    <ul className="evidence-list">
+      {evidence.map((item, index) => (
+        <li key={`${item}-${index}`}>{item}</li>
+      ))}
+    </ul>
+  );
+}
+
+function EventList({ events }: { events: AgentEvent[] }) {
+  if (events.length === 0) {
+    return <p className="muted">No events recorded yet.</p>;
+  }
+
+  return (
+    <ol className="event-list">
+      {events.map((item) => (
+        <li key={item.id} className={`event-${eventTone(item.type)}`}>
+          <time>{formatTime(item.timestamp)}</time>
+          <div>
+            <span>{item.type}</span>
+            {item.summary && <p>{item.summary}</p>}
+          </div>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function SessionMiniCard({ session }: { session: SessionRecord }) {
+  return (
+    <a className="session-card" href={`/session/${session.id}`}>
+      <div>
+        <StatusLine status={session.endedAt ? "parked" : "running"} />
+        <h3>{session.objective}</h3>
+      </div>
+      <dl>
+        <div>
+          <dt>Agent</dt>
+          <dd>{session.agentName}</dd>
+        </div>
+        <div>
+          <dt>Repo</dt>
+          <dd>{repoName(session.repoPath)}</dd>
+        </div>
+        <div>
+          <dt>Phase</dt>
+          <dd>{phaseLabels[session.currentPhase] ?? session.currentPhase}</dd>
+        </div>
+        <div>
+          <dt>Last signal</dt>
+          <dd>{timeAgo(session.lastEventAt)}</dd>
+        </div>
+      </dl>
+    </a>
+  );
+}
+
+/* ───────────────────────────── pages ───────────────────────────── */
+
 function ActiveSessionPage() {
   const [data, setData] = useState<ActiveSessionResponse | null>(null);
   const [timeline, setTimeline] = useState<AgentEvent[]>([]);
@@ -179,147 +295,176 @@ function ActiveSessionPage() {
     getActiveSession()
       .then((result) => {
         setData(result);
-        if (result.session) {
-          getTimeline(result.session.id, { tail: 10 })
-            .then((t) => setTimeline([...t.items].reverse()))
-            .catch(() => setTimeline([]));
+        if (!result.session) {
+          setTimeline([]);
+          return;
         }
+        getTimeline(result.session.id, { tail: 10 })
+          .then((t) => setTimeline([...t.items].reverse()))
+          .catch(() => setTimeline([]));
       })
       .catch((reason: Error) => setError(reason.message));
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => loadData(), [loadData]);
   useLiveStream(loadData);
-  useHeartbeat(loadData); // Safety poll (~90s) if SSE disconnects
+  useHeartbeat(loadData);
 
-  if (error) return <MessageState title="Connection Error" description={`Cannot reach the Andon API: ${error}`} retryText="Retry" onRetry={loadData} />;
-  if (!data) return <MessageState title="Connecting…" description="Fetching live session data from the Andon API." />;
-  if (!data.session || !data.status || !data.recommendation) {
+  if (error) {
     return (
       <MessageState
-        title="No Active Session"
-        description="No agent session is currently running. Start a Holistic session and it will appear here in real time."
-        retryText="Check Again"
+        title="The line is unreachable"
+        description={error}
+        retryText="Try again"
         onRetry={loadData}
       />
     );
   }
 
-  const { session, status, recommendation, activeTask } = data;
-  const repo = repoName(session.repoPath);
-  const worktree = session.worktreePath !== session.repoPath ? repoName(session.worktreePath) : null;
-  const statusSlug = status.status.replace(/_/g, "-");
-
-  const handleAction = async (action: "approve" | "pause" | "resume") => {
-    try { await postCallback(session.id, action); }
-    catch (err) { setError(err instanceof Error ? err.message : String(err)); }
-  };
-
-  let actionBtn: ReactNode = null;
-  if (status.status === "awaiting_review") {
-    actionBtn = <button className="btn btn-primary" onClick={() => handleAction("approve")}>Approve &amp; Close</button>;
-  } else if (status.status === "parked") {
-    actionBtn = <button className="btn btn-secondary" onClick={() => handleAction("resume")}>Resume Session</button>;
-  } else if (status.status === "blocked" || status.status === "at_risk") {
-    actionBtn = <button className="btn btn-warning" onClick={() => handleAction("pause")}>Pause &amp; Redirect</button>;
-  } else {
-    actionBtn = <button className="btn btn-danger" onClick={() => handleAction("pause")}>Pause Session</button>;
+  if (!data) {
+    return <MessageState title="Reading the line" description="Loading live Andon state…" />;
   }
 
+  if (!data.session || !data.status || !data.recommendation) {
+    return (
+      <MessageState
+        title="No active session"
+        description="When an agent starts work, this board will show its phase, status, evidence, and next action."
+      />
+    );
+  }
+
+  const { session, status, recommendation, activeTask, holisticContext } = data;
+  const repo = repoName(session.repoPath);
+  const worktree =
+    session.worktreePath !== session.repoPath ? repoName(session.worktreePath) : null;
+  const tone = statusTone(status.status);
+  const latestEvent = timeline[0];
+
+  const handleAction = async (action: "approve" | "pause" | "resume") => {
+    try {
+      await postCallback(session.id, action);
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const action =
+    status.status === "awaiting_review"
+      ? { label: "Approve handoff", intent: "primary" as const, fn: () => handleAction("approve") }
+      : status.status === "parked"
+        ? { label: "Resume session", intent: "primary" as const, fn: () => handleAction("resume") }
+        : status.status === "blocked" || status.status === "at_risk"
+          ? { label: "Pause and redirect", intent: "danger" as const, fn: () => handleAction("pause") }
+          : { label: "Pause session", intent: "secondary" as const, fn: () => handleAction("pause") };
+
   return (
-    <div className="page-grid">
-      {/* ── LEFT: Main status panel ── */}
-      <div className="page-grid-main">
-        <div className={`panel panel-${statusSlug}`}>
-          <p className="eyebrow">Andon — Active Session</p>
-
-          <div className="task-header">
-            <p className="task-title">{activeTask?.title ?? session.objective}</p>
-            <div className="chip-row">
-              <StatusIndicator value={status.status} />
-              <span className="chip"><span className="chip-label">Repo</span>{repo}</span>
-              <span className="chip"><span className="chip-label">Phase</span>{session.currentPhase}</span>
-              {worktree && <span className="chip"><span className="chip-label">Worktree</span>{worktree}</span>}
-              <span className="chip"><span className="chip-label">Agent</span>{session.agentName}</span>
-            </div>
+    <main className={`dashboard tone-${tone}`}>
+      <section className="hero-grid">
+        <div className="hero-panel">
+          <p className="kicker">Live agent line</p>
+          <div className="hero-title-row">
+            <h1>{activeTask?.title ?? session.objective}</h1>
+            <StatusLine status={status.status} />
           </div>
+          <p className="hero-copy">{status.explanation}</p>
 
-          {/* Why section */}
-          {status.evidence.length > 0 && (
-            <>
-              <p className="eyebrow">Why</p>
-              <ul className="reason-list">
-                {status.evidence.map((e) => <li key={e}>{e}</li>)}
-              </ul>
-            </>
+          <div className="context-strip">
+            <span><b>Repo</b>{repo}</span>
+            <span><b>Agent</b>{session.agentName}</span>
+            <span><b>Runtime</b>{session.runtime}</span>
+            <span><b>Last signal</b>{timeAgo(session.lastEventAt)}</span>
+            {worktree && <span><b>Worktree</b>{worktree}</span>}
+          </div>
+        </div>
+
+        <QuoteBlock />
+      </section>
+
+      <PhaseRail activePhase={session.currentPhase} />
+
+      <section className="work-grid">
+        <article className="panel attention-panel">
+          <div className="section-head">
+            <p className="kicker">Needs attention</p>
+            <span className={`urgency urgency-${urgencyTone(recommendation.urgency)}`}>
+              {recommendation.urgency}
+            </span>
+          </div>
+          <h2>{recommendation.title}</h2>
+          <p>{recommendation.description}</p>
+          <button
+            className={`button ${action.intent}`}
+            type="button"
+            onClick={action.fn}
+          >
+            {action.label}
+          </button>
+        </article>
+
+        <article className="panel">
+          <p className="kicker">Evidence</p>
+          <EvidenceList evidence={status.evidence} />
+        </article>
+
+        <article className="panel">
+          <p className="kicker">Holistic grounding</p>
+          {holisticContext ? (
+            <div className="grounding-grid">
+              <div>
+                <h3>Expected scope</h3>
+                <EvidenceList evidence={holisticContext.expectedScope ?? []} />
+              </div>
+              <div>
+                <h3>Constraints</h3>
+                <EvidenceList evidence={holisticContext.constraints ?? []} />
+              </div>
+              <div>
+                <h3>Rejected approaches</h3>
+                <EvidenceList evidence={holisticContext.rejectedApproaches ?? []} />
+              </div>
+            </div>
+          ) : (
+            <p className="muted">No Holistic context loaded for this session.</p>
           )}
+        </article>
 
-          <hr className="section-divider" />
-
-          {/* Last 10 events */}
-          <p className="eyebrow">Last {timeline.length} Events</p>
-          {timeline.length === 0
-            ? <p className="meta">No events recorded yet.</p>
-            : (
-              <ul className="timeline">
-                {timeline.map((item) => (
-                  <li key={item.id} className="timeline-item">
-                    <div className={dotClass(item.type)} />
-                    <div className="t-body">
-                      <span className={typeClass(item.type)}>{item.type}</span>
-                      {item.summary && <p className="t-summary">{item.summary}</p>}
-                    </div>
-                    <span className="t-time">{formatTime(item.timestamp)}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-        </div>
-      </div>
-
-      {/* ── RIGHT: Sidebar ── */}
-      <div className="page-grid-aside">
-        {/* Suggested Action */}
-        <div className="panel">
-          <p className="eyebrow">Focus Now</p>
-          <p className="focus-title">{recommendation.title}</p>
-          <p style={{ color: "var(--fg-secondary)", fontSize: "var(--text-sm)", marginBottom: "var(--sp-4)" }}>
-            {recommendation.description}
-          </p>
-          <p className={`meta urgency-${recommendation.urgency}`} style={{ marginBottom: "var(--sp-4)" }}>
-            Urgency: {recommendation.urgency}
-          </p>
-          {actionBtn}
-        </div>
-
-        {/* Active task meta */}
-        <div className="panel">
-          <p className="eyebrow">Active Task</p>
-          <h3 style={{ marginBottom: "var(--sp-3)" }}>{activeTask?.title ?? "No active task"}</h3>
-          <div className="signal-grid">
-            <div className="signal-tile">
-              <p className="signal-tile-label">Last Event</p>
-              <p className="signal-tile-value">{timeAgo(session.lastEventAt)}</p>
-            </div>
-            <div className="signal-tile">
-              <p className="signal-tile-label">Phase</p>
-              <p className="signal-tile-value">{session.currentPhase}</p>
-            </div>
+        <article className="panel timeline-panel">
+          <div className="section-head">
+            <p className="kicker">Recent signals</p>
+            <a href={`/session/${session.id}/timeline`}>Full replay</a>
           </div>
-          <p style={{ marginTop: "var(--sp-4)" }}>
-            <a href={`/session/${session.id}`} style={{ fontSize: "var(--text-xs)" }}>
-              View full detail →
-            </a>
-          </p>
-        </div>
-      </div>
-    </div>
+          <EventList events={timeline} />
+        </article>
+
+        <article className="panel quiet-panel">
+          <p className="kicker">Current task</p>
+          <dl className="metric-list">
+            <div>
+              <dt>Title</dt>
+              <dd>{activeTask?.title ?? "No active task"}</dd>
+            </div>
+            <div>
+              <dt>Phase</dt>
+              <dd>{phaseLabels[session.currentPhase]}</dd>
+            </div>
+            <div>
+              <dt>Started</dt>
+              <dd>{formatDateTime(session.startedAt)}</dd>
+            </div>
+            <div>
+              <dt>Latest event</dt>
+              <dd>{latestEvent?.summary ?? latestEvent?.type ?? "—"}</dd>
+            </div>
+          </dl>
+          <a className="text-link" href={`/session/${session.id}`}>Inspect station →</a>
+        </article>
+      </section>
+    </main>
   );
 }
 
-/* ═══════════════════════════════════════════════╗
-   MOCKUP C — AGENT DETAIL INSPECTOR
-╚══════════════════════════════════════════════════ */
 function DetailPage({ sessionId }: { sessionId: string }) {
   const [data, setData] = useState<SessionDetailResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -329,291 +474,154 @@ function DetailPage({ sessionId }: { sessionId: string }) {
     getSessionDetail(sessionId).then(setData).catch((r: Error) => setError(r.message));
   }, [sessionId]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => loadData(), [loadData]);
   useLiveStream(loadData);
   useHeartbeat(loadData);
 
-  if (error) return <MessageState title="Connection Error" description={`Failed to load session: ${error}`} retryText="Retry" onRetry={loadData} />;
-  if (!data) return <MessageState title="Loading…" description="Fetching session diagnostics…" />;
+  if (error) return <MessageState title="Station unavailable" description={error} onRetry={loadData} />;
+  if (!data) return <MessageState title="Opening station" description="Loading session detail…" />;
 
-  const { session, status, recommendation, holisticContext } = data;
+  const { session, status, recommendation, holisticContext, activeTask } = data;
   const repo = repoName(session.repoPath);
-  const worktree = session.worktreePath !== session.repoPath ? repoName(session.worktreePath) : null;
-  const statusSlug = status.status.replace(/_/g, "-");
-
-  // Derive rough drift severity from evidence
-  const scopeDrift = status.evidence.some((e) => e.toLowerCase().includes("scope")) ? "medium" : "none";
-  const strategyDrift = status.evidence.some((e) => e.toLowerCase().includes("rejected") || e.toLowerCase().includes("repeated")) ? "medium" : "none";
-  const contextDrift = status.evidence.some((e) => e.toLowerCase().includes("context") || e.toLowerCase().includes("drift")) ? "medium" : "low";
 
   return (
-    <div className="page-grid">
-      <div className="page-grid-main">
-        {/* Primary header */}
-        <div className={`panel panel-status-${statusSlug}`} style={{ marginBottom: "var(--sp-4)" }}>
-          <p className="eyebrow">Agent Detail — {session.agentName}</p>
-          <div className="task-header">
-            <p className="task-title">{session.objective}</p>
-            <div className="chip-row">
-              <StatusPill value={status.status} />
-              <span className="chip"><span className="chip-label">Repo</span>{repo}</span>
-              {worktree && <span className="chip"><span className="chip-label">Worktree</span>{worktree}</span>}
-              <span className="chip"><span className="chip-label">Phase</span>{session.currentPhase}</span>
-            </div>
-          </div>
+    <main className={`detail-page tone-${statusTone(status.status)}`}>
+      <section className="hero-panel compact">
+        <p className="kicker">Station detail</p>
+        <div className="hero-title-row">
+          <h1>{session.agentName}</h1>
+          <StatusLine status={status.status} />
         </div>
+        <p className="hero-copy">{session.objective}</p>
+        <div className="context-strip">
+          <span><b>Repo</b>{repo}</span>
+          <span><b>Runtime</b>{session.runtime}</span>
+          <span><b>Phase</b>{phaseLabels[session.currentPhase]}</span>
+          <span><b>Last signal</b>{timeAgo(session.lastEventAt)}</span>
+        </div>
+      </section>
 
-        {/* Holistic Grounding */}
-        <div className="panel" style={{ marginBottom: "var(--sp-4)" }}>
-          <p className="eyebrow">Holistic Grounding</p>
+      <PhaseRail activePhase={session.currentPhase} />
+
+      <section className="work-grid detail-grid">
+        <article className="panel attention-panel">
+          <p className="kicker">Recommendation</p>
+          <h2>{recommendation.title}</h2>
+          <p>{recommendation.description}</p>
+          <span className={`urgency urgency-${urgencyTone(recommendation.urgency)}`}>
+            {recommendation.urgency}
+          </span>
+        </article>
+
+        <article className="panel">
+          <p className="kicker">Assessment evidence</p>
+          <EvidenceList evidence={status.evidence} />
+        </article>
+
+        <article className="panel">
+          <p className="kicker">Task</p>
+          <dl className="metric-list">
+            <div><dt>Current</dt><dd>{activeTask?.title ?? "No active task"}</dd></div>
+            <div><dt>Started</dt><dd>{formatDateTime(session.startedAt)}</dd></div>
+            <div><dt>Last summary</dt><dd>{session.lastSummary ?? "—"}</dd></div>
+          </dl>
+        </article>
+
+        <article className="panel">
+          <p className="kicker">Holistic grounding</p>
           {holisticContext ? (
-            <>
-              {holisticContext.expectedScope.length > 0 && (
-                <>
-                  <p className="meta" style={{ marginBottom: "var(--sp-1)" }}>Expected scope</p>
-                  <ul className="compact-list">
-                    {holisticContext.expectedScope.map((s) => <li key={s}>{s}</li>)}
-                  </ul>
-                </>
-              )}
-              {holisticContext.rejectedApproaches.length > 0 && (
-                <>
-                  <p className="meta" style={{ marginTop: "var(--sp-4)", marginBottom: "var(--sp-1)" }}>Rejected approaches</p>
-                  <ul className="compact-list">
-                    {holisticContext.rejectedApproaches.map((r) => <li key={r} style={{ color: "var(--red)" }}>{r}</li>)}
-                  </ul>
-                </>
-              )}
-              {holisticContext.constraints.length > 0 && (
-                <>
-                  <p className="meta" style={{ marginTop: "var(--sp-4)", marginBottom: "var(--sp-1)" }}>Constraints</p>
-                  <ul className="compact-list">
-                    {holisticContext.constraints.map((c) => <li key={c}>{c}</li>)}
-                  </ul>
-                </>
-              )}
-            </>
+            <div className="grounding-grid">
+              <div>
+                <h3>Expected scope</h3>
+                <EvidenceList evidence={holisticContext.expectedScope ?? []} />
+              </div>
+              <div>
+                <h3>Constraints</h3>
+                <EvidenceList evidence={holisticContext.constraints ?? []} />
+              </div>
+              <div>
+                <h3>Rejected approaches</h3>
+                <EvidenceList evidence={holisticContext.rejectedApproaches ?? []} />
+              </div>
+            </div>
           ) : (
-            <p className="meta">No Holistic context loaded for this session.</p>
+            <p className="muted">No Holistic context loaded for this session.</p>
           )}
-        </div>
+        </article>
+      </section>
 
-        {/* Drift Flags */}
-        <div className="panel">
-          <p className="eyebrow">Drift Flags</p>
-          <div>
-            <div className="drift-row">
-              <span className="drift-label">Scope drift</span>
-              <span className={`drift-badge drift-badge-${scopeDrift}`}>{scopeDrift}</span>
-            </div>
-            <div className="drift-row">
-              <span className="drift-label">Strategy drift</span>
-              <span className={`drift-badge drift-badge-${strategyDrift}`}>{strategyDrift}</span>
-            </div>
-            <div className="drift-row">
-              <span className="drift-label">Context drift</span>
-              <span className={`drift-badge drift-badge-${contextDrift}`}>{contextDrift}</span>
-            </div>
-          </div>
-
-          {status.evidence.length > 0 && (
-            <>
-              <hr className="section-divider" />
-              <p className="eyebrow">Assessment evidence</p>
-              <ul className="reason-list">
-                {status.evidence.map((e) => <li key={e}>{e}</li>)}
-              </ul>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* ── RIGHT sidebar ── */}
-      <div className="page-grid-aside">
-        {/* Live Signals */}
-        <div className="panel">
-          <p className="eyebrow">Live Signals</p>
-          <div className="signal-grid">
-            <div className="signal-item">
-              <p className="signal-label">Last Event</p>
-              <p className="signal-value">{timeAgo(session.lastEventAt)}</p>
-            </div>
-            <div className="signal-item">
-              <p className="signal-label">Phase</p>
-              <p className="signal-value">{session.currentPhase}</p>
-            </div>
-            <div className="signal-item">
-              <p className="signal-label">Runtime</p>
-              <p className="signal-value">{session.runtime}</p>
-            </div>
-            <div className="signal-item">
-              <p className="signal-label">Status</p>
-              <p className="signal-value" style={{ textTransform: "capitalize" }}>{status.status.replace(/_/g, " ")}</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Recommendations */}
-        <div className="panel">
-          <p className="eyebrow">Recommendations</p>
-          <p className="intervention-title">{recommendation.title}</p>
-          <p style={{ color: "var(--fg-secondary)", fontSize: "var(--text-sm)", marginBottom: "var(--sp-3)" }}>
-            {recommendation.description}
-          </p>
-          <p className={`meta urgency-${recommendation.urgency}`} style={{ marginBottom: "var(--sp-4)" }}>
-            Urgency: {recommendation.urgency}
-          </p>
-        </div>
-
-        <div className="panel">
-          <p className="meta" style={{ marginBottom: "var(--sp-3)" }}>
-            Started {formatDateTime(session.startedAt)}
-          </p>
-          <p style={{ marginBottom: "var(--sp-3)" }}>
-            <a href={`/session/${session.id}/timeline`} style={{ fontSize: "var(--text-xs)" }}>
-              View full timeline →
-            </a>
-          </p>
-          <p>
-            <a href="/" style={{ fontSize: "var(--text-xs)", color: "var(--fg-muted)" }}>
-              ← Back to Live Monitor
-            </a>
-          </p>
-        </div>
-      </div>
-    </div>
+      <p className="page-return"><a href="/">← Back to live line</a> · <a href={`/session/${session.id}/timeline`}>View replay →</a></p>
+    </main>
   );
 }
 
-/* ═══════════════════════════════════════════════╗
-   MOCKUP D — SESSION REPLAY / TIMELINE
-╚══════════════════════════════════════════════════ */
 const TIMELINE_FETCH_PAGE = 400;
 const MAX_TIMELINE_ROWS_RENDERED = 600;
 
 function TimelinePage({ sessionId }: { sessionId: string }) {
-  const [ascItems, setAscItems] = useState<AgentEvent[]>([]);
-  const [total, setTotal] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [timeline, setTimeline] = useState<TimelineResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [initialFetch, setInitialFetch] = useState<"pending" | "done">("pending");
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const loadInitial = useCallback(() => {
     setError(null);
-    setLoadingMore(false);
-    setInitialFetch("pending");
     getTimeline(sessionId, { limit: TIMELINE_FETCH_PAGE, offset: 0 })
-      .then((t) => {
-        setAscItems(t.items);
-        setTotal(t.total);
-        setHasMore(t.hasMore);
-        setInitialFetch("done");
-      })
-      .catch((r: Error) => {
-        setError(r.message);
-        setInitialFetch("done");
-      });
+      .then(setTimeline)
+      .catch((r: Error) => setError(r.message));
   }, [sessionId]);
 
-  useEffect(() => { loadInitial(); }, [loadInitial]);
+  useEffect(() => loadInitial(), [loadInitial]);
   useLiveStream(loadInitial);
   useHeartbeat(loadInitial);
 
   const loadOlder = useCallback(() => {
-    if (!hasMore || loadingMore) {
-      return;
-    }
+    if (!timeline?.hasMore || loadingMore) return;
     setLoadingMore(true);
-    getTimeline(sessionId, { limit: TIMELINE_FETCH_PAGE, offset: ascItems.length })
-      .then((t) => {
-        setAscItems((prev) => [...prev, ...t.items]);
-        setHasMore(t.hasMore);
-      })
+    getTimeline(sessionId, { limit: TIMELINE_FETCH_PAGE, offset: timeline.items.length })
+      .then((next) =>
+        setTimeline({
+          ...next,
+          items: [...timeline.items, ...next.items],
+        })
+      )
       .catch((r: Error) => setError(r.message))
       .finally(() => setLoadingMore(false));
-  }, [ascItems.length, hasMore, loadingMore, sessionId]);
+  }, [loadingMore, sessionId, timeline]);
 
-  if (error) {
-    return (
-      <MessageState
-        title="Connection Error"
-        description={`Failed to load timeline: ${error}`}
-        retryText="Retry"
-        onRetry={loadInitial}
-      />
-    );
-  }
-  if (initialFetch === "pending" && !error) {
-    return <MessageState title="Loading Timeline" description="Fetching event history…" />;
-  }
-  if (ascItems.length === 0 && !error) {
-    return (
-      <MessageState
-        title="No Events Yet"
-        description="No events have been recorded for this session."
-        retryText="Refresh"
-        onRetry={loadInitial}
-      />
-    );
-  }
+  if (error) return <MessageState title="Replay unavailable" description={error} onRetry={loadInitial} />;
+  if (!timeline) return <MessageState title="Loading replay" description="Reading session events…" />;
 
-  const itemsNewestFirst = [...ascItems].reverse();
-  const renderItems =
-    itemsNewestFirst.length > MAX_TIMELINE_ROWS_RENDERED
-      ? itemsNewestFirst.slice(0, MAX_TIMELINE_ROWS_RENDERED)
-      : itemsNewestFirst;
-  const omitted = itemsNewestFirst.length - renderItems.length;
+  const itemsNewestFirst = [...timeline.items].reverse();
+  const rendered = itemsNewestFirst.slice(0, MAX_TIMELINE_ROWS_RENDERED);
+  const omitted = itemsNewestFirst.length - rendered.length;
 
   return (
-    <div className="panel">
-      <p className="eyebrow">Session Replay</p>
-      <p className="meta" style={{ marginBottom: "var(--sp-3)" }}>
-        Showing {ascItems.length} of {total} event{total === 1 ? "" : "s"}
-        {hasMore ? " (older events not loaded yet)" : ""}
-      </p>
-      {hasMore && (
-        <p style={{ marginBottom: "var(--sp-3)" }}>
-          <button type="button" className="btn btn-secondary" disabled={loadingMore} onClick={loadOlder}>
-            {loadingMore ? "Loading…" : "Load older events"}
+    <main className="timeline-page">
+      <section className="hero-panel compact">
+        <p className="kicker">Session replay</p>
+        <h1>{timeline.total} recorded signals</h1>
+        <p className="hero-copy">
+          Showing {timeline.items.length} of {timeline.total}. Newest signals appear first.
+        </p>
+        {timeline.hasMore && (
+          <button className="button secondary" type="button" onClick={loadOlder}>
+            {loadingMore ? "Loading…" : "Load older signals"}
           </button>
-        </p>
-      )}
-      <ul className="timeline">
-        {renderItems.map((item) => (
-          <li key={item.id} className="timeline-item">
-            <div className={dotClass(item.type)} />
-            <div className="t-body">
-              <span className={typeClass(item.type)}>{item.type}</span>
-              {item.summary && (
-                <p className="t-summary">{item.summary}</p>
-              )}
-              {item.phase && (
-                <span className="meta" style={{ display: "inline-block", marginTop: "var(--sp-1)" }}>
-                  phase: {item.phase}
-                </span>
-              )}
-            </div>
-            <span className="t-time">{formatTime(item.timestamp)}</span>
-          </li>
-        ))}
-      </ul>
-      {omitted > 0 && (
-        <p className="meta" style={{ marginTop: "var(--sp-3)" }}>
-          {omitted} newer event{omitted === 1 ? "" : "s"} hidden for UI performance — load fewer pages or raise MAX_TIMELINE_ROWS_RENDERED in code.
-        </p>
-      )}
-      <hr className="divider" />
-      <p>
-        <a href={`/session/${sessionId}`} style={{ fontSize: "var(--text-xs)" }}>← Back to Detail View</a>
-      </p>
-    </div>
+        )}
+      </section>
+
+      <article className="panel timeline-panel">
+        <EventList events={rendered} />
+        {omitted > 0 && (
+          <p className="muted">{omitted} events hidden for UI performance.</p>
+        )}
+      </article>
+
+      <p className="page-return"><a href={`/session/${sessionId}`}>← Back to station</a></p>
+    </main>
   );
 }
 
-/* ═══════════════════════════════════════════════╗
-   HISTORY PAGE — SESSION WALLBOARD
-╚══════════════════════════════════════════════════ */
 function HistoryPage() {
   const [data, setData] = useState<{ sessions: SessionRecord[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -623,50 +631,37 @@ function HistoryPage() {
     getSessionsList().then(setData).catch((r: Error) => setError(r.message));
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => loadData(), [loadData]);
   useLiveStream(loadData);
   useHeartbeat(loadData);
 
-  if (error) return <MessageState title="Connection Error" description={`Failed to load history: ${error}`} retryText="Retry" onRetry={loadData} />;
-  if (!data) return <MessageState title="Loading…" description="Fetching session records…" />;
-  if (data.sessions.length === 0) return <MessageState title="No Sessions Yet" description="No sessions have been recorded yet." />;
+  const sessions = useMemo(() => [...(data?.sessions ?? [])].sort(byAttention), [data]);
+
+  if (error) return <MessageState title="History unavailable" description={error} onRetry={loadData} />;
+  if (!data) return <MessageState title="Reading history" description="Loading previous agent sessions…" />;
+  if (sessions.length === 0) {
+    return <MessageState title="No recorded sessions" description="Past agent work will collect here." />;
+  }
 
   return (
-    <div className="panel">
-      <p className="eyebrow">Session History</p>
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th>Started</th>
-            <th>Agent</th>
-            <th>Repo</th>
-            <th>Phase</th>
-            <th>Objective</th>
-            <th>Ended</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.sessions.map((session) => (
-            <tr key={session.id}>
-              <td className="meta">{formatDateTime(session.startedAt)}</td>
-              <td style={{ color: "var(--fg-primary)" }}>{session.agentName}</td>
-              <td className="meta">{repoName(session.repoPath)}</td>
-              <td><StatusPill value={session.currentPhase} /></td>
-              <td>
-                <a href={`/session/${session.id}`}>{session.objective}</a>
-              </td>
-              <td className="meta">{formatDateTime(session.endedAt)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <main className="history-page">
+      <section className="hero-panel compact">
+        <p className="kicker">Session wall</p>
+        <h1>{sessions.length} agent session{sessions.length === 1 ? "" : "s"}</h1>
+        <p className="hero-copy">A quieter ledger of what agents have touched, when they last signaled, and where the work stood.</p>
+      </section>
+
+      <section className="session-wall">
+        {sessions.map((session) => (
+          <SessionMiniCard key={session.id} session={session} />
+        ))}
+      </section>
+    </main>
   );
 }
 
-/* ═══════════════════════════════════════════════╗
-   ROUTER
-╚══════════════════════════════════════════════════ */
+/* ───────────────────────────── router ───────────────────────────── */
+
 function pickRoute(pathname: string): ReactNode {
   const timelineMatch = pathname.match(/^\/session\/([^/]+)\/timeline$/);
   if (timelineMatch) return <TimelinePage sessionId={decodeURIComponent(timelineMatch[1])} />;
@@ -681,10 +676,11 @@ function pickRoute(pathname: string): ReactNode {
 
 export default function App() {
   const { theme, toggle } = useTheme();
+
   return (
-    <main className="app-shell">
+    <div className="app-shell">
       <Navigation theme={theme} onToggleTheme={toggle} />
       {pickRoute(window.location.pathname)}
-    </main>
+    </div>
   );
 }

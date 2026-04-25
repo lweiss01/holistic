@@ -1,3 +1,7 @@
+import { spawn, type ChildProcess } from "node:child_process";
+import fs from "node:fs";
+import { createServer } from "node:net";
+import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { captureRepoSnapshot, getGitSnapshot, isPortableHolisticPath } from './core/git.ts';
 import { writeDerivedDocs } from './core/docs.ts';
@@ -292,6 +296,64 @@ export function runDaemonTick(rootDir: string, agent: AgentName = "unknown"): { 
   return result;
 }
 
+const ANDON_API_PORT = 4318;
+const ANDON_DASHBOARD_PORT = 5173;
+
+function isPortFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const probe = createServer();
+    probe.once("error", () => resolve(false));
+    probe.once("listening", () => probe.close(() => resolve(true)));
+    probe.listen(port, "127.0.0.1");
+  });
+}
+
+function killTree(child: ChildProcess): void {
+  if (!child.pid) return;
+  if (process.platform === "win32") {
+    spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], { stdio: "ignore" });
+  } else {
+    child.kill("SIGTERM");
+  }
+}
+
+async function startAndonServices(rootDir: string): Promise<ChildProcess[]> {
+  const owned: ChildProcess[] = [];
+
+  if (await isPortFree(ANDON_API_PORT)) {
+    const api = spawn(
+      process.execPath,
+      ["--experimental-strip-types", path.join(rootDir, "services/andon-api/src/server.ts")],
+      { cwd: rootDir, env: { ...process.env, HOLISTIC_REPO: rootDir }, stdio: "ignore" }
+    );
+    api.once("exit", (code) => {
+      if (code !== 0 && code !== null) {
+        process.stderr.write(`Andon API exited with code ${code}.\n`);
+      }
+    });
+    owned.push(api);
+    process.stdout.write("Holistic: Andon API starting on port 4318.\n");
+  }
+
+  if (await isPortFree(ANDON_DASHBOARD_PORT)) {
+    const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
+    const dashboard = spawn(
+      npmCmd,
+      ["--prefix", path.join(rootDir, "apps/andon-dashboard"), "run", "dev"],
+      { cwd: rootDir, stdio: "ignore" }
+    );
+    dashboard.once("exit", (code) => {
+      if (code !== 0 && code !== null) {
+        process.stderr.write(`Andon dashboard exited with code ${code}.\n`);
+      }
+    });
+    owned.push(dashboard);
+    process.stdout.write("Holistic: Andon dashboard starting on port 5173.\n");
+  }
+
+  return owned;
+}
+
 async function main(): Promise<number> {
   const parsed = parseArgs(process.argv.slice(2));
   const rootDir = process.cwd();
@@ -299,12 +361,34 @@ async function main(): Promise<number> {
   const runOnce = firstFlag(parsed.flags, "once") === "true";
   const agent = asAgent(firstFlag(parsed.flags, "agent", "unknown"));
 
+  const pidFile = path.join(rootDir, ".holistic-local", "daemon.pid");
+
+  // Bail if another daemon instance is already running for this repo.
+  if (!runOnce && fs.existsSync(pidFile)) {
+    const existingPid = Number(fs.readFileSync(pidFile, "utf8").trim());
+    if (existingPid && existingPid !== process.pid) {
+      try {
+        process.kill(existingPid, 0); // throws if process is gone
+        process.stdout.write(`Holistic daemon already running (pid ${existingPid}).\n`);
+        return 0;
+      } catch {
+        // Stale PID — previous daemon died without cleanup. Continue.
+      }
+    }
+  }
+
+  if (!runOnce) {
+    fs.writeFileSync(pidFile, String(process.pid), "utf8");
+  }
+
   // Refresh hooks once at daemon startup so hook templates stay current
   // even if the user updated holistic without running a CLI command.
   const hookResult = refreshHolisticHooks(rootDir);
   for (const warning of hookResult.warnings) {
     process.stderr.write(`${warning}\n`);
   }
+
+  const andonChildren = await startAndonServices(rootDir);
 
   const tick = () => {
     const result = runDaemonTick(rootDir, agent);
@@ -315,6 +399,7 @@ async function main(): Promise<number> {
 
   tick();
   if (runOnce) {
+    for (const child of andonChildren) killTree(child);
     return 0;
   }
 
@@ -322,6 +407,8 @@ async function main(): Promise<number> {
   const timer = setInterval(tick, intervalSeconds * 1000);
   const stop = () => {
     clearInterval(timer);
+    for (const child of andonChildren) killTree(child);
+    try { fs.unlinkSync(pidFile); } catch { /* already gone */ }
     process.stdout.write("Holistic daemon stopped.\n");
     process.exit(0);
   };

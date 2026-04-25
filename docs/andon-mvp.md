@@ -44,11 +44,21 @@ Query parameters (all optional):
 
 Responses include `total`, `hasMore`, `limit`, and `offset` so clients can load older pages without scanning the full history.
 
-## OpenHarness Fit
+### Active session and detail (`GET /sessions/active`, `GET /sessions/:id`)
 
-OpenHarness looks like a strong runtime source for Andon, but not a required dependency for the first MVP.
+Both responses include a **`supervision`** object when a session is loaded:
 
-- Holistic remains the grounding layer for objective, constraints, prior attempts, and expected scope.
-- Andon stays runtime-agnostic at the core and stores normalized events in SQLite.
-- The collector can ingest OpenHarness `stream-json` output or hook-derived tool lifecycle events and convert them into the shared Andon event model.
-- This keeps the MVP single-agent and local-first while leaving room for richer orchestration later.
+- `lastMeaningfulEventAt` — ISO timestamp of the latest event that counts as a forward-motion signal (idle-only tails fall back to the newest event).
+- `supervisionSeverity` — one of `info` | `low` | `medium` | `high` | `critical`, derived from session status and recommendation urgency for dashboard attention routing.
+
+`GET /sessions/active` returns `supervision: null` when there is no open session.
+
+The **session** row also carries **`last_summary`**, updated on each ingested `agent.summary_emitted`. The dashboard can show that as an optional “latest agent summary” line alongside the open **task title** / session **objective** from Andon’s registry (live layer). Per the design spec, **Holistic is the context layer** (intent, continuity, checkpoints): the UI shows it in a **separate grounded section**, not as a substitute for **Layer 1–2** runtime adapters that must still emit tasks and events into Andon.
+
+## OpenHarness (agent runtime tracking)
+
+For **Layer 1–2** in the design spec (agent runtimes + event capture/normalization), this repo treats **[OpenHarness](https://github.com/HKUDS/OpenHarness)** (HKUDS / *Open Agent Harness*) as the primary **reference harness**: live agent activity, tool lifecycle, and stream-shaped telemetry that should feed Andon’s SQLite event model.
+
+- OpenHarness is **not** required to boot the Andon MVP (seed + Holistic CLI events still work), but it is the **intended** integration path for accurate, low-latency **task titles**, summaries, and tool/file events on the dashboard.
+- Holistic remains the **context** layer (objective, constraints, continuity); OpenHarness supplies **runtime** signals; Andon normalizes and supervises.
+- The collector’s [`openharness-adapter`](../services/andon-collector/src/openharness-adapter.ts) maps OpenHarness-style payloads into shared `AgentEvent` types; extend it as the upstream stream format stabilizes.

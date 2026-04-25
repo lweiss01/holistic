@@ -1,6 +1,8 @@
 # Milestone 007: Andon V3 (Fine-Grained Operational Telemetry)
 
-M007 upgrades the Andon pipeline from processing simple task checkpoints to processing high-frequency operational signals. This fills "Layer 1 & Layer 2" from the Andon Spec, ensuring the status engine can actually detect when an agent is looping, stalling, or modifying files unexpectedly between check-ins.
+M007 upgrades the Andon pipeline from processing simple task checkpoints to processing high-frequency operational signals. This fills **Layer 1 & Layer 2** from the Andon spec, ensuring the status engine can actually detect when an agent is looping, stalling, or modifying files unexpectedly between check-ins.
+
+**Boundary:** Holistic lifecycle posts (checkpoint, session start/end) **complement** but **do not replace** the high-volume stream; ingest design should assume **[OpenHarness](https://github.com/HKUDS/OpenHarness)**-style operational events as the primary volume source. See [`.planning/CANON-LAYERS.md`](../../../.planning/CANON-LAYERS.md).
 
 ## Slice Definition
 

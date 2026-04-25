@@ -6,7 +6,15 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-import { deriveRecommendation, deriveStatus, type AgentEvent, type SessionRecord } from "../packages/andon-core/src/index.ts";
+import {
+  buildSupervisionSignals,
+  deriveRecommendation,
+  deriveStatus,
+  deriveSupervisionSeverity,
+  lastMeaningfulEvent,
+  type AgentEvent,
+  type SessionRecord
+} from "../packages/andon-core/src/index.ts";
 import { getSessionTimeline, ingestEvents } from "../services/andon-api/src/repository.ts";
 import { createAndonHandler } from "../services/andon-api/src/server.ts";
 import { shouldPostProgressHeartbeat } from "../services/andon-collector/src/index.ts";
@@ -58,6 +66,107 @@ function createDatabase(databasePath: string): void {
 }
 
 const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
+  {
+    name: "Andon lastMeaningfulEvent skips idle pings but falls back to newest event",
+    run: () => {
+      const idleOnly: AgentEvent[] = [
+        makeEvent({
+          id: "idle-1",
+          type: "session.idle_detected",
+          timestamp: "2026-04-18T13:10:00.000Z",
+          summary: "Idle",
+          payload: {}
+        })
+      ];
+      assert.equal(lastMeaningfulEvent(idleOnly)?.id, "idle-1");
+
+      const idleThenSummary: AgentEvent[] = [
+        makeEvent({
+          id: "idle-2",
+          type: "session.idle_detected",
+          timestamp: "2026-04-18T13:10:00.000Z",
+          summary: "Idle",
+          payload: {}
+        }),
+        makeEvent({
+          id: "sum",
+          type: "agent.summary_emitted",
+          timestamp: "2026-04-18T13:09:00.000Z",
+          summary: "Progress",
+          payload: {}
+        })
+      ];
+      assert.equal(lastMeaningfulEvent(idleThenSummary)?.id, "sum");
+    }
+  },
+  {
+    name: "Andon deriveSupervisionSeverity maps blocked to critical and parked to info",
+    run: () => {
+      assert.equal(deriveSupervisionSeverity("blocked", "high"), "critical");
+      assert.equal(deriveSupervisionSeverity("parked", "low"), "info");
+      assert.equal(deriveSupervisionSeverity("running", "high"), "high");
+      assert.equal(deriveSupervisionSeverity("awaiting_review", "medium"), "medium");
+    }
+  },
+  {
+    name: "Andon buildSupervisionSignals composes last timestamp and severity",
+    run: () => {
+      const events: AgentEvent[] = [
+        makeEvent({
+          id: "e1",
+          type: "task.started",
+          timestamp: "2026-04-18T13:01:00.000Z",
+          summary: "T",
+          payload: {}
+        }),
+        makeEvent({
+          id: "e2",
+          type: "agent.summary_emitted",
+          timestamp: "2026-04-18T13:02:00.000Z",
+          summary: "S",
+          payload: {}
+        })
+      ];
+      const sig = buildSupervisionSignals(events, "parked", "low");
+      assert.equal(sig.lastMeaningfulEventAt, "2026-04-18T13:02:00.000Z");
+      assert.equal(sig.supervisionSeverity, "info");
+    }
+  },
+  {
+    name: "Andon status Why keeps substantive work first and surfaces latest checkpoint when distinct",
+    run: () => {
+      const session = makeSession({ lastEventAt: "2026-04-18T15:00:00.000Z" });
+      const events: AgentEvent[] = [
+        makeEvent({
+          id: "task-m007",
+          type: "task.started",
+          timestamp: "2026-04-18T14:00:00.000Z",
+          summary: "Implementing M007: Event Forwarding (Daemon & Wrappers)",
+          payload: {}
+        }),
+        makeEvent({
+          id: "chk-m010",
+          type: "session.checkpoint_created",
+          timestamp: "2026-04-18T15:00:00.000Z",
+          summary:
+            "M010 Andon design-spec (Builds A–E) tracked: roadmap + S01–S05 slice plans; dashboard lamp/sticky/motion/tabular UX landed; GSD milestone sequence updated.",
+          payload: {}
+        })
+      ];
+
+      const status = deriveStatus({
+        session,
+        events,
+        holisticContext: null,
+        now: new Date("2026-04-18T15:01:00.000Z")
+      });
+
+      assert.equal(status.status, "running");
+      assert.equal(status.evidence[0], "Implementing M007: Event Forwarding (Daemon & Wrappers)");
+      assert.match(status.evidence[1] ?? "", /Latest Holistic checkpoint:/i);
+      assert.match(status.evidence[1] ?? "", /M010/i);
+    }
+  },
   {
     name: "Andon status engine prioritizes unresolved agent questions as needs_input",
     run: () => {
@@ -279,7 +388,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           activeTask: { id: "task", sessionId: "session-andon-test", title: "Task", phase: "execute", state: "active", startedAt: "2026-04-18T13:00:00.000Z", completedAt: null, metadata: {} },
           status: { status: "running", phase: "execute", explanation: "Healthy", evidence: [] },
           recommendation: { urgency: "low", title: "Monitor", actionLabel: "Watch", description: "Healthy" },
-          holisticContext: null
+          holisticContext: null,
+          supervision: { lastMeaningfulEventAt: "2026-04-18T13:00:00.000Z", supervisionSeverity: "low" }
         }),
         true
       );
@@ -290,7 +400,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           activeTask: null,
           status: { status: "awaiting_review", phase: "execute", explanation: "Done", evidence: [] },
           recommendation: { urgency: "medium", title: "Review", actionLabel: "Open", description: "Done" },
-          holisticContext: null
+          holisticContext: null,
+          supervision: { lastMeaningfulEventAt: "2026-04-18T13:00:00.000Z", supervisionSeverity: "medium" }
         }),
         false
       );
@@ -301,7 +412,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           activeTask: { id: "task", sessionId: "session-andon-test", title: "Task", phase: "execute", state: "active", startedAt: "2026-04-18T13:00:00.000Z", completedAt: null, metadata: {} },
           status: { status: "parked", phase: "execute", explanation: "Idle", evidence: [] },
           recommendation: { urgency: "low", title: "Resume", actionLabel: "Decide", description: "Idle" },
-          holisticContext: null
+          holisticContext: null,
+          supervision: { lastMeaningfulEventAt: "2026-04-18T13:00:00.000Z", supervisionSeverity: "info" }
         }),
         false
       );
@@ -390,18 +502,24 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           session: SessionRecord | null;
           activeTask: { title: string } | null;
           status: { status: string } | null;
+          supervision: { lastMeaningfulEventAt: string | null; supervisionSeverity: string } | null;
         };
 
         assert.equal(activePayload.session?.id, "session-andon-mvp");
         assert.equal(activePayload.activeTask?.title, "Create the Andon MVP scaffold");
         assert.equal(activePayload.status?.status, "parked");
+        assert.equal(activePayload.supervision?.supervisionSeverity, "info");
+        assert.equal(activePayload.supervision?.lastMeaningfulEventAt, "2026-04-18T13:02:00.000Z");
 
         const detailResponse = await fetch(`http://127.0.0.1:${port}/sessions/session-andon-mvp`);
         assert.equal(detailResponse.status, 200);
         const detailPayload = (await detailResponse.json()) as {
           holisticContext: { objective: string } | null;
+          supervision: { lastMeaningfulEventAt: string | null; supervisionSeverity: string };
         };
         assert.match(detailPayload.holisticContext?.objective ?? "", /Andon MVP scaffold/i);
+        assert.equal(detailPayload.supervision.supervisionSeverity, "info");
+        assert.equal(detailPayload.supervision.lastMeaningfulEventAt, "2026-04-18T13:02:00.000Z");
 
         const timelineResponse = await fetch(`http://127.0.0.1:${port}/sessions/session-andon-mvp/timeline`);
         assert.equal(timelineResponse.status, 200);
@@ -444,12 +562,15 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           session: SessionRecord | null;
           status: { status: string; explanation: string } | null;
           recommendation: { title: string } | null;
+          supervision: { lastMeaningfulEventAt: string | null; supervisionSeverity: string } | null;
         };
 
         assert.equal(runningPayload.session?.lastSummary, collectorEvent.summary);
         assert.equal(runningPayload.status?.status, "running");
         assert.match(runningPayload.status?.explanation ?? "", /healthy/i);
         assert.equal(runningPayload.recommendation?.title, "Monitor the session");
+        assert.equal(runningPayload.supervision?.supervisionSeverity, "low");
+        assert.equal(runningPayload.supervision?.lastMeaningfulEventAt, collectorEvent.timestamp);
       } finally {
         database.close();
         httpServer.close();

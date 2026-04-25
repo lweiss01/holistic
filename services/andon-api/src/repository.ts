@@ -8,7 +8,11 @@ import type {
   TaskRecord,
   TimelineResponse
 } from "../../../packages/andon-core/src/index.ts";
-import { deriveRecommendation, deriveStatus } from "../../../packages/andon-core/src/index.ts";
+import {
+  buildSupervisionSignals,
+  deriveRecommendation,
+  deriveStatus
+} from "../../../packages/andon-core/src/index.ts";
 import type { HolisticBridge } from "../../../packages/holistic-bridge-types/src/index.ts";
 
 function parseJson(text: string): Record<string, unknown> {
@@ -118,13 +122,15 @@ async function buildSessionDetail(
   const holisticContext = await holisticBridge.getContext(session.id);
   const status = deriveStatus({ session, events, holisticContext });
   const recommendation = deriveRecommendation({ session, events, holisticContext, status });
+  const supervision = buildSupervisionSignals(events, status.status, recommendation.urgency);
 
   return {
     session,
     activeTask,
     status,
     recommendation,
-    holisticContext
+    holisticContext,
+    supervision
   };
 }
 
@@ -142,7 +148,8 @@ export async function getActiveSession(
       activeTask: null,
       status: null,
       recommendation: null,
-      holisticContext: null
+      holisticContext: null,
+      supervision: null
     };
   }
 
@@ -154,7 +161,8 @@ export async function getActiveSession(
     activeTask: detail.activeTask,
     status: detail.status,
     recommendation: detail.recommendation,
-    holisticContext: detail.holisticContext
+    holisticContext: detail.holisticContext,
+    supervision: detail.supervision
   };
 }
 

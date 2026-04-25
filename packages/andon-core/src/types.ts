@@ -39,12 +39,21 @@ export const AGENT_RUNTIMES = ["codex", "openharness", "unknown"] as const;
 
 export const RECOMMENDATION_URGENCY = ["low", "medium", "high"] as const;
 
+/** Dashboard attention tier (Build A); not the same axis as `SessionStatus`. */
+export const SUPERVISION_SEVERITIES = ["info", "low", "medium", "high", "critical"] as const;
+
 export type SessionStatus = (typeof SESSION_STATUSES)[number];
 export type SessionPhase = (typeof SESSION_PHASES)[number];
 export type EventType = (typeof EVENT_TYPES)[number];
 export type EventSource = (typeof EVENT_SOURCES)[number];
 export type AgentRuntime = (typeof AGENT_RUNTIMES)[number];
 export type RecommendationUrgency = (typeof RECOMMENDATION_URGENCY)[number];
+export type SupervisionSeverity = (typeof SUPERVISION_SEVERITIES)[number];
+
+export interface SupervisionSignals {
+  lastMeaningfulEventAt: string | null;
+  supervisionSeverity: SupervisionSeverity;
+}
 
 export interface SessionRecord {
   id: string;
@@ -104,6 +113,8 @@ export interface ActiveSessionResponse {
   status: StatusDecision | null;
   recommendation: Recommendation | null;
   holisticContext: HolisticContext | null;
+  /** Present when `session` is non-null; derived for supervision UI (Build A). */
+  supervision: SupervisionSignals | null;
 }
 
 export interface SessionDetailResponse {
@@ -112,6 +123,7 @@ export interface SessionDetailResponse {
   status: StatusDecision;
   recommendation: Recommendation;
   holisticContext: HolisticContext | null;
+  supervision: SupervisionSignals;
 }
 
 export interface TimelineResponse {
