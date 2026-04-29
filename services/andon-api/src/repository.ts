@@ -594,7 +594,53 @@ export async function getFleet(
       };
     });
 
-    const fleetSessions = runtimeItems
+    const runtimeSessionIds = new Set(runtimeSessions.map((session) => session.id));
+    const legacyRows = database
+      .prepare("SELECT * FROM sessions ORDER BY ended_at IS NULL DESC, last_event_at DESC LIMIT 30")
+      .all() as Record<string, unknown>[];
+    const disconnectedLegacyItems = legacyRows
+      .map(mapSession)
+      .filter((session) => !runtimeSessionIds.has(session.id))
+      .filter((session) => !isMissionControlHousekeepingObjective(session.objective))
+      .map((session) => {
+        const freshness = heartbeatFreshness(session.lastEventAt, now);
+        const recommendation = buildRuntimeRecommendation("parked");
+        const itemBase: Omit<FleetSessionItem, "attentionRank"> = {
+          session,
+          activeTask: null,
+          status: {
+            status: "parked",
+            phase: session.currentPhase,
+            explanation: "Runtime feed is unavailable for this session.",
+            evidence: ["No runtime session signal is active for this session."]
+          },
+          recommendation,
+          supervision: {
+            lastMeaningfulEventAt: session.lastEventAt,
+            supervisionSeverity: "info"
+          },
+          heartbeatFreshness: freshness,
+          blockedReason: null,
+          recommendedAction: recommendation.actionLabel,
+          availableActions: availableFleetActions("parked"),
+          repoName: repoName(session.repoPath),
+          worktreeName: session.worktreePath !== session.repoPath
+            ? repoName(session.worktreePath)
+            : null
+        };
+        const attentionBreakdown = attentionScoreParts(
+          itemBase.status.status,
+          itemBase.recommendation.urgency,
+          itemBase.heartbeatFreshness
+        );
+        return {
+          ...itemBase,
+          attentionBreakdown,
+          attentionRank: attentionBreakdown.status + attentionBreakdown.urgency + attentionBreakdown.freshness
+        };
+      });
+
+    const fleetSessions = [...runtimeItems, ...disconnectedLegacyItems]
       .filter((item) => {
         const ageMs = now - new Date(item.supervision.lastMeaningfulEventAt ?? item.session.startedAt).getTime();
         const staleBeyondWindow = ageMs > MISSION_CONTROL_STALE_PARKED_MS;

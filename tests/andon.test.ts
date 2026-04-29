@@ -1228,6 +1228,90 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: "Andon fleet keeps legacy-only sessions visible as runtime-missing parked entries",
+    run: async () => {
+      const tempDir = makeTempDir("andon-fleet-runtime-missing-visible");
+      const databasePath = path.join(tempDir, "andon.sqlite");
+      createDatabase(databasePath);
+      const database = new DatabaseSync(databasePath);
+      const httpServer = createServer(createAndonHandler(database));
+
+      try {
+        httpServer.listen(0, "127.0.0.1");
+        await once(httpServer, "listening");
+        const address = httpServer.address();
+        if (!address || typeof address === "string") {
+          throw new Error("Could not determine the Andon API test port");
+        }
+        const port = address.port;
+
+        const now = Date.now();
+        const runtimeTs = new Date(now - 60 * 1000).toISOString();
+        const legacyTs = new Date(now - 90 * 1000).toISOString();
+        upsertRuntimeSession(database, {
+          id: "runtime-session",
+          runtimeId: "local",
+          agentName: "runtime-agent",
+          repoName: "holistic",
+          repoPath: "D:/Projects/active/holistic",
+          status: "running",
+          activity: "editing",
+          startedAt: runtimeTs,
+          updatedAt: runtimeTs
+        });
+        ingestEvents(database, [
+          {
+            id: "legacy-visible-start",
+            sessionId: "legacy-visible-session",
+            runtime: "codex",
+            taskId: null,
+            type: "session.started",
+            phase: "execute",
+            source: "agent",
+            timestamp: legacyTs,
+            summary: "Legacy-only started",
+            payload: {
+              objective: "Legacy fallback visibility",
+              agentName: "legacy-agent",
+              runtime: "codex",
+              repoPath: "D:/Projects/active/holistic",
+              worktreePath: "D:/Projects/active/holistic"
+            }
+          },
+          {
+            id: "legacy-visible-question",
+            sessionId: "legacy-visible-session",
+            runtime: "codex",
+            taskId: null,
+            type: "agent.question_asked",
+            phase: "execute",
+            source: "agent",
+            timestamp: new Date(now - 30 * 1000).toISOString(),
+            summary: "Need a human answer",
+            payload: { resolved: false }
+          }
+        ]);
+
+        const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
+        assert.equal(fleetResponse.status, 200);
+        const payload = (await fleetResponse.json()) as {
+          sessions: Array<{
+            session: { id: string };
+            status: { status: string; explanation: string };
+          }>;
+        };
+
+        const legacyItem = payload.sessions.find((item) => item.session.id === "legacy-visible-session");
+        assert.ok(legacyItem);
+        assert.equal(legacyItem?.status.status, "parked");
+        assert.match(legacyItem?.status.explanation ?? "", /runtime/i);
+      } finally {
+        database.close();
+        httpServer.close();
+      }
+    }
+  },
+  {
     name: "Andon fleet maps non-input runtime waiting states to non-needs_input statuses",
     run: async () => {
       const tempDir = makeTempDir("andon-fleet-runtime-waiting-table");
