@@ -15,7 +15,9 @@ import {
   type AgentEvent,
   type SessionRecord
 } from "../packages/andon-core/src/index.ts";
+import type { RuntimeSession } from "../packages/runtime-core/src/index.ts";
 import { getSessionTimeline, ingestEvents, mapFleetHeatmapRows, mapRecentFleetEvents } from "../services/andon-api/src/repository.ts";
+import { upsertRuntimeSession } from "../services/andon-api/src/runtime-repository.ts";
 import { createAndonHandler } from "../services/andon-api/src/server.ts";
 import { shouldPostProgressHeartbeat } from "../services/andon-collector/src/index.ts";
 import { normalizeOpenHarnessStreamEvent } from "../services/andon-collector/src/openharness-adapter.ts";
@@ -779,6 +781,31 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         ];
 
         ingestEvents(database, [...runningSeed, ...urgentSeed]);
+        const runtimeNow = new Date().toISOString();
+        const runtimeSessionUrgent: RuntimeSession = {
+          id: "session-urgent",
+          runtimeId: "local",
+          agentName: "codex-b",
+          repoName: "holistic",
+          repoPath: "D:/Projects/active/holistic",
+          status: "waiting_for_input",
+          activity: "waiting",
+          startedAt: runtimeNow,
+          updatedAt: runtimeNow
+        };
+        const runtimeSessionRunning: RuntimeSession = {
+          id: "session-running",
+          runtimeId: "local",
+          agentName: "codex-a",
+          repoName: "holistic",
+          repoPath: "D:/Projects/active/holistic",
+          status: "running",
+          activity: "editing",
+          startedAt: runtimeNow,
+          updatedAt: runtimeNow
+        };
+        upsertRuntimeSession(database, runtimeSessionUrgent);
+        upsertRuntimeSession(database, runtimeSessionRunning);
 
         const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
         assert.equal(fleetResponse.status, 200);
@@ -915,6 +942,154 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         assert.equal(fleetPayload.sessions[0]?.attentionRank, fleetPayload.sessions[1]?.attentionRank);
         assert.equal(fleetPayload.sessions[0]?.session.id, "session-b");
         assert.equal(fleetPayload.sessions[1]?.session.id, "session-a");
+      } finally {
+        database.close();
+        httpServer.close();
+      }
+    }
+  },
+  {
+    name: "Andon fleet ignores legacy unresolved questions without runtime waiting signal",
+    run: async () => {
+      const tempDir = makeTempDir("andon-fleet-legacy-question");
+      const databasePath = path.join(tempDir, "andon.sqlite");
+      createDatabase(databasePath);
+      const database = new DatabaseSync(databasePath);
+      const httpServer = createServer(createAndonHandler(database));
+
+      try {
+        httpServer.listen(0, "127.0.0.1");
+        await once(httpServer, "listening");
+        const address = httpServer.address();
+        if (!address || typeof address === "string") {
+          throw new Error("Could not determine the Andon API test port");
+        }
+        const port = address.port;
+
+        const now = Date.now();
+        const sessionStartedAt = new Date(now - 2 * 60 * 1000).toISOString();
+        const questionAt = new Date(now - 60 * 1000).toISOString();
+        ingestEvents(database, [
+          {
+            id: "legacy-question-session-start",
+            sessionId: "session-legacy-question",
+            runtime: "codex",
+            taskId: null,
+            type: "session.started",
+            phase: "execute",
+            source: "agent",
+            timestamp: sessionStartedAt,
+            summary: "Legacy-only session started",
+            payload: {
+              objective: "Legacy narrative-only unresolved question",
+              agentName: "legacy-agent",
+              runtime: "codex",
+              repoPath: "D:/Projects/active/holistic",
+              worktreePath: "D:/Projects/active/holistic"
+            }
+          },
+          {
+            id: "legacy-question-unresolved",
+            sessionId: "session-legacy-question",
+            runtime: "codex",
+            taskId: null,
+            type: "agent.question_asked",
+            phase: "execute",
+            source: "agent",
+            timestamp: questionAt,
+            summary: "Need approval to proceed",
+            payload: { resolved: false }
+          }
+        ]);
+
+        const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
+        assert.equal(fleetResponse.status, 200);
+        const fleetPayload = (await fleetResponse.json()) as {
+          totals: { needsHuman: number };
+          sessions: Array<{ session: { id: string }; status: { status: string } }>;
+        };
+
+        const legacy = fleetPayload.sessions.find((item) => item.session.id === "session-legacy-question");
+        assert.ok(legacy);
+        assert.equal(legacy?.status.status, "parked");
+        assert.equal(fleetPayload.totals.needsHuman, 0);
+      } finally {
+        database.close();
+        httpServer.close();
+      }
+    }
+  },
+  {
+    name: "Andon fleet marks legacy-only sessions without runtime state as non-flowing",
+    run: async () => {
+      const tempDir = makeTempDir("andon-fleet-legacy-runtime-missing");
+      const databasePath = path.join(tempDir, "andon.sqlite");
+      createDatabase(databasePath);
+      const database = new DatabaseSync(databasePath);
+      const httpServer = createServer(createAndonHandler(database));
+
+      try {
+        httpServer.listen(0, "127.0.0.1");
+        await once(httpServer, "listening");
+        const address = httpServer.address();
+        if (!address || typeof address === "string") {
+          throw new Error("Could not determine the Andon API test port");
+        }
+        const port = address.port;
+
+        const now = Date.now();
+        const sessionStartedAt = new Date(now - 3 * 60 * 1000).toISOString();
+        const summaryAt = new Date(now - 2 * 60 * 1000).toISOString();
+
+        ingestEvents(database, [
+          {
+            id: "legacy-runtime-missing-start",
+            sessionId: "session-runtime-missing",
+            runtime: "codex",
+            taskId: null,
+            type: "session.started",
+            phase: "execute",
+            source: "agent",
+            timestamp: sessionStartedAt,
+            summary: "Legacy-only started",
+            payload: {
+              objective: "Session without runtime mirror",
+              agentName: "legacy-agent",
+              runtime: "codex",
+              repoPath: "D:/Projects/active/holistic",
+              worktreePath: "D:/Projects/active/holistic"
+            }
+          },
+          {
+            id: "legacy-runtime-missing-summary",
+            sessionId: "session-runtime-missing",
+            runtime: "codex",
+            taskId: null,
+            type: "agent.summary_emitted",
+            phase: "execute",
+            source: "agent",
+            timestamp: summaryAt,
+            summary: "Still working based on legacy events",
+            payload: { workComplete: false }
+          }
+        ]);
+
+        const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
+        assert.equal(fleetResponse.status, 200);
+        const fleetPayload = (await fleetResponse.json()) as {
+          sessions: Array<{
+            session: { id: string };
+            status: { status: string; explanation: string; evidence: string[] };
+          }>;
+          totals: { activeAgents: number };
+        };
+
+        const item = fleetPayload.sessions.find((session) => session.session.id === "session-runtime-missing");
+        assert.ok(item);
+        assert.equal(item?.status.status, "parked");
+        assert.match(item?.status.explanation ?? "", /no runtime heartbeat/i);
+        assert.ok(item?.status.evidence.some((line) => /no runtime session signal/i.test(line)));
+        assert.equal(fleetPayload.totals.activeAgents, 0);
       } finally {
         database.close();
         httpServer.close();
