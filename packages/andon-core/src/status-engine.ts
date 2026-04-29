@@ -24,12 +24,14 @@ function sortEvents(events: AgentEvent[]): AgentEvent[] {
  */
 const EVIDENCE_SUMMARY_SKIP_TYPES: ReadonlySet<EventType> = new Set([
   "session.checkpoint_created",
-  "session.idle_detected"
+  "session.idle_detected",
+  "user.resumed"
 ]);
 
 const NON_OPERATIONAL_ACTIVITY_TYPES: ReadonlySet<EventType> = new Set([
   "session.checkpoint_created",
-  "session.idle_detected"
+  "session.idle_detected",
+  "user.resumed"
 ]);
 
 /** Newest-first scan for a one-line Why evidence string (Holistic checkpoints must not eclipse active work). */
@@ -135,8 +137,12 @@ function scanSortedEvents(events: AgentEvent[], holisticContext: HolisticContext
   let environmentFailure: AgentEvent | undefined;
 
   for (const event of sorted) {
-    if (event.type === "agent.question_asked" && (event.payload as { resolved?: boolean }).resolved !== true) {
-      unresolvedQuestion = event;
+    if (event.type === "agent.question_asked") {
+      if ((event.payload as { resolved?: boolean }).resolved === true) {
+        unresolvedQuestion = undefined;
+      } else {
+        unresolvedQuestion = event;
+      }
     }
 
     if (event.type === "command.failed" || event.type === "test.failed") {
@@ -197,6 +203,7 @@ export function deriveStatus(input: StatusInput): StatusDecision {
   const { sorted, unresolvedQuestion, failureEvents, scopeExpansion, outOfScopeChange } = scan;
   const latestEvent = sorted.at(-1);
   const latestOperationalEvent = [...sorted].reverse().find((event) => !NON_OPERATIONAL_ACTIVITY_TYPES.has(event.type));
+  const latestActivityEvent = latestEvent ?? latestOperationalEvent;
   const phase = input.session.currentPhase;
 
   if (unresolvedQuestion) {
@@ -290,14 +297,13 @@ export function deriveStatus(input: StatusInput): StatusDecision {
     );
   }
 
-  const latestOperationalTime = new Date(latestOperationalEvent?.timestamp ?? input.session.startedAt).getTime();
+  const latestActivityTime = new Date(latestActivityEvent?.timestamp ?? input.session.startedAt).getTime();
   if (sorted.length <= 1 && latestOperationalEvent?.type === "session.started") {
     return buildDecision("queued", phase, "The session has started but meaningful work has not begun yet.", [
       latestOperationalEvent.summary ?? "Waiting for the first substantial action."
     ]);
   }
-
-  if (latestEvent?.type === "session.ended" || now.getTime() - latestOperationalTime > RECENT_ACTIVITY_WINDOW_MS) {
+  if (latestEvent?.type === "session.ended" || now.getTime() - latestActivityTime > RECENT_ACTIVITY_WINDOW_MS) {
     return buildDecision(
       "parked",
       phase,

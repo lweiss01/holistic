@@ -84,3 +84,14 @@ created: 2026-04-29
 | Gaps found | 2 |
 | Resolved | 2 |
 | Escalated | 0 |
+
+## Validation Audit 2026-04-29 (Re-audit)
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+
+- Re-ran `node --experimental-strip-types tests/run-tests.ts --grep "Andon fleet"`: all RTM/Fleet validation tests passed.
+- Re-ran `npm run test:andon` and `npm test`: two pre-existing non-RTM Andon failures remain (`lastMeaningfulEvent` and `status Why`), unchanged from prior phase notes.

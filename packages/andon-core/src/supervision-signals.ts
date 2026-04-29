@@ -13,7 +13,8 @@ import type {
  */
 const EXCLUDED_FROM_MEANINGFUL: ReadonlySet<EventType> = new Set([
   "session.idle_detected",
-  "session.checkpoint_created"
+  "session.checkpoint_created",
+  "user.resumed"
 ]);
 
 /**
@@ -34,8 +35,7 @@ export function lastMeaningfulEvent(events: AgentEvent[]): AgentEvent | null {
       return event;
     }
   }
-
-  return null;
+  return ranked[0] ?? null;
 }
 
 /** Map live status + recommendation urgency into a single attention tier for the UI. */
