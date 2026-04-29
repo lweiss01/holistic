@@ -78,6 +78,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           body: JSON.stringify({
             runtimeId: "local",
             prompt: "Run fake task",
+            objective: "Primary runtime objective",
             agentName: "codex",
             repoPath,
             repoName: "holistic",
@@ -90,11 +91,21 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         });
         assert.equal(startResponse.status, 202);
         const started = (await startResponse.json()) as { session: RuntimeSession & { freshness: { freshness: string } } };
+        const startedMetadata = started.session.metadata as Record<string, unknown> | undefined;
+        assert.equal(startedMetadata?.prompt, "Run fake task");
+        assert.equal(startedMetadata?.objective, "Primary runtime objective");
+        assert.equal(startedMetadata?.agentName, "codex");
+        assert.deepEqual((startedMetadata?.localEnv ?? null), { HOLISTIC_FAKE_MALFORMED: "1" });
 
         const detailResponse = await fetch(`${base}/runtime/sessions/${started.session.id}`);
         assert.equal(detailResponse.status, 200);
         const detailPayload = (await detailResponse.json()) as { session: RuntimeSession & { freshness: { freshness: string } } };
         assert.equal(detailPayload.session.freshness.freshness, "active");
+        const detailMetadata = detailPayload.session.metadata as Record<string, unknown> | undefined;
+        assert.equal(detailMetadata?.prompt, "Run fake task");
+        assert.equal(detailMetadata?.objective, "Primary runtime objective");
+        assert.equal(detailMetadata?.agentName, "codex");
+        assert.deepEqual((detailMetadata?.localEnv ?? null), { HOLISTIC_FAKE_MALFORMED: "1" });
 
         // Stream ingest is async; allow a short retry window for emitted local events.
         let events: HolisticRuntimeEvent[] = [];
