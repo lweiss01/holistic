@@ -13,14 +13,17 @@ It does not yet own approval policy tiers, worktree isolation, or higher-order f
 ### S01: Runtime Service API
 - **Goal:** Create `services/runtime-service` with the core task and session endpoints plus an adapter registry.
 - **Scope:** `POST /runtime/tasks`, session reads, approve/deny hooks, stop/pause/resume entrypoints, and `GET /runtime/stream`.
+- **Status:** Completed in current branch (`services/runtime-service/src/{server,db,config,adapter-registry}.ts` + `tests/runtime-service.test.ts`).
 
 ### S02: Local Adapter and Structured Events
 - **Goal:** Ship `packages/runtime-local` as the first real runtime implementation.
 - **Scope:** Subprocess launch, NDJSON event parsing, stdout/stderr handling, exit-state mapping, and normalized lifecycle events.
+- **Status:** Completed in current branch (`packages/runtime-local/**`, fake runner fixture, and runtime-local tests).
 
 ### S03: Heartbeats, Stale Detection, and End-to-End Verification
 - **Goal:** Track active runtime health honestly.
 - **Scope:** Heartbeats, staged stale detection, event streaming, fake-runner verification, and API tests proving the runtime can be started, observed, and stopped.
+- **Status:** Completed in current branch (heartbeat events in local adapter, freshness derivation in runtime-service, and end-to-end verification tests).
 
 ## Exit Criteria
 
