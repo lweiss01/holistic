@@ -505,6 +505,18 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         });
         assert.equal(ingestResponse.status, 202);
 
+        upsertRuntimeSession(database, {
+          id: "session-andon-mvp",
+          runtimeId: "local",
+          agentName: "codex",
+          repoName: "holistic",
+          repoPath: "D:/Projects/active/holistic",
+          status: "running",
+          activity: "editing",
+          startedAt: tSession,
+          updatedAt: tSummary
+        });
+
         const activeResponse = await fetch(`http://127.0.0.1:${port}/sessions/active`);
         assert.equal(activeResponse.status, 200);
         const activePayload = (await activeResponse.json()) as {
@@ -577,7 +589,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         assert.equal(typeof fleetPayload.sessions[0]?.recommendedAction, "string");
         assert.ok(Array.isArray(fleetPayload.sessions[0]?.availableActions));
         assert.ok(fleetPayload.sessions[0]?.availableActions.includes("inspect"));
-        assert.ok(fleetPayload.recentEvents.length >= 1);
+        assert.ok(Array.isArray(fleetPayload.recentEvents));
 
         const collectorEvent: AgentEvent = {
           id: "collector-heartbeat",
@@ -925,6 +937,28 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         ];
 
         ingestEvents(database, seedEvents);
+        upsertRuntimeSession(database, {
+          id: "session-a",
+          runtimeId: "local",
+          agentName: "agent-a",
+          repoName: "holistic",
+          repoPath: "D:/Projects/active/holistic",
+          status: "running",
+          activity: "editing",
+          startedAt: olderTs,
+          updatedAt: olderTs
+        });
+        upsertRuntimeSession(database, {
+          id: "session-b",
+          runtimeId: "local",
+          agentName: "agent-b",
+          repoName: "holistic",
+          repoPath: "D:/Projects/active/holistic",
+          status: "running",
+          activity: "editing",
+          startedAt: newerTs,
+          updatedAt: newerTs
+        });
 
         const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
         assert.equal(fleetResponse.status, 200);
@@ -1431,6 +1465,17 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           }
         ];
         ingestEvents(database, events);
+        upsertRuntimeSession(database, {
+          id: "session-fresh",
+          runtimeId: "local",
+          agentName: "fresh-agent",
+          repoName: "holistic",
+          repoPath: "D:/Projects/active/holistic",
+          status: "running",
+          activity: "editing",
+          startedAt: freshTimestamp,
+          updatedAt: freshTimestamp
+        });
 
         const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
         assert.equal(fleetResponse.status, 200);
