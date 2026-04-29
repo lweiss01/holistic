@@ -1097,6 +1097,174 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: "Andon fleet treats cold running runtime sessions as parked and non-active",
+    run: async () => {
+      const tempDir = makeTempDir("andon-fleet-runtime-cold-running");
+      const databasePath = path.join(tempDir, "andon.sqlite");
+      createDatabase(databasePath);
+      const database = new DatabaseSync(databasePath);
+      const httpServer = createServer(createAndonHandler(database));
+
+      try {
+        httpServer.listen(0, "127.0.0.1");
+        await once(httpServer, "listening");
+        const address = httpServer.address();
+        if (!address || typeof address === "string") {
+          throw new Error("Could not determine the Andon API test port");
+        }
+        const port = address.port;
+
+        const oldTimestamp = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+        upsertRuntimeSession(database, {
+          id: "runtime-cold-running",
+          runtimeId: "local",
+          agentName: "runtime-agent",
+          repoName: "holistic",
+          repoPath: "D:/Projects/active/holistic",
+          status: "running",
+          activity: "editing",
+          startedAt: oldTimestamp,
+          updatedAt: oldTimestamp
+        });
+
+        const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
+        assert.equal(fleetResponse.status, 200);
+        const payload = (await fleetResponse.json()) as {
+          sessions: Array<{ session: { id: string }; status: { status: string }; heartbeatFreshness: string }>;
+          totals: { activeAgents: number };
+        };
+
+        const item = payload.sessions.find((session) => session.session.id === "runtime-cold-running");
+        assert.ok(item);
+        assert.equal(item?.heartbeatFreshness, "cold");
+        assert.equal(item?.status.status, "parked");
+        assert.equal(payload.totals.activeAgents, 0);
+      } finally {
+        database.close();
+        httpServer.close();
+      }
+    }
+  },
+  {
+    name: "Andon fleet maps runtime waiting_for_input as the only needs_input status",
+    run: async () => {
+      const tempDir = makeTempDir("andon-fleet-runtime-waiting-only");
+      const databasePath = path.join(tempDir, "andon.sqlite");
+      createDatabase(databasePath);
+      const database = new DatabaseSync(databasePath);
+      const httpServer = createServer(createAndonHandler(database));
+
+      try {
+        httpServer.listen(0, "127.0.0.1");
+        await once(httpServer, "listening");
+        const address = httpServer.address();
+        if (!address || typeof address === "string") {
+          throw new Error("Could not determine the Andon API test port");
+        }
+        const port = address.port;
+
+        const now = new Date().toISOString();
+        upsertRuntimeSession(database, {
+          id: "runtime-waiting-input",
+          runtimeId: "local",
+          agentName: "runtime-agent",
+          repoName: "holistic",
+          repoPath: "D:/Projects/active/holistic",
+          status: "waiting_for_input",
+          activity: "waiting",
+          startedAt: now,
+          updatedAt: now
+        });
+
+        const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
+        assert.equal(fleetResponse.status, 200);
+        const payload = (await fleetResponse.json()) as {
+          sessions: Array<{ session: { id: string }; status: { status: string } }>;
+          totals: { needsHuman: number };
+        };
+
+        const waiting = payload.sessions.find((session) => session.session.id === "runtime-waiting-input");
+        assert.ok(waiting);
+        assert.equal(waiting?.status.status, "needs_input");
+        assert.equal(payload.totals.needsHuman, 1);
+      } finally {
+        database.close();
+        httpServer.close();
+      }
+    }
+  },
+  {
+    name: "Andon fleet maps non-input runtime waiting states to non-needs_input statuses",
+    run: async () => {
+      const tempDir = makeTempDir("andon-fleet-runtime-waiting-table");
+      const databasePath = path.join(tempDir, "andon.sqlite");
+      createDatabase(databasePath);
+      const database = new DatabaseSync(databasePath);
+      const httpServer = createServer(createAndonHandler(database));
+
+      try {
+        httpServer.listen(0, "127.0.0.1");
+        await once(httpServer, "listening");
+        const address = httpServer.address();
+        if (!address || typeof address === "string") {
+          throw new Error("Could not determine the Andon API test port");
+        }
+        const port = address.port;
+        const now = new Date().toISOString();
+
+        upsertRuntimeSession(database, {
+          id: "runtime-waiting-approval",
+          runtimeId: "local",
+          agentName: "runtime-agent",
+          repoName: "holistic",
+          repoPath: "D:/Projects/active/holistic",
+          status: "waiting_for_approval",
+          activity: "waiting",
+          startedAt: now,
+          updatedAt: now
+        });
+        upsertRuntimeSession(database, {
+          id: "runtime-paused",
+          runtimeId: "local",
+          agentName: "runtime-agent",
+          repoName: "holistic",
+          repoPath: "D:/Projects/active/holistic",
+          status: "paused",
+          activity: "waiting",
+          startedAt: now,
+          updatedAt: now
+        });
+        upsertRuntimeSession(database, {
+          id: "runtime-completed",
+          runtimeId: "local",
+          agentName: "runtime-agent",
+          repoName: "holistic",
+          repoPath: "D:/Projects/active/holistic",
+          status: "completed",
+          activity: "waiting",
+          startedAt: now,
+          updatedAt: now
+        });
+
+        const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
+        assert.equal(fleetResponse.status, 200);
+        const payload = (await fleetResponse.json()) as {
+          sessions: Array<{ session: { id: string }; status: { status: string } }>;
+          totals: { needsHuman: number };
+        };
+
+        const statusById = new Map(payload.sessions.map((item) => [item.session.id, item.status.status]));
+        assert.equal(statusById.get("runtime-waiting-approval"), "awaiting_review");
+        assert.equal(statusById.get("runtime-paused"), "parked");
+        assert.equal(statusById.get("runtime-completed"), "awaiting_review");
+        assert.equal(payload.totals.needsHuman, 2);
+      } finally {
+        database.close();
+        httpServer.close();
+      }
+    }
+  },
+  {
     name: "Andon route continuity keeps sessions list, detail, active, and timeline endpoints compatible",
     run: async () => {
       const tempDir = makeTempDir("andon-route-continuity");
