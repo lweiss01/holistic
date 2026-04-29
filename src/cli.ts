@@ -94,6 +94,23 @@ function asAgent(value: string): AgentName {
   return "unknown";
 }
 
+function inferAgentFromEnvironment(): AgentName {
+  if (process.env.CURSOR_AGENT === "1" || process.env.CURSOR_EXTENSION_HOST_ROLE === "agent-exec") {
+    return "cursor";
+  }
+  if (process.env.CLAUDECODE === "1" || process.env.CLAUDE_DESKTOP === "1") {
+    return "claude";
+  }
+  return "unknown";
+}
+
+function preferredAgentFallback(current?: AgentName): AgentName {
+  if (current && current !== "unknown") {
+    return current;
+  }
+  return inferAgentFromEnvironment();
+}
+
 function printJson(payload: unknown): void {
   process.stdout.write(JSON.stringify(payload, null, 2) + "\n");
 }
@@ -643,7 +660,7 @@ Repo-local CLI: ${repairFallback}
 
 async function handleResume(rootDir: string, parsed: ParsedArgs): Promise<number> {
   warnIfHooksOutdated(rootDir);
-  const agent = asAgent(firstFlag(parsed.flags, "agent", "unknown"));
+  const agent = asAgent(firstFlag(parsed.flags, "agent", inferAgentFromEnvironment()));
 
   if (firstFlag(parsed.flags, "continue") === "true") {
     const mutateResult = mutateState(rootDir, (state) => continueFromLatest(rootDir, state, agent));
@@ -706,7 +723,7 @@ async function handleCheckpoint(rootDir: string, parsed: ParsedArgs): Promise<nu
     }
 
     const input: CheckpointInput = {
-      agent: asAgent(firstFlag(parsed.flags, "agent", state.activeSession?.agent ?? "unknown")),
+      agent: asAgent(firstFlag(parsed.flags, "agent", preferredAgentFallback(state.activeSession?.agent))),
       reason: firstFlag(parsed.flags, "reason", fixed ? `fix: ${fixed}` : "manual"),
       goal: firstFlag(parsed.flags, "goal"),
       title: firstFlag(parsed.flags, "title"),
@@ -744,7 +761,7 @@ async function handleCheckpoint(rootDir: string, parsed: ParsedArgs): Promise<nu
 }
 
 async function handleStartNew(rootDir: string, parsed: ParsedArgs): Promise<number> {
-  const agent = asAgent(firstFlag(parsed.flags, "agent", "unknown"));
+  const agent = asAgent(firstFlag(parsed.flags, "agent", inferAgentFromEnvironment()));
 
   let goal = firstFlag(parsed.flags, "goal");
   const title = firstFlag(parsed.flags, "title");
@@ -1091,7 +1108,7 @@ async function handleMarkCommit(rootDir: string, parsed: ParsedArgs): Promise<nu
 
 async function handleWatch(rootDir: string, parsed: ParsedArgs): Promise<number> {
   const intervalSeconds = Number.parseInt(firstFlag(parsed.flags, "interval", "60"), 10);
-  const agent = asAgent(firstFlag(parsed.flags, "agent", "unknown"));
+  const agent = asAgent(firstFlag(parsed.flags, "agent", inferAgentFromEnvironment()));
   process.stdout.write(`Watching repo every ${intervalSeconds}s for checkpoint-worthy changes.\n`);
 
   const timer = setInterval(() => {

@@ -600,14 +600,14 @@ function writeSystemArtifacts(rootDir: string, paths: RuntimePaths, intervalSeco
     `$daemon = '${quotePowerShell(daemonPath)}'`,
     `$working = '${quotePowerShell(rootDir)}'`,
     `& '${quotePowerShell(restorePs1Path)}'`,
-    `& $node ${daemonRuntime.useStripTypes ? "--experimental-strip-types " : ""}$daemon --interval ${intervalSeconds} --agent unknown`,
+    `& $node ${daemonRuntime.useStripTypes ? "--experimental-strip-types " : ""}$daemon --interval ${intervalSeconds}`,
   ].join("\n");
 
   const runSh = [
     "#!/usr/bin/env sh",
     `cd '${shellQuote(rootDir)}' || exit 1`,
     `'${shellQuote(restoreShPath)}' || true`,
-    `'${shellQuote(nodePath)}' ${daemonRuntime.useStripTypes ? "--experimental-strip-types " : ""}'${shellQuote(daemonPath)}' --interval ${intervalSeconds} --agent unknown`,
+    `'${shellQuote(nodePath)}' ${daemonRuntime.useStripTypes ? "--experimental-strip-types " : ""}'${shellQuote(daemonPath)}' --interval ${intervalSeconds}`,
   ].join("\n");
 
   const localCliCmd = [

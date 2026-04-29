@@ -11,7 +11,10 @@ import type {
  * Events excluded when picking “last meaningful signal” time — housekeeping that
  * should not reset the supervisor’s sense of forward motion.
  */
-const EXCLUDED_FROM_MEANINGFUL: ReadonlySet<EventType> = new Set(["session.idle_detected"]);
+const EXCLUDED_FROM_MEANINGFUL: ReadonlySet<EventType> = new Set([
+  "session.idle_detected",
+  "session.checkpoint_created"
+]);
 
 /**
  * Latest event by timestamp that counts as a meaningful supervision signal.
@@ -32,7 +35,7 @@ export function lastMeaningfulEvent(events: AgentEvent[]): AgentEvent | null {
     }
   }
 
-  return ranked[0] ?? null;
+  return null;
 }
 
 /** Map live status + recommendation urgency into a single attention tier for the UI. */

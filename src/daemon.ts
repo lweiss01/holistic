@@ -56,6 +56,16 @@ function asAgent(value: string): AgentName {
   return "unknown";
 }
 
+function inferAgentFromEnvironment(): AgentName {
+  if (process.env.CURSOR_AGENT === "1" || process.env.CURSOR_EXTENSION_HOST_ROLE === "agent-exec") {
+    return "cursor";
+  }
+  if (process.env.CLAUDECODE === "1" || process.env.CLAUDE_DESKTOP === "1") {
+    return "claude";
+  }
+  return "unknown";
+}
+
 const QUIET_TICKS_BEFORE_CHECKPOINT = 1;
 
 function defaultPassiveCapture(): PassiveCaptureState {
@@ -371,7 +381,7 @@ async function main(): Promise<number> {
   const rootDir = process.cwd();
   const intervalSeconds = Number.parseInt(firstFlag(parsed.flags, "interval", "30"), 10);
   const runOnce = firstFlag(parsed.flags, "once") === "true";
-  const agent = asAgent(firstFlag(parsed.flags, "agent", "unknown"));
+  const agent = asAgent(firstFlag(parsed.flags, "agent", inferAgentFromEnvironment()));
 
   const pidFile = path.join(rootDir, ".holistic-local", "daemon.pid");
 

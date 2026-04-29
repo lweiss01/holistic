@@ -27,6 +27,11 @@ const EVIDENCE_SUMMARY_SKIP_TYPES: ReadonlySet<EventType> = new Set([
   "session.idle_detected"
 ]);
 
+const NON_OPERATIONAL_ACTIVITY_TYPES: ReadonlySet<EventType> = new Set([
+  "session.checkpoint_created",
+  "session.idle_detected"
+]);
+
 /** Newest-first scan for a one-line Why evidence string (Holistic checkpoints must not eclipse active work). */
 function pickEvidenceSummaryLine(sorted: AgentEvent[]): string {
   if (sorted.length === 0) {
@@ -191,6 +196,7 @@ export function deriveStatus(input: StatusInput): StatusDecision {
   const scan = scanSortedEvents(input.events, input.holisticContext);
   const { sorted, unresolvedQuestion, failureEvents, scopeExpansion, outOfScopeChange } = scan;
   const latestEvent = sorted.at(-1);
+  const latestOperationalEvent = [...sorted].reverse().find((event) => !NON_OPERATIONAL_ACTIVITY_TYPES.has(event.type));
   const phase = input.session.currentPhase;
 
   if (unresolvedQuestion) {
@@ -284,14 +290,14 @@ export function deriveStatus(input: StatusInput): StatusDecision {
     );
   }
 
-  const latestEventTime = new Date(input.session.lastEventAt).getTime();
-  if (sorted.length <= 1 && latestEvent?.type === "session.started") {
+  const latestOperationalTime = new Date(latestOperationalEvent?.timestamp ?? input.session.startedAt).getTime();
+  if (sorted.length <= 1 && latestOperationalEvent?.type === "session.started") {
     return buildDecision("queued", phase, "The session has started but meaningful work has not begun yet.", [
-      latestEvent.summary ?? "Waiting for the first substantial action."
+      latestOperationalEvent.summary ?? "Waiting for the first substantial action."
     ]);
   }
 
-  if (latestEvent?.type === "session.ended" || now.getTime() - latestEventTime > RECENT_ACTIVITY_WINDOW_MS) {
+  if (latestEvent?.type === "session.ended" || now.getTime() - latestOperationalTime > RECENT_ACTIVITY_WINDOW_MS) {
     return buildDecision(
       "parked",
       phase,

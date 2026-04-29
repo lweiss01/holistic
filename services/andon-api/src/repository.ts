@@ -3,12 +3,16 @@ import type { DatabaseSync } from "node:sqlite";
 import type {
   ActiveSessionResponse,
   AgentEvent,
+  AgentRuntime,
   FleetHeatmapCell,
   FleetRecentEvent,
   FleetResponse,
   FleetSessionItem,
+  Recommendation,
   SessionDetailResponse,
   SessionRecord,
+  SessionStatus,
+  SupervisionSignals,
   TaskRecord,
   TimelineResponse
 } from "../../../packages/andon-core/src/index.ts";
@@ -18,6 +22,11 @@ import {
   deriveStatus
 } from "../../../packages/andon-core/src/index.ts";
 import type { HolisticBridge } from "../../../packages/holistic-bridge-types/src/index.ts";
+import {
+  getRuntimeEvents,
+  listRuntimeSessions
+} from "./runtime-repository.ts";
+import type { RuntimeSession } from "../../../packages/runtime-core/src/index.ts";
 
 function parseJson(text: string): Record<string, unknown> {
   return JSON.parse(text) as Record<string, unknown>;
@@ -27,10 +36,175 @@ function repoName(repoPath: string): string {
   return repoPath.split(/[\\/]/).filter(Boolean).at(-1) ?? repoPath;
 }
 
+const MISSION_CONTROL_HOUSEKEEPING_OBJECTIVE_MARKERS = [
+  "passively capture repo activity",
+  "capture work and prepare a clean handoff",
+  "prepare a durable handoff",
+  "document the current work",
+  "pause at a natural breakpoint"
+];
+
+function isMissionControlHousekeepingObjective(objective: string): boolean {
+  const normalized = objective.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  return MISSION_CONTROL_HOUSEKEEPING_OBJECTIVE_MARKERS.some((marker) => normalized.includes(marker));
+}
+
+function inferAgentName(payload: Record<string, unknown>, existingAgentName: string | undefined): string {
+  const direct = payload.agentName;
+  if (typeof direct === "string" && direct.trim().length > 0) {
+    return direct.trim();
+  }
+
+  const alternate = payload.agent;
+  if (typeof alternate === "string" && alternate.trim().length > 0) {
+    return alternate.trim();
+  }
+
+  if (existingAgentName && existingAgentName.trim().length > 0) {
+    return existingAgentName;
+  }
+
+  return inferAgentFromEnvironment();
+}
+
+function inferAgentFromEnvironment(): string {
+  if (process.env.CURSOR_AGENT === "1" || process.env.CURSOR_EXTENSION_HOST_ROLE === "agent-exec") {
+    return "cursor";
+  }
+  if (process.env.CLAUDECODE === "1" || process.env.CLAUDE_DESKTOP === "1") {
+    return "claude";
+  }
+  return "unknown";
+}
+
+function normalizeDisplayAgentName(agentName: string): string {
+  return agentName && agentName.trim().length > 0 && agentName !== "unknown"
+    ? agentName
+    : inferAgentFromEnvironment();
+}
+
+
+function mapRuntimeIdToAgentRuntime(runtimeId: string): AgentRuntime {
+  if (runtimeId === "codex") return "codex";
+  if (runtimeId === "openharness") return "openharness";
+  return "unknown";
+}
+
+function runtimeActivityToPhase(activity: RuntimeSession["activity"]): SessionRecord["currentPhase"] {
+  if (activity === "planning" || activity === "thinking") return "plan";
+  if (activity === "reading" || activity === "reviewing") return "research";
+  if (activity === "running_tests") return "test";
+  return "execute";
+}
+
+function runtimeSessionToSessionRecord(session: RuntimeSession): SessionRecord {
+  return {
+    id: session.id,
+    agentName: normalizeDisplayAgentName(session.agentName),
+    runtime: mapRuntimeIdToAgentRuntime(session.runtimeId),
+    repoPath: session.repoPath,
+    worktreePath: session.worktreePath ?? session.repoPath,
+    objective: String(session.metadata?.objective ?? session.metadata?.prompt ?? `Runtime ${session.activity}`),
+    currentPhase: runtimeActivityToPhase(session.activity),
+    startedAt: session.startedAt,
+    endedAt: session.completedAt ?? null,
+    lastEventAt: session.updatedAt,
+    lastSummary: null
+  };
+}
+
+function runtimeStatusToFleetStatus(
+  status: RuntimeSession["status"],
+  freshness: FleetSessionItem["heartbeatFreshness"]
+): SessionStatus {
+  if (status === "waiting_for_input") return "needs_input";
+  if (status === "waiting_for_approval") return "awaiting_review";
+  if (status === "blocked" || status === "failed") return "blocked";
+  if (status === "completed") return "awaiting_review";
+  if (status === "paused" || status === "cancelled") return "parked";
+  if (status === "running" || status === "starting") {
+    return freshness === "cold" ? "parked" : "running";
+  }
+  return "parked";
+}
+
+function buildRuntimeRecommendation(status: SessionStatus): Recommendation {
+  if (status === "blocked") {
+    return {
+      urgency: "high",
+      title: "Clear runtime blocker",
+      actionLabel: "Investigate failure",
+      description: "Runtime reports a blocked or failed session that needs intervention."
+    };
+  }
+  if (status === "needs_input") {
+    return {
+      urgency: "high",
+      title: "Provide required input",
+      actionLabel: "Answer agent prompt",
+      description: "Runtime is waiting for operator input before work can continue."
+    };
+  }
+  if (status === "awaiting_review") {
+    return {
+      urgency: "medium",
+      title: "Review completed work",
+      actionLabel: "Inspect session output",
+      description: "Runtime marked this session complete and ready for review."
+    };
+  }
+  if (status === "parked") {
+    return {
+      urgency: "low",
+      title: "Resume or leave parked",
+      actionLabel: "Decide next action",
+      description: "No current runtime heartbeat indicates active execution."
+    };
+  }
+  return {
+    urgency: "low",
+    title: "Monitor active runtime",
+    actionLabel: "Keep watching",
+    description: "Runtime heartbeat and status indicate healthy execution."
+  };
+}
+
+function buildRuntimeSupervision(
+  runtimeEvents: Array<{ timestamp: string; type: string }>,
+  status: SessionStatus
+): SupervisionSignals {
+  const lastMeaningful = [...runtimeEvents]
+    .reverse()
+    .find((event) => event.type !== "session.heartbeat")
+    ?.timestamp ?? null;
+
+  const supervisionSeverity = status === "blocked"
+    ? "critical"
+    : status === "needs_input"
+      ? "high"
+      : status === "awaiting_review"
+        ? "medium"
+        : status === "running"
+          ? "low"
+          : "info";
+
+  return {
+    lastMeaningfulEventAt: lastMeaningful,
+    supervisionSeverity
+  };
+}
+
+function heartbeatReferenceTimestamp(item: Pick<FleetSessionItem, "session" | "supervision">): string {
+  return item.supervision.lastMeaningfulEventAt ?? item.session.startedAt;
+}
+
 function mapSession(row: Record<string, unknown>): SessionRecord {
   return {
     id: String(row.id),
-    agentName: String(row.agent_name),
+    agentName: normalizeDisplayAgentName(String(row.agent_name)),
     runtime: String(row.runtime_name) as SessionRecord["runtime"],
     repoPath: String(row.repo_path),
     worktreePath: String(row.worktree_path),
@@ -354,6 +528,141 @@ export async function getFleet(
   database: DatabaseSync,
   holisticBridge: HolisticBridge
 ): Promise<FleetResponse> {
+  const runtimeSessions = listRuntimeSessions(database);
+  if (runtimeSessions.length > 0) {
+    const now = Date.now();
+    const runtimeItems = runtimeSessions.map((runtimeSession) => {
+      const session = runtimeSessionToSessionRecord(runtimeSession);
+      const runtimeEvents = getRuntimeEvents(database, runtimeSession.id);
+      const referenceTimestamp = runtimeEvents
+        .filter((event) => event.type !== "session.heartbeat")
+        .at(-1)?.timestamp ?? runtimeSession.updatedAt;
+      const freshness = heartbeatFreshness(referenceTimestamp, now);
+      const statusValue = runtimeStatusToFleetStatus(runtimeSession.status, freshness);
+      const supervision = buildRuntimeSupervision(runtimeEvents, statusValue);
+      const recommendation = buildRuntimeRecommendation(statusValue);
+
+      const itemBase: Omit<FleetSessionItem, "attentionRank"> = {
+        session,
+        activeTask: null,
+        status: {
+          status: statusValue,
+          phase: session.currentPhase,
+          explanation: `Runtime session is ${runtimeSession.status}.`,
+          evidence: runtimeEvents.length > 0
+            ? [runtimeEvents.at(-1)?.message ?? runtimeEvents.at(-1)?.type ?? "Runtime event received."]
+            : ["No runtime events recorded yet."]
+        },
+        recommendation,
+        supervision,
+        heartbeatFreshness: freshness,
+        blockedReason: statusValue === "blocked"
+          ? (runtimeEvents.at(-1)?.message ?? "Runtime reported a blocking condition.")
+          : null,
+        recommendedAction: recommendation.actionLabel,
+        availableActions: availableFleetActions(statusValue),
+        repoName: session.repoPath.split(/[\\/]/).filter(Boolean).at(-1) ?? session.repoPath,
+        worktreeName: session.worktreePath !== session.repoPath
+          ? (session.worktreePath.split(/[\\/]/).filter(Boolean).at(-1) ?? session.worktreePath)
+          : null
+      };
+
+      const attentionBreakdown = attentionScoreParts(
+        itemBase.status.status,
+        itemBase.recommendation.urgency,
+        itemBase.heartbeatFreshness
+      );
+
+      return {
+        ...itemBase,
+        attentionBreakdown,
+        attentionRank: attentionBreakdown.status + attentionBreakdown.urgency + attentionBreakdown.freshness
+      };
+    });
+
+    const fleetSessions = runtimeItems
+      .filter((item) => {
+        const ageMs = now - new Date(item.supervision.lastMeaningfulEventAt ?? item.session.startedAt).getTime();
+        const staleBeyondWindow = ageMs > MISSION_CONTROL_STALE_PARKED_MS;
+        const isNonUrgentStale =
+          item.heartbeatFreshness === "cold"
+          && (item.status.status === "parked" || item.status.status === "running" || item.status.status === "queued");
+        return !(staleBeyondWindow && isNonUrgentStale);
+      })
+      .sort((a, b) => {
+        if (b.attentionRank !== a.attentionRank) {
+          return b.attentionRank - a.attentionRank;
+        }
+        return new Date(b.session.lastEventAt).getTime() - new Date(a.session.lastEventAt).getTime();
+      });
+
+    const completedToday = fleetSessions.filter((item) => {
+      if (!item.session.endedAt) {
+        return false;
+      }
+      return new Date(item.session.endedAt).toDateString() === new Date(now).toDateString();
+    }).length;
+
+    const totals = {
+      totalSessions: fleetSessions.length,
+      activeAgents: fleetSessions.filter((item) => item.status.status === "running" && item.heartbeatFreshness !== "cold").length,
+      needsHuman: fleetSessions.filter((item) => ["needs_input", "blocked", "awaiting_review", "at_risk"].includes(item.status.status)).length,
+      blocked: fleetSessions.filter((item) => item.status.status === "blocked").length,
+      atRisk: fleetSessions.filter((item) => item.status.status === "at_risk").length,
+      awaitingReview: fleetSessions.filter((item) => item.status.status === "awaiting_review").length,
+      completedToday
+    };
+
+    const runtimeRecentRows = database.prepare(
+      `
+        SELECT
+          e.id,
+          e.session_id,
+          e.type,
+          e.message AS summary,
+          e.timestamp AS created_at,
+          s.agent_name,
+          s.repo_path
+        FROM runtime_events e
+        JOIN runtime_sessions s ON s.id = e.session_id
+        ORDER BY e.timestamp DESC
+        LIMIT 40
+      `
+    ).all() as Record<string, unknown>[];
+
+    const recentEvents: FleetRecentEvent[] = runtimeRecentRows.map((row) => ({
+      id: String(row.id),
+      sessionId: String(row.session_id),
+      type: "agent.summary_emitted",
+      summary: row.summary ? String(row.summary) : String(row.type),
+      createdAt: String(row.created_at),
+      agentName: normalizeDisplayAgentName(String(row.agent_name)),
+      repoName: repoName(String(row.repo_path))
+    }));
+
+    const heatmapRows = database.prepare(
+      `
+        SELECT
+          strftime('%Y-%m-%dT%H:00:00.000Z', timestamp) AS hour_start,
+          COUNT(*) AS c
+        FROM runtime_events
+        WHERE timestamp >= datetime('now', '-24 hours')
+        GROUP BY hour_start
+        ORDER BY hour_start DESC
+        LIMIT 24
+      `
+    ).all() as Array<{ hour_start: string; c: number | bigint }>;
+
+    return {
+      generatedAt: new Date(now).toISOString(),
+      totals,
+      riskReasons: summarizeRiskReasons(fleetSessions),
+      sessions: fleetSessions,
+      recentEvents,
+      heatmap: mapFleetHeatmapRows(heatmapRows)
+    };
+  }
+
   const rows = database
     .prepare("SELECT * FROM sessions ORDER BY ended_at IS NULL DESC, last_event_at DESC LIMIT 30")
     .all() as Record<string, unknown>[];
@@ -372,7 +681,10 @@ export async function getFleet(
         status: detail.status,
         recommendation: detail.recommendation,
         supervision: detail.supervision,
-        heartbeatFreshness: heartbeatFreshness(detail.session.lastEventAt, now),
+        heartbeatFreshness: heartbeatFreshness(
+          detail.supervision.lastMeaningfulEventAt ?? detail.session.lastEventAt,
+          now
+        ),
         blockedReason: detail.status.status === "blocked" || detail.status.status === "needs_input"
           ? (detail.status.evidence[0] ?? detail.status.explanation)
           : null,
@@ -397,7 +709,10 @@ export async function getFleet(
 
   const fleetSessions = sessionDetails
     .filter((item) => {
-      const ageMs = now - new Date(item.session.lastEventAt).getTime();
+      if (isMissionControlHousekeepingObjective(item.session.objective)) {
+        return false;
+      }
+      const ageMs = now - new Date(heartbeatReferenceTimestamp(item)).getTime();
       const staleBeyondWindow = ageMs > MISSION_CONTROL_STALE_PARKED_MS;
       const isNonUrgentStale =
         item.heartbeatFreshness === "cold"
@@ -423,7 +738,12 @@ export async function getFleet(
 
   const totals = {
     totalSessions: fleetSessions.length,
-    activeAgents: fleetSessions.filter((item) => item.session.endedAt === null && item.status.status !== "parked").length,
+    activeAgents: fleetSessions.filter((item) => {
+      if (item.session.endedAt !== null || item.status.status === "parked") {
+        return false;
+      }
+      return item.heartbeatFreshness !== "cold";
+    }).length,
     needsHuman: fleetSessions.filter((item) => ["needs_input", "blocked", "awaiting_review", "at_risk"].includes(item.status.status)).length,
     blocked: fleetSessions.filter((item) => item.status.status === "blocked").length,
     atRisk: fleetSessions.filter((item) => item.status.status === "at_risk").length,
@@ -504,7 +824,7 @@ function ensureSession(database: DatabaseSync, event: AgentEvent): void {
   const existing = getSessionRow(database, event.sessionId);
   const nextPhase = (event.phase ?? payload.currentPhase ?? "plan") as SessionRecord["currentPhase"];
   const objective = String(payload.objective ?? existing?.objective ?? "Unknown objective");
-  const agentName = String(payload.agentName ?? existing?.agentName ?? "codex");
+  const agentName = normalizeDisplayAgentName(inferAgentName(payload, existing?.agentName));
   const runtime = String(payload.runtime ?? event.runtime ?? existing?.runtime ?? "unknown");
   const repoPath = String(payload.repoPath ?? existing?.repoPath ?? process.cwd());
   const worktreePath = String(payload.worktreePath ?? existing?.worktreePath ?? process.cwd());
