@@ -1,9 +1,13 @@
-# S04: Multi-Session Historical Analytics
-
-**Goal:** Evolve the dashboard to allow developers to browse and supervise all historical agents, handoffs, and parked sessions in a unified historical monitor tab.
+# M006 S04 - Additive Compatibility
 
 ## Tasks
-- [ ] **T01: API Repository & Route** - Implement `getSessionsList` in `andon-api/src/repository.ts`, then expose it as `GET /sessions` in `server.ts`.
-- [ ] **T02: Dashboard API Bindings** - Introduce `fetchSessions` into `andon-dashboard/src/api.ts`.
-- [ ] **T03: UX Migration** - Refactor `App.tsx` state to hold `currentView: 'monitor' | 'history'`.
-- [ ] **T04: History Table Component** - Build a real-time reactive table reflecting all fetched past sessions and trigger UX flow on SSE Pings.
+
+- [x] Audit current `andon-api` read paths and shared types for places that will need runtime-aware extension later. *(Completed in [M006-RECONCILIATION.md](../../M006-RECONCILIATION.md) with explicit `server.ts` + `repository.ts` path mapping.)*
+- [x] Add only additive compatibility hooks or shared exports in this slice; no process orchestration or new dashboard behavior yet.
+- [x] Prove existing session, detail, and timeline APIs behave unchanged after the runtime tables and repositories are introduced. *(Runtime DDL + `runtime-repository.ts` are unused by `server.ts`; MVP routes still use `repository.ts` only.)*
+- [x] Capture any compatibility gaps that must be handled in M007 or M010 rather than papering over them here. *(HTTP wiring to runtime store → **M007**; fleet UX → **M010**.)*
+
+## Success Criteria
+
+- Runtime persistence lands without breaking the existing Andon MVP surface.
+

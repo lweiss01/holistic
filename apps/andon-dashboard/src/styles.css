@@ -324,6 +324,24 @@ h3 {
   font-size: clamp(1rem, 1.6vw, 1.24rem);
 }
 
+.mission-empty-hint {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--line);
+  background: color-mix(in srgb, var(--paper), transparent 45%);
+  font-size: clamp(0.92rem, 1.4vw, 1.05rem);
+}
+
+.mission-empty-hint a {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.heatmap-caption {
+  margin: 0 0 10px;
+  font-size: 0.82rem;
+}
+
 .context-strip {
   display: flex;
   flex-wrap: wrap;
@@ -736,6 +754,327 @@ h3 {
 .page-return {
   margin-top: 24px;
   color: var(--ink-soft);
+}
+
+.fleet-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.fleet-totals div {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel-solid), transparent 30%);
+}
+
+.fleet-totals dt {
+  color: var(--ink-mute);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.fleet-totals dd {
+  margin: 6px 0 0;
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.risk-rollup {
+  margin-top: 12px;
+}
+
+.risk-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.risk-chip {
+  display: inline-flex;
+  padding: 7px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel-solid), transparent 20%);
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+button.risk-chip:hover {
+  border-color: var(--line-strong);
+}
+
+.mission-legend {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+}
+
+.mission-legend span {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.mission-legend b {
+  color: var(--ink-mute);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.mission-grid {
+  margin-top: 18px;
+}
+
+.attention-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 12px;
+}
+
+.attention-list li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px;
+}
+
+.attention-list strong {
+  display: block;
+  margin-top: 8px;
+}
+
+.attention-list p {
+  margin: 6px 0;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.attention-list p b {
+  color: var(--ink-mute);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-right: 4px;
+}
+
+.attention-list small {
+  color: var(--ink-mute);
+}
+
+.attention-actions {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.fleet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.fleet-controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(140px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.fleet-controls label {
+  display: grid;
+  gap: 4px;
+}
+
+.fleet-controls span {
+  color: var(--ink-mute);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.fleet-controls select {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 7px 9px;
+  background: color-mix(in srgb, var(--panel-solid), transparent 20%);
+  color: var(--ink);
+}
+
+.fleet-card {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--panel-solid), transparent 35%);
+}
+
+.fleet-card:hover {
+  text-decoration: none;
+  border-color: var(--line-strong);
+}
+
+.fleet-card h3 {
+  margin: 8px 0 6px;
+}
+
+.fleet-card p {
+  color: var(--ink-soft);
+}
+
+.fleet-card-copy {
+  margin-bottom: 10px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.fleet-card .metric-list {
+  gap: 8px;
+}
+
+.fleet-card .metric-list div {
+  padding-bottom: 8px;
+}
+
+.fleet-card .metric-list dd {
+  font-size: 0.9rem;
+}
+
+.fleet-card-context {
+  margin: 8px 0 0;
+  color: var(--ink-soft);
+  font-size: 0.84rem;
+}
+
+.fleet-card-context b {
+  color: var(--ink-mute);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-right: 4px;
+}
+
+.fleet-score-breakdown {
+  margin: 6px 0 0;
+  color: var(--ink-mute);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.fleet-score-details {
+  margin-top: 8px;
+}
+
+.fleet-score-details summary {
+  width: fit-content;
+  color: var(--ink-mute);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.heatmap {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(36px, 1fr));
+  gap: 8px;
+  align-items: end;
+  min-height: 150px;
+}
+
+.heatmap-cell {
+  display: grid;
+  gap: 6px;
+  align-items: end;
+}
+
+.heatmap-cell span {
+  display: block;
+  border-radius: 6px;
+  background: linear-gradient(180deg, var(--red), color-mix(in srgb, var(--red), transparent 35%));
+  min-height: 8px;
+}
+
+.heatmap-cell small {
+  color: var(--ink-mute);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+}
+
+.recent-signals {
+  display: grid;
+  gap: 10px;
+}
+
+.recent-signals a {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--panel-solid), transparent 35%);
+}
+
+.recent-signals a:hover {
+  text-decoration: none;
+  border-color: var(--line-strong);
+}
+
+.recent-signals p {
+  margin: 8px 0 6px;
+  color: var(--ink-soft);
+}
+
+.recent-signals small {
+  color: var(--ink-mute);
+}
+
+.event-pill {
+  display: inline-flex;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: 1px solid var(--line);
+}
+
+.event-pill.event-critical {
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red), transparent 55%);
+}
+
+.event-pill.event-warning {
+  color: var(--orange);
+  border-color: color-mix(in srgb, var(--orange), transparent 55%);
+}
+
+.event-pill.event-memory {
+  color: var(--violet);
+  border-color: color-mix(in srgb, var(--violet), transparent 55%);
+}
+
+.event-pill.event-test {
+  color: var(--blue);
+  border-color: color-mix(in srgb, var(--blue), transparent 55%);
 }
 
 @media (max-width: 1100px) {

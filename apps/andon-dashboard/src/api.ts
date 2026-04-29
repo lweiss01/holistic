@@ -1,5 +1,6 @@
 import type {
   ActiveSessionResponse,
+  FleetResponse,
   SessionDetailResponse,
   TimelineResponse,
   SessionRecord
@@ -33,6 +34,10 @@ async function fetchJson<T>(path: string): Promise<T> {
 
 export function getActiveSession(): Promise<ActiveSessionResponse> {
   return fetchJson<ActiveSessionResponse>("/sessions/active");
+}
+
+export function getFleet(): Promise<FleetResponse> {
+  return fetchJson<FleetResponse>("/fleet");
 }
 
 export function getSessionsList(): Promise<{ sessions: SessionRecord[] }> {

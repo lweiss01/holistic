@@ -3,6 +3,10 @@ import type { DatabaseSync } from "node:sqlite";
 import type {
   ActiveSessionResponse,
   AgentEvent,
+  FleetHeatmapCell,
+  FleetRecentEvent,
+  FleetResponse,
+  FleetSessionItem,
   SessionDetailResponse,
   SessionRecord,
   TaskRecord,
@@ -17,6 +21,10 @@ import type { HolisticBridge } from "../../../packages/holistic-bridge-types/src
 
 function parseJson(text: string): Record<string, unknown> {
   return JSON.parse(text) as Record<string, unknown>;
+}
+
+function repoName(repoPath: string): string {
+  return repoPath.split(/[\\/]/).filter(Boolean).at(-1) ?? repoPath;
 }
 
 function mapSession(row: Record<string, unknown>): SessionRecord {
@@ -84,6 +92,8 @@ export const DEFAULT_TIMELINE_LIMIT = 500;
 export const MAX_TIMELINE_LIMIT = 10_000;
 /** Max events loaded for rules engines (status + recommendation tail). */
 export const MAX_EVENTS_FOR_RULES = 8000;
+/** Parked sessions older than this are removed from Mission Control fleet view. */
+export const MISSION_CONTROL_STALE_PARKED_MS = 60 * 60 * 1000;
 
 function countEventsForSession(database: DatabaseSync, sessionId: string): number {
   const row = database
@@ -185,6 +195,250 @@ export function getSessionsList(database: DatabaseSync): SessionRecord[] {
     .all() as Record<string, unknown>[];
     
   return rows.map(mapSession);
+}
+
+function heartbeatFreshness(lastEventAt: string, now = Date.now()): "fresh" | "stale" | "cold" {
+  const ageMs = now - new Date(lastEventAt).getTime();
+  if (ageMs <= 5 * 60 * 1000) {
+    return "fresh";
+  }
+  if (ageMs <= 20 * 60 * 1000) {
+    return "stale";
+  }
+  return "cold";
+}
+
+function attentionScore(item: Omit<FleetSessionItem, "attentionRank">): number {
+  const parts = attentionScoreParts(item.status.status, item.recommendation.urgency, item.heartbeatFreshness);
+  return parts.status + parts.urgency + parts.freshness;
+}
+
+function attentionScoreParts(
+  status: FleetSessionItem["status"]["status"],
+  urgency: FleetSessionItem["recommendation"]["urgency"],
+  freshness: FleetSessionItem["heartbeatFreshness"]
+): { status: number; urgency: number; freshness: number } {
+  const statusWeight: Record<string, number> = {
+    blocked: 120,
+    needs_input: 110,
+    at_risk: 100,
+    awaiting_review: 90,
+    queued: 50,
+    running: 40,
+    parked: 20
+  };
+  const urgencyWeight: Record<string, number> = {
+    high: 30,
+    medium: 18,
+    low: 8
+  };
+  const freshnessWeight: Record<string, number> = {
+    fresh: 10,
+    stale: 4,
+    cold: 0
+  };
+  return {
+    status: statusWeight[status] ?? 0,
+    urgency: urgencyWeight[urgency] ?? 0,
+    freshness: freshnessWeight[freshness] ?? 0
+  };
+}
+
+function getRecentFleetEvents(database: DatabaseSync): FleetRecentEvent[] {
+  const rows = database.prepare(
+    `
+      SELECT
+        e.id,
+        e.session_id,
+        e.type,
+        e.summary,
+        e.created_at,
+        s.agent_name,
+        s.repo_path
+      FROM events e
+      JOIN sessions s ON s.id = e.session_id
+      ORDER BY e.created_at DESC
+      LIMIT 40
+    `
+  ).all() as Record<string, unknown>[];
+
+  return mapRecentFleetEvents(rows);
+}
+
+export function mapRecentFleetEvents(rows: Record<string, unknown>[]): FleetRecentEvent[] {
+  return rows.map((row) => ({
+    id: String(row.id),
+    sessionId: String(row.session_id),
+    type: String(row.type) as FleetRecentEvent["type"],
+    summary: row.summary ? String(row.summary) : null,
+    createdAt: String(row.created_at),
+    agentName: String(row.agent_name),
+    repoName: repoName(String(row.repo_path))
+  }));
+}
+
+function getFleetHeatmap(database: DatabaseSync): FleetHeatmapCell[] {
+  const rows = database.prepare(
+    `
+      SELECT
+        strftime('%Y-%m-%dT%H:00:00.000Z', created_at) AS hour_start,
+        COUNT(*) AS c
+      FROM events
+      WHERE created_at >= datetime('now', '-24 hours')
+      GROUP BY hour_start
+      ORDER BY hour_start DESC
+      LIMIT 24
+    `
+  ).all() as Array<{ hour_start: string; c: number | bigint }>;
+
+  return mapFleetHeatmapRows(rows);
+}
+
+export function mapFleetHeatmapRows(
+  rows: Array<{ hour_start: string; c: number | bigint }>
+): FleetHeatmapCell[] {
+  return rows
+    .map((row) => ({
+      hourStart: row.hour_start,
+      count: Number(row.c)
+    }))
+    .reverse();
+}
+
+function availableFleetActions(status: FleetSessionItem["status"]["status"]): Array<"inspect" | "pause" | "resume" | "approve"> {
+  const base: Array<"inspect" | "pause" | "resume" | "approve"> = ["inspect"];
+  if (status === "awaiting_review") {
+    return [...base, "approve"];
+  }
+  if (status === "parked") {
+    return [...base, "resume"];
+  }
+  return [...base, "pause"];
+}
+
+function normalizeRiskReason(text: string): string {
+  const lower = text.toLowerCase();
+  if (lower.includes("question") || lower.includes("needs a human answer") || lower.includes("needs input")) {
+    return "Needs human answer";
+  }
+  if (lower.includes("blocked") || lower.includes("idle after") || lower.includes("failure")) {
+    return "Blocked or failing";
+  }
+  if (lower.includes("review") || lower.includes("handoff")) {
+    return "Awaiting review";
+  }
+  if (lower.includes("risk") || lower.includes("scope")) {
+    return "Scope or risk drift";
+  }
+  return "Operational risk";
+}
+
+function summarizeRiskReasons(sessions: FleetSessionItem[]): Array<{ label: string; count: number }> {
+  const counts = new Map<string, number>();
+  for (const item of sessions) {
+    if (!["blocked", "needs_input", "at_risk", "awaiting_review"].includes(item.status.status)) {
+      continue;
+    }
+    const source = item.blockedReason ?? item.status.evidence[0] ?? item.status.explanation;
+    const label = normalizeRiskReason(source);
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+
+  return [...counts.entries()]
+    .map(([label, count]) => ({ label, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 3);
+}
+
+export async function getFleet(
+  database: DatabaseSync,
+  holisticBridge: HolisticBridge
+): Promise<FleetResponse> {
+  const rows = database
+    .prepare("SELECT * FROM sessions ORDER BY ended_at IS NULL DESC, last_event_at DESC LIMIT 30")
+    .all() as Record<string, unknown>[];
+
+  const now = Date.now();
+  const sessionDetails = await Promise.all(
+    rows.map(async (row) => {
+      const session = mapSession(row);
+      const detail = await buildSessionDetail(database, session, holisticBridge);
+      const worktreeName = detail.session.worktreePath !== detail.session.repoPath
+        ? repoName(detail.session.worktreePath)
+        : null;
+      const itemBase: Omit<FleetSessionItem, "attentionRank"> = {
+        session: detail.session,
+        activeTask: detail.activeTask,
+        status: detail.status,
+        recommendation: detail.recommendation,
+        supervision: detail.supervision,
+        heartbeatFreshness: heartbeatFreshness(detail.session.lastEventAt, now),
+        blockedReason: detail.status.status === "blocked" || detail.status.status === "needs_input"
+          ? (detail.status.evidence[0] ?? detail.status.explanation)
+          : null,
+        recommendedAction: detail.recommendation.actionLabel,
+        availableActions: availableFleetActions(detail.status.status),
+        repoName: repoName(detail.session.repoPath),
+        worktreeName
+      };
+      const attentionBreakdown = attentionScoreParts(
+        itemBase.status.status,
+        itemBase.recommendation.urgency,
+        itemBase.heartbeatFreshness
+      );
+
+      return {
+        ...itemBase,
+        attentionBreakdown,
+        attentionRank: attentionBreakdown.status + attentionBreakdown.urgency + attentionBreakdown.freshness
+      };
+    })
+  );
+
+  const fleetSessions = sessionDetails
+    .filter((item) => {
+      const ageMs = now - new Date(item.session.lastEventAt).getTime();
+      const staleBeyondWindow = ageMs > MISSION_CONTROL_STALE_PARKED_MS;
+      const isNonUrgentStale =
+        item.heartbeatFreshness === "cold"
+        && (item.status.status === "parked" || item.status.status === "running" || item.status.status === "queued");
+      if (staleBeyondWindow && isNonUrgentStale) {
+        return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+    if (b.attentionRank !== a.attentionRank) {
+      return b.attentionRank - a.attentionRank;
+    }
+    return new Date(b.session.lastEventAt).getTime() - new Date(a.session.lastEventAt).getTime();
+    });
+
+  const completedToday = fleetSessions.filter((item) => {
+    if (!item.session.endedAt) {
+      return false;
+    }
+    return new Date(item.session.endedAt).toDateString() === new Date(now).toDateString();
+  }).length;
+
+  const totals = {
+    totalSessions: fleetSessions.length,
+    activeAgents: fleetSessions.filter((item) => item.session.endedAt === null && item.status.status !== "parked").length,
+    needsHuman: fleetSessions.filter((item) => ["needs_input", "blocked", "awaiting_review", "at_risk"].includes(item.status.status)).length,
+    blocked: fleetSessions.filter((item) => item.status.status === "blocked").length,
+    atRisk: fleetSessions.filter((item) => item.status.status === "at_risk").length,
+    awaitingReview: fleetSessions.filter((item) => item.status.status === "awaiting_review").length,
+    completedToday
+  };
+
+  return {
+    generatedAt: new Date(now).toISOString(),
+    totals,
+    riskReasons: summarizeRiskReasons(fleetSessions),
+    sessions: fleetSessions,
+    recentEvents: getRecentFleetEvents(database),
+    heatmap: getFleetHeatmap(database)
+  };
 }
 
 export interface TimelinePageOptions {

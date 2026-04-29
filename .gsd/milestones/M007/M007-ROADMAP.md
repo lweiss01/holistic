@@ -1,36 +1,30 @@
-# Milestone 007: Andon V3 (Fine-Grained Operational Telemetry)
+# Milestone 007: Runtime Service and Local Adapter
 
-M007 upgrades the Andon pipeline from processing simple task checkpoints to processing high-frequency operational signals. This fills **Layer 1 & Layer 2** from the Andon spec, ensuring the status engine can actually detect when an agent is looping, stalling, or modifying files unexpectedly between check-ins.
+This milestone is realigned from the earlier "Andon V3 (Fine-Grained Operational Telemetry)" direction.
+M007 now turns the runtime contract into a working service boundary with a local adapter and structured live event flow.
 
-**Boundary:** Holistic lifecycle posts (checkpoint, session start/end) **complement** but **do not replace** the high-volume stream; ingest design should assume **[OpenHarness](https://github.com/HKUDS/OpenHarness)**-style operational events as the primary volume source. See [`.planning/CANON-LAYERS.md`](../../../.planning/CANON-LAYERS.md).
+## Boundary
 
-## Slice Definition
+M007 owns process orchestration, NDJSON event parsing, lifecycle tracking, and runtime APIs.
+It does not yet own approval policy tiers, worktree isolation, or higher-order fleet intelligence.
 
-### S01: Event Forwarding (OpenHarness Integration)
-- **Goal:** Capture the operational noise required to evaluate agent health.
-- **Source:** **OpenHarness** (not Holistic) owns this telemetry. OpenHarness exposes:
-  - `--output-format stream-json` — streaming tool-call events in real time
-  - `PostToolUse` hooks — interceptors that fire after every tool execution
-  - Token counting, cost tracking, retry state — all available via OpenHarness harness lifecycle
-- **Implementation:**
-  - Build an OpenHarness adapter (hook or wrapper) that captures `tool.called`, `file.changed`, `command.started`, `command.failed`, `test.failed` events.
-  - Forward these to the Andon API `/events` endpoint via HTTP POST.
-  - Holistic lifecycle events (checkpoint, session.started, session.ended) continue to fire separately from `src/core/andon.ts`.
+## Slice Overview
 
-### S02: High-Volume Event Ingestion
-- **Goal:** Safely persist large volumes of events in SQLite.
-- **Implementation:**
-  - Expand the `andon-api` SQLite `events` schema.
-  - Implement batching or deduplication to handle high-volume command logs and file-change streams without overwhelming the database.
-  - Expose API endpoints for querying timeline slices (`GET /sessions/:id/timeline`).
+### S01: Runtime Service API
+- **Goal:** Create `services/runtime-service` with the core task and session endpoints plus an adapter registry.
+- **Scope:** `POST /runtime/tasks`, session reads, approve/deny hooks, stop/pause/resume entrypoints, and `GET /runtime/stream`.
 
-### S03: Granular Timeline Dashboard UI
-- **Goal:** Visualize the recent operational history of an agent.
-- **Implementation:**
-  - Expose the "Last 10 minutes" event timeline to the active session Detail UI.
-  - Filter out low-value noise and highlight critical signals (like repeating test failures or unexpected directory modifications).
+### S02: Local Adapter and Structured Events
+- **Goal:** Ship `packages/runtime-local` as the first real runtime implementation.
+- **Scope:** Subprocess launch, NDJSON event parsing, stdout/stderr handling, exit-state mapping, and normalized lifecycle events.
+
+### S03: Heartbeats, Stale Detection, and End-to-End Verification
+- **Goal:** Track active runtime health honestly.
+- **Scope:** Heartbeats, staged stale detection, event streaming, fake-runner verification, and API tests proving the runtime can be started, observed, and stopped.
 
 ## Exit Criteria
-- `andon-api` successfully ingests and stores high-frequency operational events.
-- The UI exposes a rich, chronological replay of what the agent did in the last 10 minutes.
-- The system correctly formats events (e.g. "Ran `npm test` - Failed", "Edited `src/auth.ts`").
+
+- A fake local runtime task can be started through the runtime API.
+- Structured runtime events are persisted and streamable.
+- Session status updates correctly through start, heartbeat, success, and failure states.
+- The local adapter proves the protocol before external adapters are attempted.

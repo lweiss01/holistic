@@ -93,9 +93,11 @@ See `.gsd/REQUIREMENTS.md` for the explicit capability contract, requirement sta
 - [ ] M002: Team/Org Mode - Planned (contributor identity, team sessions, regression ownership, PR export)
 - [ ] M003: Focused Integrations - Planned (MCP patterns, thin editor setups, compatibility tests)
 - [ ] M004: Reliability Bug Hunt - Planned/partial (commit execution, sync portability, daemon reliability, repo snapshot performance)
-- [ ] M005: Andon MVP — In progress (scaffold, tests, local runbook, file-backed grounding, richer SSE; live UX polish continues)
-- [ ] M006: Andon V2 (Closing the Loop) — Planned (SSE hardening, web callbacks, **S05 approval-gate surfacing**, IDE/CLI `holistic andon watch`, multi-session archive, analytics; see `.gsd/milestones/M006/M006-ROADMAP.md`)
-- [ ] M007: Andon V3 (Fine-Grained Operational Telemetry) - Planned (Layer 1 & 2 integration, SQLite high-volume timelines)
-- [ ] M008: Andon V4 (State Rules Engine & Attention Routing) - Planned (Layer 4 deterministic rules, Intervention Inbox, multi-status color engine)
-- [ ] M009: Andon V5 (Holistic Level 2 Drift Detection) - Planned (Layer 3 semantic scope bounds, Strategy and Context drift, Mockup C detail overlays)
-- [ ] M010: Andon design spec — Builds A–F - Planned (attention density, wallboard/queue, replay summary, Holistic/drift depth, API handoff for Command Center, live task identity / dashboard honesty; see `.gsd/milestones/M010/M010-ROADMAP.md` and `.planning/RECONCILIATION-2026-04-18.md`)
+- [ ] M005: Andon MVP - In progress (single-session baseline, local runbook, rules engine, file-backed grounding, SSE refresh, dashboard proof)
+- [x] M006: Runtime Core and Persistence - Complete (runtime-core contract, runtime storage schema, runtime repository plumbing, additive compatibility audit, and reconciliation docs complete; runtime-service wiring continues in M007)
+- [ ] M007: Runtime Service and Local Adapter - Planned (runtime-service API, local runner, NDJSON events, lifecycle tracking, heartbeats, stale-session detection)
+- [ ] M008: Guardrails, Approvals, and Worktree Isolation - Planned (approval tiers, graceful stop escalation, per-session worktrees, dirty-worktree preservation, overlap detection)
+- [ ] M009: Fleet Intelligence - Planned (activity derivation, attention ranking, failure/stall detection, approval visibility, overlap and Holistic-vs-runtime drift reasoning)
+- [ ] M010: Mission Control UX - Planned (fleet homepage, `/fleet` endpoint, Fleet Header, Attention Queue, Agent Grid, Activity Heatmap, Recent Signals Rail, drill-down continuity)
+
+

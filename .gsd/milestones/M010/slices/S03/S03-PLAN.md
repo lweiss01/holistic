@@ -1,22 +1,18 @@
-# S03 — Build C: Replay summary
+# M010 S03 - Attention Queue
 
-**Goal:** Timeline view (Mockup D) opens with a **short “what happened while away”** summary and **visible status transitions** in the event list.
+## Parallel lane constraints
+
+- Execute after S01 plus initial S02/S04 data wiring.
+- Respect runtime capability outputs from upstream; do not add capability semantics inside runtime layers here.
+- Track any missing queue fields in [`../DEPENDENCY-GAPS.md`](../DEPENDENCY-GAPS.md).
 
 ## Tasks
 
-- [ ] **T01: Summary data** — Add `GET /sessions/:id/timeline/summary` or enrich timeline response with: last status before window, current status, event counts by coarse category, time span of loaded page. Prefer small dedicated endpoint to avoid heavy client scanning.
-  - Files: `services/andon-api/src/server.ts`, repository, `packages/andon-core`
+- [ ] Add an Attention Queue near the top of the homepage for agents waiting on a human.
+- [ ] Show agent name, repo, issue, time waiting, and recommended action for each queue item.
+- [ ] Wire quick actions such as inspect, pause, resume, answer, approve, or reassign only when the runtime capability model says they are real.
+- [ ] Add ranking and filtering tests so blocked and approval-pending sessions rise above routine running work.
 
-- [ ] **T02: Timeline UI block** — `TimelinePage`: render summary card above list; respect reduced-motion for any expand animation.
-  - Files: `apps/andon-dashboard/src/App.tsx`, `apps/andon-dashboard/src/api.ts`, `styles.css`
+## Success Criteria
 
-- [ ] **T03: Transition markers** — When consecutive rendered events imply a status change (from snapshot events or explicit `status_changed` types), show an inline chip or divider row.
-  - Files: `apps/andon-dashboard/src/App.tsx`, event type handling in `packages/andon-core` if needed
-
-## Success criteria
-
-- Opening replay answers “what changed recently” in one screenful before scrolling the full log.
-
-## Proof level
-
-**Automated:** tests for summary aggregation logic and/or `GET` timeline/summary response; **`npm test`** green. **Manual:** timeline page.
+- The operator can tell what needs intervention first without opening detail pages.

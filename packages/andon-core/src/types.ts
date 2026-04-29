@@ -138,3 +138,60 @@ export interface TimelineResponse {
   /** True when more older events exist beyond this page. */
   hasMore: boolean;
 }
+
+export interface FleetTotals {
+  totalSessions: number;
+  activeAgents: number;
+  needsHuman: number;
+  blocked: number;
+  atRisk: number;
+  awaitingReview: number;
+  completedToday: number;
+}
+
+export interface FleetSessionItem {
+  session: SessionRecord;
+  activeTask: TaskRecord | null;
+  status: StatusDecision;
+  recommendation: Recommendation;
+  supervision: SupervisionSignals;
+  attentionRank: number;
+  attentionBreakdown: {
+    status: number;
+    urgency: number;
+    freshness: number;
+  };
+  heartbeatFreshness: "fresh" | "stale" | "cold";
+  blockedReason: string | null;
+  recommendedAction: string;
+  availableActions: Array<"inspect" | "pause" | "resume" | "approve">;
+  repoName: string;
+  worktreeName: string | null;
+}
+
+export interface FleetRecentEvent {
+  id: string;
+  sessionId: string;
+  agentName: string;
+  repoName: string;
+  type: EventType;
+  summary: string | null;
+  createdAt: string;
+}
+
+export interface FleetHeatmapCell {
+  hourStart: string;
+  count: number;
+}
+
+export interface FleetResponse {
+  generatedAt: string;
+  totals: FleetTotals;
+  riskReasons: Array<{
+    label: string;
+    count: number;
+  }>;
+  sessions: FleetSessionItem[];
+  recentEvents: FleetRecentEvent[];
+  heatmap: FleetHeatmapCell[];
+}

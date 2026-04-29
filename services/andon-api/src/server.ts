@@ -12,6 +12,7 @@ import { getDatabase } from "./db.ts";
 import { createFileHolisticBridge } from "./holistic/file-bridge.ts";
 import { mockHolisticBridge } from "./holistic/mock-bridge.ts";
 import {
+  getFleet,
   getActiveSession,
   getSessionDetail,
   getSessionsList,
@@ -20,8 +21,15 @@ import {
   type TimelinePageOptions
 } from "./repository.ts";
 
+function looksLikeHolisticRepo(candidate: string): boolean {
+  return fs.existsSync(path.join(candidate, "package.json"))
+    && fs.existsSync(path.join(candidate, "services", "andon-api"))
+    && fs.existsSync(path.join(candidate, "apps", "andon-dashboard"));
+}
+
 export function resolveHolisticBridge(): HolisticBridge {
-  const raw = process.env.HOLISTIC_REPO?.trim();
+  const configured = process.env.HOLISTIC_REPO?.trim();
+  const raw = configured || process.cwd();
   if (!raw) {
     return mockHolisticBridge;
   }
@@ -31,6 +39,13 @@ export function resolveHolisticBridge(): HolisticBridge {
     return mockHolisticBridge;
   }
   console.log(`Andon API: file-backed Holistic bridge → ${resolved}`);
+  if (!configured && !looksLikeHolisticRepo(resolved)) {
+    console.log("Andon API: HOLISTIC_REPO not set and current directory does not look like the Holistic repo; using mock Holistic bridge.");
+    return mockHolisticBridge;
+  }
+  if (!configured) {
+    console.log(`Andon API: HOLISTIC_REPO not set; defaulting to current repo (${resolved}).`);
+  }
   return createFileHolisticBridge(resolved);
 }
 
@@ -171,6 +186,14 @@ export function createAndonHandler(
         return;
       }
 
+      if (request.method === "GET" && url.pathname === "/fleet") {
+        const payload = await getFleet(database, holisticBridge);
+        const result = jsonResponse(payload);
+        response.writeHead(result.status, result.headers);
+        response.end(result.body);
+        return;
+      }
+
       if (request.method === "GET" && url.pathname === "/sessions/stream") {
         response.writeHead(200, {
           "Content-Type": "text/event-stream",
@@ -300,6 +323,19 @@ export function createAndonServer(
   return createServer(createAndonHandler(database, holisticBridge));
 }
 
+async function checkExistingApi(port: number): Promise<boolean> {
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/health`);
+    if (!response.ok) {
+      return false;
+    }
+    const payload = await response.json() as { ok?: boolean; service?: string };
+    return payload.ok === true && payload.service === "andon-api";
+  } catch {
+    return false;
+  }
+}
+
 function isMainModule(): boolean {
   if (!process.argv[1]) {
     return false;
@@ -310,6 +346,30 @@ function isMainModule(): boolean {
 
 if (isMainModule()) {
   const server = createAndonServer(getDatabase(), resolveHolisticBridge());
+  server.once("error", async (error: NodeJS.ErrnoException) => {
+    if (error.code === "EADDRINUSE") {
+      const alreadyRunning = await checkExistingApi(DEFAULT_API_PORT);
+      if (alreadyRunning) {
+        console.log("");
+        console.log(`  Andon API is already running on http://127.0.0.1:${DEFAULT_API_PORT}.`);
+        console.log("  Reuse the existing backend and start or refresh the dashboard.");
+        console.log(`  Health check   : http://127.0.0.1:${DEFAULT_API_PORT}/health`);
+        console.log(`  Active session : http://127.0.0.1:${DEFAULT_API_PORT}/sessions/active`);
+        console.log(`  Dashboard UI   : http://127.0.0.1:5173`);
+        console.log("");
+        process.exit(0);
+      }
+
+      console.error("");
+      console.error(`  Port ${DEFAULT_API_PORT} is already in use by another process.`);
+      console.error("  It does not appear to be a healthy Andon API instance.");
+      console.error("  Stop the other process or set ANDON_API_PORT to another port.");
+      console.error("");
+      process.exit(1);
+    }
+
+    throw error;
+  });
   server.listen(DEFAULT_API_PORT, "127.0.0.1", () => {
     console.log("");
     console.log("  ✅ Andon API (backend) is running.");

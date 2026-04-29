@@ -40,6 +40,7 @@
     "andon:api": "node --experimental-strip-types services/andon-api/src/server.ts",
     "andon:collector": "node --experimental-strip-types services/andon-collector/src/index.ts",
     "andon:dashboard": "npm --prefix apps/andon-dashboard run dev",
+    "andon:dev": "node scripts/andon-dev.mjs",
     "andon:db:migrate": "node scripts/andon-migrate.mjs",
     "andon:db:seed": "node scripts/andon-seed.mjs",
     "andon:build": "npm --prefix apps/andon-dashboard run build",

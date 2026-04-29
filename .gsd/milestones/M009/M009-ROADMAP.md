@@ -1,36 +1,30 @@
-# Milestone 009: Andon V5 (Holistic Level 2 Drift Detection)
+# Milestone 009: Fleet Intelligence
 
-M009 bridges the operational metrics (Layer 1/2) with Semantic Scope (Layer 3 Context).
-
-Level 2 Drift detects when an agent is technically executing successful commands, testing correctly, and outputting code, but actively straying outside its predetermined Holistic constraints, bounds, or prior context. We introduce Semantic Drift Flags by validating the real-time operational events against the agent's intent.
-
-**Non-goal:** M009 does **not** remove the need for a proper **Layer 1–2** ingest path (see **M007** and **[OpenHarness](https://github.com/HKUDS/OpenHarness)**); it **compares** streams to Holistic-stated bounds. See [`.planning/CANON-LAYERS.md`](../../../.planning/CANON-LAYERS.md).
+This milestone merges the strongest parts of the older rules-engine and drift milestones into a single intelligence layer that turns runtime events and Holistic grounding into ranked supervision decisions.
 
 ## Slice Definition
 
-### S01: Expected Scope Validation (Scope Drift)
-- **Goal:** Throw an alert when the agent writes code it wasn't told to touch.
-- **Implementation:**
-  - Retrieve the explicit file list or feature scope defined in the active `.holistic/state.json`.
-  - Calculate intersections between the `file.changed` event streams and the expected bounds.
-  - Flag the session as `Orange` ("Scope Drift: High") if an agent consistently modifies files outside its mandate without explicitly requesting an expansion.
+### S01: Derived Activity and Attention Rank
+- **Goal:** Convert raw events and runtime state into stable labels and sort order.
+- **Implementation:** Build `deriveActivityKind()` and `deriveAttentionRank()` so sessions can be compared consistently across runtimes.
 
-### S02: Prior Attempt Comparison (Strategy Drift)
-- **Goal:** Prevent an agent from spiraling into previously failed approaches.
-- **Implementation:**
-  - Plumb Holistic's known "rejected approaches" into the Andon `repository.ts` active memory cache.
-  - If the agent explicitly attempts the exact same loop, dependency, or architectural pattern previously marked as rejected by human handoff, flag it for "Strategy Drift."
-  - Introduce specific UI cues explicitly notifying the supervisor of the repetition.
+### S02: Stall and Failure Detection
+- **Goal:** Detect silent stalls, unstable retry loops, and failure concentration before the operator has to manually infer them.
+- **Implementation:** Add `detectStallRisk()` and `detectFailureLoop()` using heartbeats, event tails, retry streaks, and failed test/command clusters.
 
-### S03: Grounding UI Overlay (Mockup C)
-- **Goal:** Make the supervisor's decision to intervene incredibly obvious by putting intent side-by-side with reality.
-- **Implementation:**
-  - Overhaul the Detail Inspector to explicitly present:
-    - **Holistic Grounding:** "Expected Scope", "Rejected Approach", "Success Criteria".
-    - **Live Signals:** "Last Event", "Files Changed", "Retry count".
-    - **Drift Flags:** "Scope Drift: Medium", "Strategy Drift: Low".
+### S03: Approval, Overlap, and Runtime Risk Visibility
+- **Goal:** Surface the operational reasons a session needs attention.
+- **Implementation:** Treat pending approvals, overlapping file edits, dirty worktrees, and process instability as first-class fleet signals.
+
+### S04: Holistic-vs-Runtime Drift Reasoning
+- **Goal:** Compare live runtime activity to Holistic-stated objective, expected scope, constraints, and rejected approaches.
+- **Implementation:** Extend the earlier drift work so it becomes one ranked input alongside operational risk, not a separate orphan system.
+
+### S05: Explanation and Recommendation Engine
+- **Goal:** Produce stable "why this matters" and "what should I do" outputs for the dashboard and APIs.
+- **Implementation:** Centralize explanation lines, severity, recommended next action, and attention score derivation so M010 can stay presentation-focused.
 
 ## Exit Criteria
-- Andon accurately diagnoses an agent's failure to adhere to the Holistic scope.
-- Repeated failed strategies are proactively blocked or surfaced before the agent loops endlessly.
-- The UI exposes a rich, structured comparison board allowing the human supervisor to rapidly ingest context and intervene confidently.
+
+- Blocked, needs-input, stale, failure-loop, overlap, and drift scenarios rank predictably.
+- Sessions expose stable explanations and recommended actions that can drive the Mission Control homepage.

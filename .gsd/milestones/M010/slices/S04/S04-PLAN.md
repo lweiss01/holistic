@@ -1,22 +1,18 @@
-# S04 — Build D: Holistic + drift (inspector depth)
+# M010 S04 - Agent Grid
 
-**Goal:** Detail inspector (Mockup C) shows **stronger live signals** (e.g. files touched count, retry/stuck hints from recent events) and **drift labels** aligned with spec §11 (scope / intent / strategy / context), not ad-hoc keyword scans only.
+## Parallel lane constraints
+
+- Execute after S01 read-model contract is available.
+- Keep this slice UI-consumer focused; do not patch runtime-core/service code.
+- Record upstream-card-field gaps in [`../DEPENDENCY-GAPS.md`](../DEPENDENCY-GAPS.md).
 
 ## Tasks
 
-- [ ] **T01: Live signals from data** — Extend `SessionDetailResponse` (or compute client-side from last N events) with: `filesChangedCount`, `recentRetryCount`, optional `lastToolFailureSummary`. Prefer server-side aggregation for consistency with dashboard.
-  - Files: `services/andon-api/src/**/*.ts`, `packages/andon-core/src/**/*.ts`
+- [ ] Build a dense multi-agent grid that can show several runtime sessions simultaneously.
+- [ ] Each card should include agent name, runtime, repo, current phase or activity, runtime/heartbeat freshness, current task, status severity, and recommended next action.
+- [ ] Sort the grid by attention rank so the most urgent session naturally lands at the top-left.
+- [ ] Preserve responsive density across desktop and smaller viewports without turning cards into oversized panels.
 
-- [ ] **T02: Detail UI** — Replace or augment the signal grid with spec-shaped rows; ensure lamp + status strip stay consistent.
-  - Files: `apps/andon-dashboard/src/App.tsx`, `styles.css`
+## Success Criteria
 
-- [ ] **T03: Drift model** — Map `holisticContext` + evidence into explicit drift dimensions (scope, intent, strategy, context) with low/med/high/none; update copy to match PDF wording where applicable.
-  - Files: `packages/andon-core` rules or API mapper, `App.tsx`
-
-## Success criteria
-
-- Detail page gives a supervisor operational texture beyond static objective text.
-
-## Proof level
-
-**Automated:** unit tests for new pure mapping functions and/or API detail field assertions; **`npm test`** green. **Manual:** detail inspector.
+- The homepage reads as a fleet board, not a stack of detail pages.

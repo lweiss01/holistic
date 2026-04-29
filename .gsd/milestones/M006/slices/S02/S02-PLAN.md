@@ -1,13 +1,12 @@
-# S02: Interactive Callbacks & Remediation
-
-**Goal:** Close the loop by sending human steering commands ("Approve", "Pause", "Resume") back to the agent session via the dashboard.
+# M006 S02 - Runtime Storage Schema
 
 ## Tasks
-- [ ] **T01: Extend Event Types** - Introduce `user.resumed` to `packages/andon-core/src/types.ts` to allow waking parked sessions without tricking the rules engine.
-- [ ] **T02: Webhook API Routes** - Add custom POST hooks for `/callbacks/approve`, `/callbacks/pause`, and `/callbacks/resume` into `services/andon-api/src/server.ts` that synthesize state-changing events.
-- [ ] **T03: Dashboard Fetch Wrappers** - Add the `postCallback` API method wrapper to `apps/andon-dashboard/src/api.ts`.
-- [ ] **T04: Contextual UI Buttons** - Conditionally render interactive buttons in the Next Human Action panel based on the rules engine's calculation of the agent's current state.
+
+- [x] Extend the SQLite schema with `runtime_sessions`, `runtime_events`, `runtime_approvals`, and `runtime_processes`.
+- [x] Decide the minimum columns required for lifecycle state, approvals, heartbeats, process metadata, and event payload JSON. *(See `services/andon-api/sql/001_initial.sql`.)*
+- [x] Add migration and seed-safe behavior so the existing Andon database can evolve without breaking current tables. *(Runtime DDL is additive in the same initial migration as MVP tables.)*
+- [x] Add tests that create the schema and verify basic insert/query flows for every runtime table. *(See `tests/runtime-storage.test.ts`.)*
 
 ## Success Criteria
-- Action buttons only appear when appropriate (e.g. no "Resume" button if it's already "Running").
-- Clicking an action instantly updates the status (because it triggers the SSE ping we built in S01).
+
+- Runtime storage exists as durable event history, not just latest-state snapshots.

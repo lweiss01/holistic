@@ -1,49 +1,59 @@
-# Andon dashboard — design tokens and UI plan
+# Andon dashboard - design tokens and UI plan
 
-This document aligns the **Andon dashboard** implementation with the **Andon for Agents — Detailed Design Specification** (system design PDF: supervision layer, Holistic grounding, status model, and dashboard mockups A–F).
+This document aligns the Andon dashboard implementation with the Andon design specification while reflecting the runtime-first fleet program now tracked in `.gsd`.
 
-**Stack (spec §4, §8.1)**  
-Repos / worktrees → **Holistic** (work memory, continuity, checkpoints, intent) → **Agents** (runtimes) → **Andon** (live supervision, status, intervention routing) → **Command Center** (broader operating surface).
+**Stack**
+Repos and worktrees -> **Holistic** (work memory, continuity, checkpoints, intent) -> **Holistic runtime adapters** (live sessions, commands, files, tests, approvals) -> **Andon** (fleet supervision, ranking, intervention routing) -> **Command Center** (broader operating surface).
 
-**Agent runtime (Layers 1–2)** — Reference harness: **[OpenHarness](https://github.com/HKUDS/OpenHarness)**. Use it (or a compatible adapter) so task changes, summaries, and tool/file events reach Andon in near real time; the dashboard headline and `last_summary` stay trustworthy when this path is live.
+**Agent runtime (Layers 1-2)**
+Holistic now owns the runtime protocol through `packages/runtime-core` and the future `runtime-service`.
+The first shipped runtime is local.
+External adapters such as Codex, Claude Code, OpenHarness, or custom harnesses adapt into that contract instead of defining the architecture themselves.
 
-**Holistic = context layer (spec §4.2, §8.1 “Layer 3”)**  
-Holistic owns durable grounding: task intent, prior attempts, constraints, accepted/rejected approaches, phase/checkpoint history, repo/worktree association, handoffs. It answers: *What is this work, what matters, and what happened before?* The spec’s design principle **“Holistic is the anchor”** (§5) means supervision is most valuable when **live Andon signals are read against this context** (drift, scope, repeat rejected approaches)—not when Holistic replaces runtime adapters for every low-level agent tick.
+**Holistic = context layer**
+Holistic owns durable grounding: task intent, prior attempts, constraints, accepted or rejected approaches, phase and checkpoint history, repo/worktree association, and handoffs.
+It answers: what is this work, what matters, and what happened before?
+The design principle "Holistic is the anchor" means supervision is most valuable when live runtime signals are read against this context, not when Holistic replaces runtime telemetry.
 
-**Andon = control tower (spec §4.3, Layers 4–6)**  
-Andon owns live event ingestion, health/state, risk/drift signals, recommendations, and the dashboard. It answers: *What is happening right now, is it healthy, and do I need to act?*
+**Andon = control tower**
+Andon owns live event ingestion, health and state, risk and drift signals, recommendations, and the dashboard.
+It answers: what is happening right now, is it healthy, and do I need to act?
 
-**UI contract**  
-Surface **both**: (1) **live** task/session fields and telemetry from Andon’s store, and (2) a **clearly labeled Holistic grounding** block (objective, scope, constraints on detail; mission line on monitor when the bridge is available). Do not conflate the two layers in copy or layout.
+**UI contract**
+Surface both:
+1. Live runtime and fleet fields from Andon's store.
+2. A clearly labeled Holistic grounding block.
 
----
-
-## 1. Semantic color tokens (status = Andon stack light)
-
-Status colors are **not decorative**; they map the **state machine** in the spec (§6.1, §12, §25.8):
-
-| Semantic token (CSS) | Spec state | Role |
-|----------------------|------------|------|
-| `--status-running` / bar / bg | Green / Running | Progressing normally |
-| `--status-queued` | Blue / Queued | Waiting for assignment or dependency |
-| `--status-needs-input` | Yellow / Needs Input | Question, approval, ambiguity |
-| `--status-at-risk` | Orange / At Risk | Retries, scope spread, churn |
-| `--status-blocked` | Red / Blocked | Cannot proceed without intervention |
-| `--status-awaiting-review` | Purple / Awaiting Review | Done / paused for human verification |
-| `--status-parked` | Gray / Parked | Intentionally idle |
-
-Implementation: dashboard [`styles.css`](../apps/andon-dashboard/src/styles.css) exposes these as `--s-*` pairs (`--s-green`, `--s-green-bar`, `--s-green-bg`, …). **Do not** reuse status hues for non-status UI (spec: avoid training users to ignore signals).
+Do not conflate runtime activity, status explanation, and Holistic memory in copy or layout.
 
 ---
 
-## 2. Human chrome vs signal (attention routing)
+## 1. Semantic color tokens
+
+Status colors are not decorative; they map the supervision model:
+
+| Semantic token (CSS) | Meaning | Role |
+|----------------------|---------|------|
+| `--status-running` | Running | Progressing normally |
+| `--status-queued` | Queued | Waiting for assignment or dependency |
+| `--status-needs-input` | Needs Input | Question, approval, ambiguity |
+| `--status-at-risk` | At Risk | Retries, churn, scope spread |
+| `--status-blocked` | Blocked | Cannot proceed without intervention |
+| `--status-awaiting-review` | Awaiting Review | Done or paused for human verification |
+| `--status-parked` | Parked | Intentionally idle |
+
+Implementation: dashboard `styles.css` should keep status hues reserved for supervision semantics rather than general decoration.
+
+---
+
+## 2. Human chrome vs signal
 
 | Token | Purpose |
 |-------|---------|
-| `--human-accent` | Navigation affordances, theme control, non-alarm focus rings — **separate** from status green/red. |
-| `--human-accent-border` | Subtle nav hover border tint derived from human accent (light/dark). |
-| `--fg-primary`, `--fg-secondary`, `--fg-muted` | Reading comfort; spec **human attention is scarce**. |
-| `--bg-base`, `--bg-surface`, `--bg-raised` | Quiet surfaces so status and timeline stay focal. |
+| `--human-accent` | Navigation affordances, theme control, non-alarm focus rings |
+| `--human-accent-border` | Subtle nav hover border tint derived from human accent |
+| `--fg-primary`, `--fg-secondary`, `--fg-muted` | Reading comfort for information-dense screens |
+| `--bg-base`, `--bg-surface`, `--bg-raised` | Quiet surfaces so status, queue, and timeline stay focal |
 
 ---
 
@@ -51,12 +61,10 @@ Implementation: dashboard [`styles.css`](../apps/andon-dashboard/src/styles.css)
 
 | Token | Use |
 |-------|-----|
-| `--font-body` (Onest) | UI chrome, titles, prose — spec **legibility**; avoid Inter/Space Grotesk as primary (explicit product choice in CSS header). |
-| `--font-mono` (JetBrains Mono) | Event types, timestamps, machine-parsed labels — **observable signals first**. |
-| `.tabular-nums` | Times, counts, table columns — stable columns (tabular lining). |
-| `--text-*` scale | Maintain clear hierarchy: eyebrow → title → body → meta. |
-
-Optional later: `text-wrap: balance` on short panel titles.
+| `--font-body` | UI chrome, titles, prose |
+| `--font-mono` | Event types, timestamps, machine labels |
+| `.tabular-nums` | Times, counts, table or card columns |
+| `--text-*` scale | Eyebrow -> title -> body -> meta hierarchy |
 
 ---
 
@@ -64,70 +72,73 @@ Optional later: `text-wrap: balance` on short panel titles.
 
 | Rule | Rationale |
 |------|-----------|
-| `--transition` (~130ms) | Small UI feedback; keep under **300ms** for user-initiated feel. |
-| Theme / surface cross-fade **disabled** when `prefers-reduced-motion: reduce` | Respect accessibility; spec **alert rarely but meaningfully** includes not overwhelming motion. |
+| Short transitions for hover and reveal only | Feedback should feel crisp, not theatrical |
+| Respect `prefers-reduced-motion` | Alerts should be meaningful without overwhelming motion |
 
 ---
 
-## 5. Layout tokens (mockups A–D)
+## 5. Layout targets
 
-| Pattern | Spec reference | Implementation direction |
-|---------|----------------|---------------------------|
-| **Active session board** | Mockup A §15.1 | Main column: task, repo, phase, **status + why + Focus now + last events + suggested action**. |
-| **Wallboard / history** | Mockup B §15.2 | Table + future “attention queue” — Phase 3. |
-| **Detail inspector** | Mockup C §15.3 | Holistic grounding, live signals, drift flags, recommendations. |
-| **Session replay** | Mockup D §15.4 | Timeline with status transitions — paginated API + load older. |
-| **Sticky “Focus now”** | §6.3 attention routing | Aside rail **sticky** so the shortest intervention path stays visible while scanning timeline. |
-| **Header lamp** | Physical Andon metaphor | **Lamp color follows supervision status** when a session assessment is loaded; neutral when none. |
+| Pattern | Implementation direction |
+|---------|--------------------------|
+| **Mission Control homepage** | Fleet Header, Attention Queue, Agent Grid, Activity Heatmap, Recent Signals Rail |
+| **Session detail** | Drill-down for why a session is in its current state, what changed, and what to do now |
+| **Timeline / replay** | Chronological event review with recent signal emphasis |
+| **History** | Ledger and archive view, no longer the primary fleet surface |
 
----
-
-## 6. Screen → spec checklist (MVP)
-
-| Screen | Spec §25.11 | MVP status |
-|--------|-------------|------------|
-| Live monitor | Screen 1 — Active Session Board | Implemented (`ActiveSessionPage`) |
-| Timeline / replay | Screen 2 | Implemented (`TimelinePage`) + pagination |
-| Detail inspector | Screen 3 | Implemented (`DetailPage`) |
-| Wallboard | Multi-agent | Partial (`HistoryPage` list) |
-| Intervention inbox / cross-repo | Mockups E–F | Deferred |
+The root route `/` should become Mission Control.
+The existing single-session board is useful baseline UI, but it should no longer be the first mental model.
 
 ---
 
-## 7. Phased next steps (engineering + design)
+## 6. Current baseline vs target
 
-Aligned with spec **§25.13–25.14** and **Layer 6** (§8.2). **GSD tracking:** milestone **[M010](../.gsd/milestones/M010/M010-ROADMAP.md)** maps Builds A–F to slices `S01`–`S06` with implementation plans under `.gsd/milestones/M010/slices/`. **Planning index:** [`.planning/README.md`](../.planning/README.md).
+| Surface | Current baseline | Target direction |
+|---------|------------------|------------------|
+| `/` | Single active-session monitor | Fleet Mission Control |
+| `/session/:id` | Useful detail board | Keep as drill-down |
+| `/session/:id/timeline` | Useful replay view | Keep as drill-down |
+| `/history` | Session wall / archive | Keep as supporting context |
 
-**Done (recent passes)**  
-Design tokens in CSS; dual theme; status strip + panel accent; timeline pagination; SSE refresh; Holistic bridge file mode; `tabular-nums` / reduced-motion / sticky focus rail / header lamp tied to status (see dashboard PRs).
-
-**Build A — Attention density** ([S01-PLAN](../.gsd/milestones/M010/slices/S01/S01-PLAN.md))  
-- Surface **severity** and **last meaningful event time** beside status (spec §6.1 every state).  
-- “Focus now” copy already from API — tighten visual hierarchy (one primary CTA).
-
-**Build B — Wallboard + queue (Phase 3 wedge)** ([S02-PLAN](../.gsd/milestones/M010/slices/S02/S02-PLAN.md))  
-- Sort sessions by urgency; optional **Top attention queue** strip (Mockup B).  
-- Repo-level rollups (Mockup E) after multi-session is stable.
-
-**Build C — Replay summary** ([S03-PLAN](../.gsd/milestones/M010/slices/S03/S03-PLAN.md))  
-- Compact “what happened while away” summary block above timeline (Mockup D).  
-- Status transition markers in timeline (chips or inline).
-
-**Build D — Holistic + drift (Phase 2)** ([S04-PLAN](../.gsd/milestones/M010/slices/S04/S04-PLAN.md))  
-- Stronger **Live signals** row: files changed count, retry hints from events (spec Mockup C).  
-- Drift flags already partially there — align labels with spec §11 (scope / intent / strategy / context).
-
-**Build E — Command Center handoff** ([S05-PLAN](../.gsd/milestones/M010/slices/S05/S05-PLAN.md))  
-- External **Command Center** surfaces remain out of this repo; keep API shapes stable for future embedding.
-
-**Build F — Live task identity & dashboard honesty** ([S06-PLAN](../.gsd/milestones/M010/slices/S06/S06-PLAN.md))  
-- Surface **task / correlation identifiers** in API + UI when present.  
-- Audit **headline / Why / Holistic** copy so runtime signals and context grounding are never conflated (see stack notes at top of this doc and [`.planning/CANON-LAYERS.md`](../.planning/CANON-LAYERS.md)).
+Already-shipped attention-density work, SSE refresh, timeline pagination, and Holistic grounding remain useful groundwork for the fleet target.
 
 ---
 
-## 8. Reference
+## 7. Program sequence
 
-- Authoritative narrative: **Andon-system-design-spec** PDF (version in user design package).  
-- Runbook: [andon-mvp.md](./andon-mvp.md).  
-- Code: [`apps/andon-dashboard/src/`](../apps/andon-dashboard/src/).
+The design program now follows the runtime-first milestone order below.
+The planning source of truth is `.gsd`, with milestone details in the files linked here.
+
+**M006 - Runtime Core and Persistence**
+- Define `runtime-core` types, capabilities, normalized events, and storage tables.
+
+**M007 - Runtime Service and Local Adapter**
+- Add `runtime-service`, the local adapter, NDJSON events, lifecycle tracking, and heartbeats.
+
+**M008 - Guardrails, Approvals, and Worktree Isolation**
+- Add approval gating, process safety, worktree metadata, and overlap signals.
+
+**M009 - Fleet Intelligence**
+- Add activity derivation, attention ranking, failure and stall detection, approval visibility, and Holistic-vs-runtime drift reasoning.
+
+**M010 - Mission Control UX**
+- Add `GET /fleet`, Fleet Header, Attention Queue, Agent Grid, Activity Heatmap, Recent Signals Rail, and route migration for `/`.
+
+---
+
+## 8. Design constraints for M010
+
+- Keep cards compact enough to show several agents at once.
+- Put the Attention Queue near the top and make intervention status immediately obvious.
+- Use color semantically, not decoratively.
+- Keep runtime state and Holistic grounding visually distinct.
+- Avoid oversized hero panels, novelty widgets, and decorative clutter.
+
+---
+
+## 9. Reference
+
+- Runbook: [andon-mvp.md](./andon-mvp.md)
+- Planning index: [`.planning/README.md`](../.planning/README.md)
+- Milestones: [M006](../.gsd/milestones/M006/M006-ROADMAP.md), [M007](../.gsd/milestones/M007/M007-ROADMAP.md), [M008](../.gsd/milestones/M008/M008-ROADMAP.md), [M009](../.gsd/milestones/M009/M009-ROADMAP.md), [M010](../.gsd/milestones/M010/M010-ROADMAP.md)
+- Code: [`apps/andon-dashboard/src/`](../apps/andon-dashboard/src/)

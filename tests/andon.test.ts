@@ -15,7 +15,7 @@ import {
   type AgentEvent,
   type SessionRecord
 } from "../packages/andon-core/src/index.ts";
-import { getSessionTimeline, ingestEvents } from "../services/andon-api/src/repository.ts";
+import { getSessionTimeline, ingestEvents, mapFleetHeatmapRows, mapRecentFleetEvents } from "../services/andon-api/src/repository.ts";
 import { createAndonHandler } from "../services/andon-api/src/server.ts";
 import { shouldPostProgressHeartbeat } from "../services/andon-collector/src/index.ts";
 import { normalizeOpenHarnessStreamEvent } from "../services/andon-collector/src/openharness-adapter.ts";
@@ -438,6 +438,13 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
         const port = address.port;
 
+        // Recent timestamps so Mission Control fleet view does not treat the session as stale/cold parked.
+        const t0 = Date.now();
+        const iso = (deltaMs: number) => new Date(t0 + deltaMs).toISOString();
+        const tSession = iso(-180_000);
+        const tTask = iso(-120_000);
+        const tSummary = iso(-60_000);
+
         const seedEvent: AgentEvent = {
           id: "session-started",
           sessionId: "session-andon-mvp",
@@ -446,7 +453,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           type: "session.started",
           phase: "execute",
           source: "agent",
-          timestamp: "2026-04-18T13:00:00.000Z",
+          timestamp: tSession,
           summary: "Started the Andon MVP session.",
           payload: {
             objective: "Build the first Andon MVP scaffold inside the Holistic repo.",
@@ -454,7 +461,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
             runtime: "codex",
             repoPath: "D:/Projects/active/holistic",
             worktreePath: "D:/Projects/active/holistic",
-            startedAt: "2026-04-18T13:00:00.000Z"
+            startedAt: tSession
           }
         };
 
@@ -466,11 +473,11 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           type: "task.started",
           phase: "execute",
           source: "agent",
-          timestamp: "2026-04-18T13:01:00.000Z",
+          timestamp: tTask,
           summary: "Creating the initial monorepo scaffold.",
           payload: {
             title: "Create the Andon MVP scaffold",
-            startedAt: "2026-04-18T13:01:00.000Z"
+            startedAt: tTask
           }
         };
 
@@ -482,7 +489,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           type: "agent.summary_emitted",
           phase: "execute",
           source: "agent",
-          timestamp: "2026-04-18T13:02:00.000Z",
+          timestamp: tSummary,
           summary: "Scaffolded the Andon MVP.",
           payload: { workComplete: false }
         };
@@ -507,9 +514,9 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
         assert.equal(activePayload.session?.id, "session-andon-mvp");
         assert.equal(activePayload.activeTask?.title, "Create the Andon MVP scaffold");
-        assert.equal(activePayload.status?.status, "parked");
-        assert.equal(activePayload.supervision?.supervisionSeverity, "info");
-        assert.equal(activePayload.supervision?.lastMeaningfulEventAt, "2026-04-18T13:02:00.000Z");
+        assert.equal(activePayload.status?.status, "running");
+        assert.equal(activePayload.supervision?.supervisionSeverity, "low");
+        assert.equal(activePayload.supervision?.lastMeaningfulEventAt, tSummary);
 
         const detailResponse = await fetch(`http://127.0.0.1:${port}/sessions/session-andon-mvp`);
         assert.equal(detailResponse.status, 200);
@@ -518,8 +525,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           supervision: { lastMeaningfulEventAt: string | null; supervisionSeverity: string };
         };
         assert.match(detailPayload.holisticContext?.objective ?? "", /Andon MVP scaffold/i);
-        assert.equal(detailPayload.supervision.supervisionSeverity, "info");
-        assert.equal(detailPayload.supervision.lastMeaningfulEventAt, "2026-04-18T13:02:00.000Z");
+        assert.equal(detailPayload.supervision.supervisionSeverity, "low");
+        assert.equal(detailPayload.supervision.lastMeaningfulEventAt, tSummary);
 
         const timelineResponse = await fetch(`http://127.0.0.1:${port}/sessions/session-andon-mvp/timeline`);
         assert.equal(timelineResponse.status, 200);
@@ -534,6 +541,41 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         assert.equal(timelinePayload.total, 3);
         assert.equal(timelinePayload.hasMore, false);
         assert.equal(timelinePayload.offset, 0);
+
+        const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
+        assert.equal(fleetResponse.status, 200);
+        const fleetPayload = (await fleetResponse.json()) as {
+          generatedAt: string;
+          totals: {
+            totalSessions: number;
+            activeAgents: number;
+            needsHuman: number;
+          };
+          riskReasons: Array<{ label: string; count: number }>;
+          sessions: Array<{
+            session: { id: string };
+            status: { status: string };
+            attentionRank: number;
+            attentionBreakdown: { status: number; urgency: number; freshness: number };
+            recommendedAction: string;
+            availableActions: string[];
+          }>;
+          recentEvents: Array<{ sessionId: string; type: string }>;
+          heatmap: Array<{ hourStart: string; count: number }>;
+        };
+        assert.ok(Boolean(fleetPayload.generatedAt));
+        assert.equal(fleetPayload.totals.totalSessions, 1);
+        assert.equal(fleetPayload.totals.activeAgents, 1);
+        assert.ok(Array.isArray(fleetPayload.riskReasons));
+        assert.equal(fleetPayload.sessions[0]?.session.id, "session-andon-mvp");
+        assert.equal(typeof fleetPayload.sessions[0]?.attentionRank, "number");
+        assert.equal(typeof fleetPayload.sessions[0]?.attentionBreakdown.status, "number");
+        assert.equal(typeof fleetPayload.sessions[0]?.attentionBreakdown.urgency, "number");
+        assert.equal(typeof fleetPayload.sessions[0]?.attentionBreakdown.freshness, "number");
+        assert.equal(typeof fleetPayload.sessions[0]?.recommendedAction, "string");
+        assert.ok(Array.isArray(fleetPayload.sessions[0]?.availableActions));
+        assert.ok(fleetPayload.sessions[0]?.availableActions.includes("inspect"));
+        assert.ok(fleetPayload.recentEvents.length >= 1);
 
         const collectorEvent: AgentEvent = {
           id: "collector-heartbeat",
@@ -611,6 +653,457 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(tailPage!.hasMore, false);
 
       database.close();
+    }
+  },
+  {
+    name: "Andon fleet heatmap mapper returns chronological cells with numeric counts",
+    run: () => {
+      const mapped = mapFleetHeatmapRows([
+        { hour_start: "2026-04-28T14:00:00.000Z", c: 9n },
+        { hour_start: "2026-04-28T13:00:00.000Z", c: 3 }
+      ]);
+
+      assert.equal(mapped.length, 2);
+      assert.equal(mapped[0]?.hourStart, "2026-04-28T13:00:00.000Z");
+      assert.equal(mapped[1]?.hourStart, "2026-04-28T14:00:00.000Z");
+      assert.equal(mapped[0]?.count, 3);
+      assert.equal(mapped[1]?.count, 9);
+    }
+  },
+  {
+    name: "Andon recent-signal mapper normalizes fleet event summary fields",
+    run: () => {
+      const mapped = mapRecentFleetEvents([
+        {
+          id: "evt-1",
+          session_id: "session-1",
+          type: "agent.summary_emitted",
+          summary: "Progress update",
+          created_at: "2026-04-28T12:00:00.000Z",
+          agent_name: "codex",
+          repo_path: "D:/Projects/active/holistic"
+        }
+      ]);
+
+      assert.equal(mapped.length, 1);
+      assert.equal(mapped[0]?.id, "evt-1");
+      assert.equal(mapped[0]?.sessionId, "session-1");
+      assert.equal(mapped[0]?.type, "agent.summary_emitted");
+      assert.equal(mapped[0]?.summary, "Progress update");
+      assert.equal(mapped[0]?.agentName, "codex");
+      assert.equal(mapped[0]?.repoName, "holistic");
+    }
+  },
+  {
+    name: "Andon fleet ranks blocked and needs-input sessions above routine running work",
+    run: async () => {
+      const tempDir = makeTempDir("andon-fleet-rank");
+      const databasePath = path.join(tempDir, "andon.sqlite");
+      createDatabase(databasePath);
+      const database = new DatabaseSync(databasePath);
+      const httpServer = createServer(createAndonHandler(database));
+
+      try {
+        httpServer.listen(0, "127.0.0.1");
+        await once(httpServer, "listening");
+        const address = httpServer.address();
+        if (!address || typeof address === "string") {
+          throw new Error("Could not determine the Andon API test port");
+        }
+        const port = address.port;
+
+        const runningSeed: AgentEvent[] = [
+          {
+            id: "running-session-start",
+            sessionId: "session-running",
+            runtime: "codex",
+            taskId: null,
+            type: "session.started",
+            phase: "execute",
+            source: "agent",
+            timestamp: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
+            summary: "Running session started",
+            payload: {
+              objective: "Routine implementation",
+              agentName: "codex-a",
+              runtime: "codex",
+              repoPath: "D:/Projects/active/holistic",
+              worktreePath: "D:/Projects/active/holistic"
+            }
+          },
+          {
+            id: "running-summary",
+            sessionId: "session-running",
+            runtime: "codex",
+            taskId: null,
+            type: "agent.summary_emitted",
+            phase: "execute",
+            source: "agent",
+            timestamp: new Date(Date.now() - 60 * 1000).toISOString(),
+            summary: "Routine progress continues",
+            payload: { workComplete: false }
+          }
+        ];
+
+        const urgentSeed: AgentEvent[] = [
+          {
+            id: "urgent-session-start",
+            sessionId: "session-urgent",
+            runtime: "codex",
+            taskId: null,
+            type: "session.started",
+            phase: "execute",
+            source: "agent",
+            timestamp: new Date(Date.now() - 3 * 60 * 1000).toISOString(),
+            summary: "Urgent session started",
+            payload: {
+              objective: "Answer unresolved implementation question",
+              agentName: "codex-b",
+              runtime: "codex",
+              repoPath: "D:/Projects/active/holistic",
+              worktreePath: "D:/Projects/active/holistic"
+            }
+          },
+          {
+            id: "urgent-question",
+            sessionId: "session-urgent",
+            runtime: "codex",
+            taskId: null,
+            type: "agent.question_asked",
+            phase: "execute",
+            source: "agent",
+            timestamp: new Date(Date.now() - 30 * 1000).toISOString(),
+            summary: "Need a human decision on API shape before continuing",
+            payload: { resolved: false }
+          }
+        ];
+
+        ingestEvents(database, [...runningSeed, ...urgentSeed]);
+
+        const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
+        assert.equal(fleetResponse.status, 200);
+        const fleetPayload = (await fleetResponse.json()) as {
+          sessions: Array<{
+            session: { id: string };
+            status: { status: string };
+            attentionRank: number;
+            blockedReason: string | null;
+          }>;
+          totals: {
+            totalSessions: number;
+            blocked: number;
+            needsHuman: number;
+          };
+          riskReasons: Array<{ label: string; count: number }>;
+        };
+
+        assert.equal(fleetPayload.totals.totalSessions, 2);
+        assert.equal(fleetPayload.totals.blocked, 0);
+        assert.equal(fleetPayload.totals.needsHuman, 1);
+        assert.equal(fleetPayload.sessions[0]?.session.id, "session-urgent");
+        assert.equal(fleetPayload.sessions[0]?.status.status, "needs_input");
+        assert.ok((fleetPayload.sessions[0]?.attentionRank ?? 0) > (fleetPayload.sessions[1]?.attentionRank ?? 0));
+        assert.ok(fleetPayload.sessions[0]?.availableActions.includes("pause"));
+        assert.ok(fleetPayload.riskReasons.length >= 1);
+        assert.equal(typeof fleetPayload.riskReasons[0]?.label, "string");
+        assert.equal(typeof fleetPayload.riskReasons[0]?.count, "number");
+      } finally {
+        database.close();
+        httpServer.close();
+      }
+    }
+  },
+  {
+    name: "Andon fleet tie-break keeps equal-rank sessions ordered by newest lastEventAt",
+    run: async () => {
+      const tempDir = makeTempDir("andon-fleet-tiebreak");
+      const databasePath = path.join(tempDir, "andon.sqlite");
+      createDatabase(databasePath);
+      const database = new DatabaseSync(databasePath);
+      const httpServer = createServer(createAndonHandler(database));
+
+      try {
+        httpServer.listen(0, "127.0.0.1");
+        await once(httpServer, "listening");
+        const address = httpServer.address();
+        if (!address || typeof address === "string") {
+          throw new Error("Could not determine the Andon API test port");
+        }
+        const port = address.port;
+
+        const olderTs = new Date(Date.now() - 4 * 60 * 1000).toISOString();
+        const newerTs = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+
+        const seedEvents: AgentEvent[] = [
+          {
+            id: "session-a-start",
+            sessionId: "session-a",
+            runtime: "codex",
+            taskId: null,
+            type: "session.started",
+            phase: "execute",
+            source: "agent",
+            timestamp: olderTs,
+            summary: "Session A started",
+            payload: {
+              objective: "Routine A",
+              agentName: "agent-a",
+              runtime: "codex",
+              repoPath: "D:/Projects/active/holistic",
+              worktreePath: "D:/Projects/active/holistic"
+            }
+          },
+          {
+            id: "session-a-summary",
+            sessionId: "session-a",
+            runtime: "codex",
+            taskId: null,
+            type: "agent.summary_emitted",
+            phase: "execute",
+            source: "agent",
+            timestamp: olderTs,
+            summary: "Routine progress A",
+            payload: { workComplete: false }
+          },
+          {
+            id: "session-b-start",
+            sessionId: "session-b",
+            runtime: "codex",
+            taskId: null,
+            type: "session.started",
+            phase: "execute",
+            source: "agent",
+            timestamp: newerTs,
+            summary: "Session B started",
+            payload: {
+              objective: "Routine B",
+              agentName: "agent-b",
+              runtime: "codex",
+              repoPath: "D:/Projects/active/holistic",
+              worktreePath: "D:/Projects/active/holistic"
+            }
+          },
+          {
+            id: "session-b-summary",
+            sessionId: "session-b",
+            runtime: "codex",
+            taskId: null,
+            type: "agent.summary_emitted",
+            phase: "execute",
+            source: "agent",
+            timestamp: newerTs,
+            summary: "Routine progress B",
+            payload: { workComplete: false }
+          }
+        ];
+
+        ingestEvents(database, seedEvents);
+
+        const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
+        assert.equal(fleetResponse.status, 200);
+        const fleetPayload = (await fleetResponse.json()) as {
+          sessions: Array<{
+            session: { id: string; lastEventAt: string };
+            attentionRank: number;
+            status: { status: string };
+          }>;
+        };
+
+        assert.equal(fleetPayload.sessions.length, 2);
+        assert.equal(fleetPayload.sessions[0]?.status.status, "running");
+        assert.equal(fleetPayload.sessions[1]?.status.status, "running");
+        assert.equal(fleetPayload.sessions[0]?.attentionRank, fleetPayload.sessions[1]?.attentionRank);
+        assert.equal(fleetPayload.sessions[0]?.session.id, "session-b");
+        assert.equal(fleetPayload.sessions[1]?.session.id, "session-a");
+      } finally {
+        database.close();
+        httpServer.close();
+      }
+    }
+  },
+  {
+    name: "Andon route continuity keeps sessions list, detail, active, and timeline endpoints compatible",
+    run: async () => {
+      const tempDir = makeTempDir("andon-route-continuity");
+      const databasePath = path.join(tempDir, "andon.sqlite");
+      createDatabase(databasePath);
+      const database = new DatabaseSync(databasePath);
+      const httpServer = createServer(createAndonHandler(database));
+
+      try {
+        httpServer.listen(0, "127.0.0.1");
+        await once(httpServer, "listening");
+        const address = httpServer.address();
+        if (!address || typeof address === "string") {
+          throw new Error("Could not determine the Andon API test port");
+        }
+        const port = address.port;
+
+        const sessionId = "session-continuity";
+        const seedEvents: AgentEvent[] = [
+          {
+            id: "continuity-start",
+            sessionId,
+            runtime: "codex",
+            taskId: null,
+            type: "session.started",
+            phase: "execute",
+            source: "agent",
+            timestamp: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
+            summary: "Continuity session started",
+            payload: {
+              objective: "Preserve route continuity",
+              agentName: "continuity-agent",
+              runtime: "codex",
+              repoPath: "D:/Projects/active/holistic",
+              worktreePath: "D:/Projects/active/holistic"
+            }
+          },
+          {
+            id: "continuity-summary",
+            sessionId,
+            runtime: "codex",
+            taskId: null,
+            type: "agent.summary_emitted",
+            phase: "execute",
+            source: "agent",
+            timestamp: new Date(Date.now() - 60 * 1000).toISOString(),
+            summary: "Continuity signal",
+            payload: { workComplete: false }
+          }
+        ];
+        ingestEvents(database, seedEvents);
+
+        const listResponse = await fetch(`http://127.0.0.1:${port}/sessions`);
+        assert.equal(listResponse.status, 200);
+        const listPayload = (await listResponse.json()) as {
+          sessions: Array<{ id: string }>;
+        };
+        assert.ok(listPayload.sessions.some((s) => s.id === sessionId));
+
+        const activeResponse = await fetch(`http://127.0.0.1:${port}/sessions/active`);
+        assert.equal(activeResponse.status, 200);
+        const activePayload = (await activeResponse.json()) as {
+          session: { id: string } | null;
+        };
+        assert.equal(activePayload.session?.id, sessionId);
+
+        const detailResponse = await fetch(`http://127.0.0.1:${port}/sessions/${sessionId}`);
+        assert.equal(detailResponse.status, 200);
+        const detailPayload = (await detailResponse.json()) as {
+          session: { id: string; runtime: string };
+          status: { status: string };
+          recommendation: { title: string };
+        };
+        assert.equal(detailPayload.session.id, sessionId);
+        assert.ok(Boolean(detailPayload.session.runtime));
+        assert.ok(Boolean(detailPayload.status.status));
+        assert.ok(Boolean(detailPayload.recommendation.title));
+
+        const timelineResponse = await fetch(`http://127.0.0.1:${port}/sessions/${sessionId}/timeline?tail=10`);
+        assert.equal(timelineResponse.status, 200);
+        const timelinePayload = (await timelineResponse.json()) as {
+          sessionId: string;
+          items: Array<{ id: string }>;
+          total: number;
+        };
+        assert.equal(timelinePayload.sessionId, sessionId);
+        assert.equal(timelinePayload.total, 2);
+        assert.ok(timelinePayload.items.length >= 1);
+      } finally {
+        database.close();
+        httpServer.close();
+      }
+    }
+  },
+  {
+    name: "Andon fleet omits parked stale sessions older than one hour from mission control",
+    run: async () => {
+      const tempDir = makeTempDir("andon-fleet-stale-parked");
+      const databasePath = path.join(tempDir, "andon.sqlite");
+      createDatabase(databasePath);
+      const database = new DatabaseSync(databasePath);
+      const httpServer = createServer(createAndonHandler(database));
+
+      try {
+        httpServer.listen(0, "127.0.0.1");
+        await once(httpServer, "listening");
+        const address = httpServer.address();
+        if (!address || typeof address === "string") {
+          throw new Error("Could not determine the Andon API test port");
+        }
+        const port = address.port;
+
+        const staleTimestamp = new Date(Date.now() - (70 * 60 * 1000)).toISOString();
+        const freshTimestamp = new Date(Date.now() - (2 * 60 * 1000)).toISOString();
+
+        const events: AgentEvent[] = [
+          {
+            id: "stale-start",
+            sessionId: "session-stale-parked",
+            runtime: "codex",
+            taskId: null,
+            type: "session.started",
+            phase: "execute",
+            source: "agent",
+            timestamp: staleTimestamp,
+            summary: "Old parked session started",
+            payload: {
+              objective: "Stale parked objective",
+              agentName: "old-agent",
+              runtime: "codex",
+              repoPath: "D:/Projects/active/holistic",
+              worktreePath: "D:/Projects/active/holistic"
+            }
+          },
+          {
+            id: "fresh-start",
+            sessionId: "session-fresh",
+            runtime: "codex",
+            taskId: null,
+            type: "session.started",
+            phase: "execute",
+            source: "agent",
+            timestamp: freshTimestamp,
+            summary: "Fresh running session started",
+            payload: {
+              objective: "Fresh objective",
+              agentName: "fresh-agent",
+              runtime: "codex",
+              repoPath: "D:/Projects/active/holistic",
+              worktreePath: "D:/Projects/active/holistic"
+            }
+          },
+          {
+            id: "fresh-summary",
+            sessionId: "session-fresh",
+            runtime: "codex",
+            taskId: null,
+            type: "agent.summary_emitted",
+            phase: "execute",
+            source: "agent",
+            timestamp: freshTimestamp,
+            summary: "Fresh progress",
+            payload: { workComplete: false }
+          }
+        ];
+        ingestEvents(database, events);
+
+        const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
+        assert.equal(fleetResponse.status, 200);
+        const fleetPayload = (await fleetResponse.json()) as {
+          sessions: Array<{ session: { id: string } }>;
+          totals: { totalSessions: number; activeAgents: number };
+        };
+
+        assert.equal(fleetPayload.sessions.some((item) => item.session.id === "session-stale-parked"), false);
+        assert.equal(fleetPayload.sessions.some((item) => item.session.id === "session-fresh"), true);
+        assert.equal(fleetPayload.totals.totalSessions, 1);
+        assert.equal(fleetPayload.totals.activeAgents, 1);
+      } finally {
+        database.close();
+        httpServer.close();
+      }
     }
   },
   {

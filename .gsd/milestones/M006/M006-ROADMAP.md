@@ -1,58 +1,54 @@
-# Milestone 006: Andon V2 (Closing the Loop)
+# Milestone 006: Runtime Core and Persistence
 
-M006 transforms the Andon MVP from a read-only local dashboard into a fully bidirectional, real-time, IDE-integrated command center with historical analytics.
+This milestone is realigned from the earlier "Andon V2 (Closing the Loop)" direction.
+M006 now establishes the Holistic-owned runtime contract and persistence layer that every later fleet and supervision feature depends on.
 
-## Planning note (overlap with M005)
+**Status (2026-04-28):** **Complete.** S01-S05 are reconciled and documented, including the S04 `repository.ts` compatibility audit. See [M006-RECONCILIATION.md](./M006-RECONCILIATION.md).
 
-**Server-Sent Events** and “instant dashboard refresh” landed under **M005** (SSE `session_update` snapshots). Treat **M006 S01** as **hardening, backpressure, and parity** with any new event types — not greenfield SSE work.
+## Boundary
 
-**Layers:** Runtime telemetry remains **[OpenHarness](https://github.com/HKUDS/OpenHarness)**-shaped (L1–2); **Holistic** stays **context** (L3). See [`.planning/CANON-LAYERS.md`](../../../.planning/CANON-LAYERS.md).
+M006 is contract, schema, and repository work only.
+It does not launch processes, stream events, or add dashboard controls yet.
 
-## Strategic Priority Order
-Per project direction, we are attacking the milestone in the following sequence: **A (Real-Time, S01)** → **C (Callbacks, S02)** → **E (Approval gates, S05)** → **B (IDE/CLI, S03)** → **D (Analytics, S04)**.
+## Slice Overview
 
-**S05** closes the gap where the UI shows a healthy **Running** session while the operator is blocked on an **IDE or harness approval** prompt; it depends on Layer 1–2 events (see [`.planning/CANON-LAYERS.md`](../../../.planning/CANON-LAYERS.md)) and may overlap **S03** once an event source is agreed.
+| Slice | Focus | Status (2026-04-28) |
+|-------|-------|---------------------|
+| S01 | Runtime core package (`packages/runtime-core`, npm **`@andon/runtime-core`**) | **Done** |
+| S02 | Runtime SQLite tables + indexes in shared Andon DB migration | **Done** |
+| S03 | `runtime-repository.ts` read/write/query helpers | **Done** |
+| S04 | Additive compatibility; MVP HTTP paths unchanged | **Done** - audited `server.ts` + `repository.ts`; runtime wiring intentionally deferred to M007 |
+| S05 | Docs + verification | **Done** for canon references + tests; ongoing sync when enums/schema change |
 
-## Slice Definition
+### S01: Runtime Core Package
+- **Goal:** Define the shared runtime types and interfaces in `packages/runtime-core`.
+- **Scope:** `RuntimeId`, `RuntimeStatus`, `RuntimeActivity`, `RuntimeTaskInput`, `RuntimeSession`, `HolisticRuntimeEvent`, `AgentRuntimeAdapter`, and `RuntimeCapabilities`.
 
-### S01: Real-Time Integration (SSE)
-- **Goal:** Dashboard updates instantly without manual browser refreshes.
-- **Implementation:** 
-  - Add native Server-Sent Events (SSE) support to the `andon-api` native Node server.
-  - Implement a `useEventSource` or similar hook in the `andon-dashboard` React app.
-  - Trigger SSE broadcast events whenever a new POST to `/events` alters the active session status or adds timeline items.
+### S02: Runtime Storage Schema
+- **Goal:** Persist runtime sessions, events, approvals, and process metadata.
+- **Scope:** Add or extend SQLite tables for `runtime_sessions`, `runtime_events`, `runtime_approvals`, and `runtime_processes`.
 
-### S02: Interactive Callbacks & Remediation
-- **Goal:** The human can steer the agent from the UI.
-- **Implementation:**
-  - Introduce new API routes (e.g., `POST /sessions/active/callbacks/approve`, `POST /.../pause`).
-  - The UI will render contextual action buttons based on the current `Next Human Action` recommendation.
-  - The API will fire corresponding local system events (or update the SQLite state to send signals back to the agent event stream).
+### S03: Repository Plumbing
+- **Goal:** Expose read/write stores usable by future runtime services and existing Andon read paths.
+- **Scope:** Session, event, approval, and process repositories with query helpers and serialization boundaries.
 
-### S05: Approval gate visibility (read path)
-- **Goal:** When the harness or IDE has **pending human approval** (tool/plan/permission gate), the dashboard shows **`needs_input`**-class supervision — not “all healthy / no intervention yet.”
-- **Implementation:**
-  - Ingest or derive normalized events for approval-pending / approval-cleared (collector, OpenHarness hooks, or future IDE adapter — see **M007** for high-volume operational noise).
-  - Extend the status engine and recommendation copy so **Why** and **Focus now** match the real bottleneck.
-  - Align lamp, urgency, and primary CTA with pending-approval semantics.
-- **Detail plan:** [slices/S05/S05-PLAN.md](./slices/S05/S05-PLAN.md)
+### S04: Additive Compatibility
+- **Goal:** Keep current Andon APIs stable while the runtime layer is added underneath.
+- **Scope:** Shared exports, read-model compatibility shims, and regression checks proving existing routes are unaffected.
 
-### S03: Deep IDE / CLI Integration
-- **Goal:** Bring Andon signals directly into the developer workspace.
-- **Implementation:**
-  - Fulfill the `holistic-cuf` beads task by defining the Antigravity hook.
-  - Create a new CLI command `holistic andon watch` or `holistic andon status` to tail the SSE stream and print colored status dots and warnings in an active background terminal.
-
-### S04: Multi-Session & Historical Analytics
-- **Goal:** Track multi-agent data over time to measure loop efficiency.
-- **Implementation:**
-  - Revamp the `andon-dashboard` navigation to support an "Archive" or "History" list.
-  - Expand SQLite queries to track metrics: average completion time, number of blocked events per run, cost estimations per session.
-  - Support tracking "parked" multi-task sessions cleanly alongside the primary active session.
+### S05: Docs and Verification
+- **Goal:** Lock the contract in with clear docs and tests.
+- **Scope:** Update runtime architecture notes, migration guidance, and test coverage for schema creation/query behavior.
 
 ## Exit Criteria
-- Andon UI is 100% real-time (no F5 refreshes needed).
-- Users can click "Pause" or "Approve" from the web UI and it accurately registers in the DB.
-- **Pending harness/IDE approval** is visible on the live monitor (status + Why + Focus) per **S05**; false “healthy running” while blocked on approval is treated as a defect.
-- A terminal-based CLI watcher exists for engineers who don't want to open the web UI.
-- Historical metrics can be viewed for closed out agent sessions.
+
+- TypeScript builds with the new runtime-core package exported cleanly.
+- Runtime tables can be created, written, and queried.
+- Existing Andon APIs remain additive and backward-compatible.
+- The planning docs and architecture notes consistently treat Holistic as the owner of the runtime protocol.
+
+**Reconciliation note:** Exit criteria are satisfied for M006. Remaining runtime-service integration (`andon-api` writing/reading runtime tables in live routes) is intentionally tracked in M007, not M006.
+
+
+
+

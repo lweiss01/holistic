@@ -1,23 +1,32 @@
-# Canonical stack: Holistic, OpenHarness, Andon
+# Canonical stack: Holistic runtime adapters and Andon
 
-This file restates the **non-negotiable architecture** agreed for Andon + Holistic so later milestones do not drift back into treating Holistic as the full agent harness.
+This file restates the architecture agreed for the runtime-first Andon program so later milestones do not drift back into treating an external harness as the product's primary control plane.
 
-## Layers (Andon system design spec §4, §8.1)
+## Layers
 
-1. **Layer 1–2 — Agent runtime & operational telemetry**  
-   Live tasks, tool/file/command events, stream-shaped signals. **Reference harness:** [OpenHarness](https://github.com/HKUDS/OpenHarness). Andon ingests normalized events via the collector (`services/andon-collector`, e.g. `openharness-adapter.ts`).
+1. **Layer 1-2 - Runtime contract and operational telemetry**
+   Holistic owns the protocol for runtime sessions, lifecycle state, heartbeats, approvals, and normalized events.
+   The shared contract lives in `packages/runtime-core`.
+   The first shipped adapter is `runtime-local`, and later adapters can wrap Codex, Claude Code, OpenHarness, or custom runners without changing Andon's core types.
 
-2. **Layer 3 — Holistic (context / work memory)**  
-   Objective, constraints, checkpoints, continuity, handoffs. Answers: *what is this work and what happened before?* Holistic **does not** replace Layer 1–2 for every low-level tick.
+2. **Layer 3 - Holistic context and work memory**
+   Holistic owns objective, constraints, checkpoints, continuity, handoffs, and repo/worktree association.
+   It answers: what is this work, what matters, and what happened before?
+   Holistic does not replace Layer 1-2 runtime truth for every low-level tick.
 
-3. **Layer 4–6 — Andon + Command Center**  
-   Supervision, status, recommendations, attention routing, broader operating surfaces.
+3. **Layer 4-6 - Andon and Mission Control**
+   Andon owns live supervision, fleet ranking, recommendations, attention routing, and the dashboard/operator surfaces.
 
 ## UI rule
 
-Surface **both** live Andon/runtime fields **and** a **labeled Holistic grounding** block. Do not conflate them in copy or layout.
+Surface both live runtime state and a labeled Holistic grounding block.
+Do not conflate runtime activity, dashboard explanations, and Holistic memory in copy or layout.
 
 ## Planning consequences
 
-- **M005 S03**, **M007**, **M006** copy must keep OpenHarness (or compatible adapter) as the path for high-frequency runtime truth; Holistic CLI events complement but do not satisfy “full harness” alone.
-- **M009** semantic drift compares **operational reality** to **Holistic-stated bounds**; it extends Layer 3 reasoning, it does not remove the need for Layer 1–2 ingestion.
+- **M006** defines the runtime contract, persistence tables, and repository plumbing.
+- **M007** adds `runtime-service`, the local adapter, structured NDJSON events, heartbeats, and stream endpoints.
+- **M008** adds approvals, guardrails, graceful stop behavior, and worktree isolation.
+- **M009** derives fleet intelligence by comparing runtime reality, approvals, overlap, and Holistic grounding.
+- **M010** consumes that substrate through the fleet Mission Control homepage and drill-down views.
+- **OpenHarness** remains a useful adapter target and compatibility fixture, but it is not the architectural owner of Layer 1-2 in this repo.

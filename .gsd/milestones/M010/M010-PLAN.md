@@ -1,92 +1,92 @@
-# M010 — Master execution plan (Builds A–E)
+# M010 - Master execution plan (Mission Control UX)
 
-**Milestone:** [M010-ROADMAP.md](./M010-ROADMAP.md)  
-**Design source:** [docs/andon-design-tokens.md](../../../docs/andon-design-tokens.md) §7 + Andon system design PDF  
-**Checkpoint:** Holistic checkpoint recorded after M010 scaffolding (session-2026-04-18T20-39-45-509Z).
-
----
+**Milestone:** [M010-ROADMAP.md](./M010-ROADMAP.md)
+**Checkpoint:** Holistic checkpoint recorded after roadmap realignment for runtime-first fleet supervision.
 
 ## 1. Objective
 
-Deliver **spec-shaped supervision UX** in bounded slices: attention density (A), wallboard/queue (B), replay summary (C), Holistic/drift depth (D), **documented API surface** for external Command Center (E), and **live task identity / dashboard honesty** (F) — without blocking on M006–M009 engine roadmap.
+Ship a fleet-first Mission Control homepage that sits on top of the runtime substrate from M006-M009.
+The landing page must answer: what agents are running, which need me, why they need me, and where work or risk is clustering.
 
-## 2. Non-goals (this milestone)
+## 2. Realignment note
 
-- Full **Intervention Inbox** product (deferred to **M008** / broader attention routing).
-- **CLI `holistic andon watch`** and bidirectional orchestration (**M006**).
-- Semantic / Level-2 drift models (**M009**); S04 only **aligns labels and surfacing** with spec §11 where data already exists.
+The old M010 "Builds A-F" work is preserved as groundwork, not deleted.
+The previous single-session monitor, timeline, status density, and copy-honesty work still inform this milestone, but the milestone now targets the fleet homepage instead of incremental history-wall polish.
+Historical summary files under `slices/` remain evidence of earlier groundwork and should not be read as completion proof for the new slice definitions.
 
-## 3. Preconditions
+## 3. Non-goals
 
-- M005: API + dashboard run locally; migrate/seed; active session, detail, timeline routes work.
-- Baseline UX already landed: lamp by status, route context, sticky focus rail, reduced-motion, tabular numerals ([dashboard](../../../apps/andon-dashboard/src/)).
+- Replacing the dedicated session detail and timeline routes
+- Rebuilding runtime orchestration inside the dashboard
+- Inventing provider-specific adapter UX before the shared runtime contract is proven
 
-## 4. Execution waves
+## 4. Preconditions
 
-Work **slice-by-slice**; each slice ends with checklist completion in `Sxx-PLAN.md` plus **`Sxx-SUMMARY.md`** (proof: tests + short manual notes or screenshots).
+- M006 supplies runtime contracts, persistence, and repository plumbing.
+- M007 supplies runtime-service, local adapter behavior, and live runtime events.
+- M008 supplies approvals, worktree metadata, and overlap/conflict safety signals.
+- M009 supplies activity derivation, attention ranking, failure/stall detection, and explanations.
+
+## 4.1 Parallel execution guardrails (active)
+
+- M010 must not edit runtime ownership surfaces while M006/M007 are active:
+  - `packages/runtime-core/**`
+  - `packages/runtime-local/**`
+  - `services/runtime-service/**`
+  - M006/M007 milestone plan and roadmap files
+- M010 can edit mission-control consumer and UX surfaces only:
+  - M010 milestone files under `.gsd/milestones/M010/**`
+  - Mission Control-facing docs in `docs/andon-mvp.md` and `docs/andon-design-tokens.md`
+- If runtime data is missing for a homepage requirement, record it as a dependency gap in `slices/DEPENDENCY-GAPS.md` and adapt at the M010 read boundary until upstream lands.
+
+## 5. Execution waves
 
 | Wave | Slices | Rationale |
 |------|--------|-----------|
-| **W1** | **S01** (Build A) | Establishes **shared fields** (severity, last meaningful signal time) on active session if missing; improves live monitor + Focus rail. Downstream slices reuse the same JSON shape where applicable. |
-| **W2** | **S02** (Build B) | Needs stable **list payload** and sort keys; may reuse severity/urgency from core — natural after S01 clarifies status/evidence story. |
-| **W3** | **S03** (Build C) | Timeline **summary** may need a small API addition; UI depends on W1/W2 only for consistency, not blocking. Can start T01 (endpoint design) in parallel late W2 if capacity allows. |
-| **W4** | **S04** (Build D) | Detail inspector enrichment; benefits from S01 discipline on “what counts as a signal.” |
-| **W5** | **S05** (Build E) | Mostly **documentation**; start **anytime** (e.g. draft `docs/andon-api-contract.md` in W1) to decouple from UI cycles. Must finish before milestone close. |
-| **W6** | **S06** (Build F) | **Trust + identity** — small additive API fields and dashboard chrome so operators never confuse Holistic grounding with runtime task lines; pairs with [`.planning/CANON-LAYERS.md`](../../../.planning/CANON-LAYERS.md). Can run in parallel with S02–S04 once S01 types exist. |
+| W1 | S01 | Establish the fleet read model and contract before UI work spreads across the app. |
+| W2 | S02, S04 | Build the Fleet Header and Agent Grid once ranked fleet data exists. |
+| W3 | S03 | Add the Attention Queue after quick-action semantics and attention reasons are stable. |
+| W4 | S05 | Add timeline-style macro views once the homepage core is usable. |
+| W5 | S06 | Finish the route migration and detail-page continuity story last. |
+| W6 | S07 | Refine card/queue information value and scanning clarity after baseline continuity is stable. |
 
-**Parallelism:** S05 documentation can proceed alongside W1–W2. S03 T01 (API) can overlap W2 tail if S02 list work is unblocked. **S06** can start after **S01** (shared JSON discipline) and overlap **S02–S04** if capacity allows.
+## 6. Verification loop
 
-## 5. Slice entry / exit (verification loop)
+For each slice:
 
-For each **Sxx**:
-
-1. **Enter** — Read `Sxx-PLAN.md`; confirm scope fits non-goals above.
-2. **Build** — Complete tasks in order unless a task documents safe reordering.
-3. **Verify (tests are mandatory)**
-   - **Create or extend automated tests** for each slice (new unit tests in `packages/andon-core` or `tests/andon.test.ts`, and API assertions where behavior crosses the HTTP boundary). No slice closes on manual-only proof.
-   - **Run:** `npm test` before merge (or `npm run test:andon` only when the slice touches exclusively Andon paths and full suite is impractical in one step — prefer full `npm test` at milestone end).
-   - `npm run andon:build` when dashboard changes.
-   - Manual smoke: `npm run andon:api` + `npm run andon:dashboard`, hit routes in [docs/andon-mvp.md](../../../docs/andon-mvp.md).
-4. **Exit** — Check all `[ ]` → `[x]` in slice PLAN; write **`Sxx-SUMMARY.md`**: what shipped, URLs/paths, known follow-ups for M006/M008.
-
-## 6. Acceptance mapping (spec ↔ slices)
-
-| Spec intent | Slice |
-|-------------|--------|
-| §6.1 Every state: legible **why** + **what next** + time/attention cues | **S01**, **S04** |
-| Mockup B wallboard / queue | **S02** |
-| Mockup D replay / “while away” | **S03** |
-| Mockup C live signals + drift | **S04** |
-| External Command Center consumption | **S05** |
-| Runtime vs context clarity (no “Holistic as harness” UX) | **S06** |
+1. Update the slice plan checklist as tasks land.
+2. Add or extend automated tests for any new API contract or sorting/ranking logic.
+3. Run `npm test`.
+4. Run `npm run andon:build` when dashboard code changes.
+5. Manually verify the homepage and drill-down routes against live or fixture-backed data.
 
 ## 7. Risks and mitigations
 
 | Risk | Mitigation |
 |------|------------|
-| API shape churn breaks dashboard | Extend types in `packages/andon-core` first; keep fields **additive**; document in S05. |
-| “Meaningful event” definition ambiguous | Define whitelist/blacklist of event types in **andon-core** with a single helper used by API + tests. |
-| Timeline summary N+1 queries | Prefer one aggregated query or bounded scan with documented limits in S03. |
-| S04 scope creep into M009 | Cap S04 to **surfacing** + label alignment; no new ML/semantic engine. |
+| Fleet UI ships before runtime data is trustworthy | Gate S02-S05 on S01 plus M006-M009 readiness. |
+| Mission Control turns into oversized single-agent panels | Keep density requirements explicit in S04. |
+| Quick actions imply capabilities the runtime cannot honor | Respect `RuntimeCapabilities` and disable or hide unsupported actions. |
+| Homepage API becomes a fan-out bottleneck | Keep `/fleet` aggregated and additive; avoid many client-side round trips. |
 
 ## 8. Milestone done when
 
-- [ ] S01–S06 **PLAN** task checklists completed (or explicitly deferred with reason in SUMMARY).
-- [ ] Each slice has **`Sxx-SUMMARY.md`**.
-- [ ] `docs/andon-design-tokens.md` §7 still points at M010 (update if slice scope shifts).
-- [ ] **S05** delivers **[`docs/andon-api-contract.md`](../../../docs/andon-api-contract.md)** (or agreed equivalent section in `andon-mvp.md`).
+- [ ] S01-S07 slice plans are completed or explicitly deferred with reasons.
+- [ ] `/` is the Mission Control homepage backed by `GET /fleet`.
+- [ ] Detail and timeline drill-down routes remain intact and useful.
+- [ ] The homepage clearly separates runtime truth from Holistic grounding.
 
-## 9. Slice plans (detail)
+## 9. Slice plans
 
-- [S01 — Build A](./slices/S01/S01-PLAN.md)
-- [S02 — Build B](./slices/S02/S02-PLAN.md)
-- [S03 — Build C](./slices/S03/S03-PLAN.md)
-- [S04 — Build D](./slices/S04/S04-PLAN.md)
-- [S05 — Build E](./slices/S05/S05-PLAN.md)
-- [S06 — Build F](./slices/S06/S06-PLAN.md)
+- [S01 - Fleet read model and `/fleet` contract](./slices/S01/S01-PLAN.md)
+- [S02 - Fleet Header](./slices/S02/S02-PLAN.md)
+- [S03 - Attention Queue](./slices/S03/S03-PLAN.md)
+- [S04 - Agent Grid](./slices/S04/S04-PLAN.md)
+- [S05 - Activity Heatmap and Recent Signals Rail](./slices/S05/S05-PLAN.md)
+- [S06 - Drill-down continuity and migration honesty](./slices/S06/S06-PLAN.md)
+- [S07 - Informative UI refinement](./slices/S07/S07-PLAN.md)
 
----
+## 10. Next action
 
-## 10. Next action (for implementer)
-
-**S01 is complete.** Start **W2 / S02-T01** (session list sort keys + API contract). Run **S06** in parallel if dashboard trust / task identity is blocking dogfooding (see `S06-PLAN.md`).
+Start with M006, not M010.
+Once M006-M009 are in place, begin M010 at S01 by defining the aggregated `/fleet` contract and its ranking/read-model inputs.
