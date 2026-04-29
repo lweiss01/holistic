@@ -1,9 +1,9 @@
 ## Current Position
 
-Phase: Not started (defining requirements)  
-Plan: —  
-Status: Defining requirements  
-Last activity: 2026-04-29 — Milestone v1.0 UI Glanceability started
+Phase: Roadmap ready  
+Plan: `.planning/ROADMAP.md`  
+Status: Waiting for roadmap approval/commit  
+Last activity: 2026-04-29 — Roadmap drafted with 4 execution phases
 
 ## Project Reference
 
