@@ -71,6 +71,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         }
 
         const base = `http://127.0.0.1:${address.port}`;
+        const repoPath = process.cwd();
         const startResponse = await fetch(`${base}/runtime/tasks`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -78,7 +79,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
             runtimeId: "local",
             prompt: "Run fake task",
             agentName: "codex",
-            repoPath: "D:/Projects/active/holistic",
+            repoPath,
             repoName: "holistic",
             metadata: {
               localEnv: {

@@ -131,6 +131,20 @@ function runtimeStatusToFleetStatus(
   return "parked";
 }
 
+function hasRuntimeWaitingSignal(database: DatabaseSync, sessionId: string): boolean {
+  const session = database.prepare(
+    "SELECT status FROM runtime_sessions WHERE id = ? LIMIT 1"
+  ).get(sessionId) as { status?: string } | undefined;
+  return session?.status === "waiting_for_input";
+}
+
+function hasRuntimeSessionSignal(database: DatabaseSync, sessionId: string): boolean {
+  const session = database.prepare(
+    "SELECT id FROM runtime_sessions WHERE id = ? LIMIT 1"
+  ).get(sessionId) as { id?: string } | undefined;
+  return Boolean(session?.id);
+}
+
 function buildRuntimeRecommendation(status: SessionStatus): Recommendation {
   if (status === "blocked") {
     return {
@@ -580,7 +594,53 @@ export async function getFleet(
       };
     });
 
-    const fleetSessions = runtimeItems
+    const runtimeSessionIds = new Set(runtimeSessions.map((session) => session.id));
+    const legacyRows = database
+      .prepare("SELECT * FROM sessions ORDER BY ended_at IS NULL DESC, last_event_at DESC LIMIT 30")
+      .all() as Record<string, unknown>[];
+    const disconnectedLegacyItems = legacyRows
+      .map(mapSession)
+      .filter((session) => !runtimeSessionIds.has(session.id))
+      .filter((session) => !isMissionControlHousekeepingObjective(session.objective))
+      .map((session) => {
+        const freshness = heartbeatFreshness(session.lastEventAt, now);
+        const recommendation = buildRuntimeRecommendation("parked");
+        const itemBase: Omit<FleetSessionItem, "attentionRank"> = {
+          session,
+          activeTask: null,
+          status: {
+            status: "parked",
+            phase: session.currentPhase,
+            explanation: "Runtime feed is unavailable for this session.",
+            evidence: ["No runtime session signal is active for this session."]
+          },
+          recommendation,
+          supervision: {
+            lastMeaningfulEventAt: session.lastEventAt,
+            supervisionSeverity: "info"
+          },
+          heartbeatFreshness: freshness,
+          blockedReason: null,
+          recommendedAction: recommendation.actionLabel,
+          availableActions: availableFleetActions("parked"),
+          repoName: repoName(session.repoPath),
+          worktreeName: session.worktreePath !== session.repoPath
+            ? repoName(session.worktreePath)
+            : null
+        };
+        const attentionBreakdown = attentionScoreParts(
+          itemBase.status.status,
+          itemBase.recommendation.urgency,
+          itemBase.heartbeatFreshness
+        );
+        return {
+          ...itemBase,
+          attentionBreakdown,
+          attentionRank: attentionBreakdown.status + attentionBreakdown.urgency + attentionBreakdown.freshness
+        };
+      });
+
+    const fleetSessions = [...runtimeItems, ...disconnectedLegacyItems]
       .filter((item) => {
         const ageMs = now - new Date(item.supervision.lastMeaningfulEventAt ?? item.session.startedAt).getTime();
         const staleBeyondWindow = ageMs > MISSION_CONTROL_STALE_PARKED_MS;
@@ -672,24 +732,47 @@ export async function getFleet(
     rows.map(async (row) => {
       const session = mapSession(row);
       const detail = await buildSessionDetail(database, session, holisticBridge);
+      const runtimeSessionPresent = hasRuntimeSessionSignal(database, detail.session.id);
+      const runtimeConfirmsWaiting =
+        detail.status.status === "needs_input"
+          ? hasRuntimeWaitingSignal(database, detail.session.id)
+          : false;
+      const runtimeTruthMissing =
+        !runtimeSessionPresent
+        && (detail.status.status === "running" || detail.status.status === "queued" || detail.status.status === "needs_input");
+      const effectiveStatus = (detail.status.status === "needs_input" && !runtimeConfirmsWaiting) || runtimeTruthMissing
+        ? {
+          ...detail.status,
+          status: "parked" as const,
+          explanation: runtimeTruthMissing
+            ? "Session has no runtime heartbeat and is treated as non-flowing."
+            : "Session is not currently waiting according to runtime state.",
+          evidence: runtimeTruthMissing
+            ? ["No runtime session signal is active for this session."]
+            : ["No runtime waiting_for_input signal is active for this session."]
+        }
+        : detail.status;
+      const effectiveRecommendation = detail.status.status === "needs_input" && !runtimeConfirmsWaiting
+        ? buildRuntimeRecommendation("parked")
+        : detail.recommendation;
       const worktreeName = detail.session.worktreePath !== detail.session.repoPath
         ? repoName(detail.session.worktreePath)
         : null;
       const itemBase: Omit<FleetSessionItem, "attentionRank"> = {
         session: detail.session,
         activeTask: detail.activeTask,
-        status: detail.status,
-        recommendation: detail.recommendation,
+        status: effectiveStatus,
+        recommendation: effectiveRecommendation,
         supervision: detail.supervision,
         heartbeatFreshness: heartbeatFreshness(
           detail.supervision.lastMeaningfulEventAt ?? detail.session.lastEventAt,
           now
         ),
-        blockedReason: detail.status.status === "blocked" || detail.status.status === "needs_input"
-          ? (detail.status.evidence[0] ?? detail.status.explanation)
+        blockedReason: effectiveStatus.status === "blocked" || effectiveStatus.status === "needs_input"
+          ? (effectiveStatus.evidence[0] ?? effectiveStatus.explanation)
           : null,
-        recommendedAction: detail.recommendation.actionLabel,
-        availableActions: availableFleetActions(detail.status.status),
+        recommendedAction: effectiveRecommendation.actionLabel,
+        availableActions: availableFleetActions(effectiveStatus.status),
         repoName: repoName(detail.session.repoPath),
         worktreeName
       };
