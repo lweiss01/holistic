@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { once } from "node:events";
 import fs from "node:fs";
 import { createServer } from "node:http";
@@ -13,6 +14,7 @@ import {
   deriveSupervisionSeverity,
   lastMeaningfulEvent,
   type AgentEvent,
+  type FleetResponse,
   type SessionRecord
 } from "../packages/andon-core/src/index.ts";
 import type { RuntimeSession } from "../packages/runtime-core/src/index.ts";
@@ -21,6 +23,7 @@ import { insertRuntimeEvent, upsertRuntimeSession } from "../services/andon-api/
 import { createAndonHandler } from "../services/andon-api/src/server.ts";
 import { shouldPostProgressHeartbeat } from "../services/andon-collector/src/index.ts";
 import { normalizeOpenHarnessStreamEvent } from "../services/andon-collector/src/openharness-adapter.ts";
+import { shouldShowRuntimeTelemetryGap } from "../apps/andon-dashboard/src/runtime-telemetry-gap.ts";
 
 function makeTempDir(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), `${prefix}-`));
@@ -68,6 +71,119 @@ function createDatabase(databasePath: string): void {
 }
 
 const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
+  {
+    name: "Andon runtime writer captures live local session into fleet cards",
+    run: async () => {
+      const tempDir = makeTempDir("andon-runtime-writer-live-session");
+      const databasePath = path.join(tempDir, "andon.sqlite");
+      createDatabase(databasePath);
+      const database = new DatabaseSync(databasePath);
+      const httpServer = createServer(createAndonHandler(database));
+
+      const repoDir = path.join(tempDir, "repo");
+      const localRuntimeDir = path.join(repoDir, ".holistic-local");
+      fs.mkdirSync(localRuntimeDir, { recursive: true });
+      const nowIso = new Date().toISOString();
+      fs.writeFileSync(
+        path.join(localRuntimeDir, "state.json"),
+        JSON.stringify(
+          {
+            version: 1,
+            projectName: "holistic",
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            activeSession: {
+              id: "session-runtime-writer-live",
+              agent: "codex",
+              branch: "main",
+              startedAt: nowIso,
+              updatedAt: nowIso,
+              endedAt: null,
+              status: "active",
+              title: "Runtime writer live session",
+              currentGoal: "Capture active local session",
+              currentPlan: ["observe state", "emit heartbeat"],
+              latestStatus: "Working on runtime capture",
+              workDone: [],
+              triedItems: [],
+              nextSteps: [],
+              assumptions: [],
+              blockers: [],
+              references: [],
+              impactNotes: [],
+              regressionRisks: [],
+              changedFiles: [],
+              checkpointCount: 0,
+              lastCheckpointReason: "manual",
+              resumeRecap: []
+            },
+            pendingWork: [],
+            lastHandoff: null,
+            docIndex: {},
+            passiveCapture: {
+              lastObservedBranch: "main",
+              pendingFiles: [],
+              activityTicks: 0,
+              quietTicks: 0,
+              lastCheckpointAt: nowIso
+            }
+          },
+          null,
+          2
+        ),
+        "utf8"
+      );
+
+      try {
+        httpServer.listen(0, "127.0.0.1");
+        await once(httpServer, "listening");
+        const address = httpServer.address();
+        if (!address || typeof address === "string") {
+          throw new Error("Could not determine the Andon API test port");
+        }
+        const port = address.port;
+
+        const writer = spawn(
+          process.execPath,
+          [path.join(process.cwd(), "scripts/andon-runtime-writer.mjs"), "--once"],
+          {
+            cwd: process.cwd(),
+            env: {
+              ...process.env,
+              HOLISTIC_REPO: repoDir,
+              ANDON_API_BASE_URL: `http://127.0.0.1:${port}`
+            },
+            stdio: "pipe"
+          }
+        );
+        const [writerCode] = await once(writer, "exit");
+        assert.equal(writerCode, 0);
+
+        const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
+        assert.equal(fleetResponse.status, 200);
+        const fleetPayload = (await fleetResponse.json()) as FleetResponse;
+        assert.ok(
+          fleetPayload.sessions.some((item) => item.session.id === "session-runtime-writer-live"),
+          "runtime writer should produce a runtime-backed fleet card"
+        );
+
+        const healthResponse = await fetch(`http://127.0.0.1:${port}/health/andon`);
+        assert.equal(healthResponse.status, 200);
+        const healthPayload = (await healthResponse.json()) as {
+          activeSessionIds: string[];
+          counts: { runtimeSessions: number; runtimeEvents: number };
+          fleetWillRenderCards: boolean;
+        };
+        assert.ok(healthPayload.activeSessionIds.includes("session-runtime-writer-live"));
+        assert.ok(healthPayload.counts.runtimeSessions >= 1);
+        assert.ok(healthPayload.counts.runtimeEvents >= 1);
+        assert.equal(healthPayload.fleetWillRenderCards, true);
+      } finally {
+        database.close();
+        httpServer.close();
+      }
+    }
+  },
   {
     name: "Andon lastMeaningfulEvent skips idle pings but falls back to newest event",
     run: () => {
@@ -505,17 +621,17 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         });
         assert.equal(ingestResponse.status, 202);
 
-        upsertRuntimeSession(database, {
-          id: "session-andon-mvp",
-          runtimeId: "local",
-          agentName: "codex",
-          repoName: "holistic",
-          repoPath: "D:/Projects/active/holistic",
-          status: "running",
-          activity: "editing",
-          startedAt: tSession,
-          updatedAt: tSummary
-        });
+        const healthResponse = await fetch(`http://127.0.0.1:${port}/health/andon`);
+        assert.equal(healthResponse.status, 200);
+        const healthPayload = (await healthResponse.json()) as {
+          counts: { runtimeSessions: number; runtimeEvents: number };
+          fleetWillRenderCards: boolean;
+          warnings: string[];
+        };
+        assert.equal(healthPayload.counts.runtimeSessions, 1);
+        assert.ok(healthPayload.counts.runtimeEvents >= 1);
+        assert.equal(healthPayload.fleetWillRenderCards, true);
+        assert.equal(healthPayload.warnings.length, 0);
 
         const activeResponse = await fetch(`http://127.0.0.1:${port}/sessions/active`);
         assert.equal(activeResponse.status, 200);
@@ -983,7 +1099,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
-    name: "Andon fleet ignores legacy unresolved questions without runtime waiting signal",
+    name: "Andon fleet shows mirrored runtime for unresolved question after legacy ingest",
     run: async () => {
       const tempDir = makeTempDir("andon-fleet-legacy-question");
       const databasePath = path.join(tempDir, "andon.sqlite");
@@ -1039,16 +1155,15 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
         assert.equal(fleetResponse.status, 200);
         const fleetPayload = (await fleetResponse.json()) as {
-          totals: { needsHuman: number };
-          sessions: Array<{ session: { id: string }; status: { status: string }; category: string; categoryReason: string }>;
+          totals: { totalSessions: number; needsHuman: number };
+          sessions: Array<{ session: { id: string }; status: { status: string } }>;
         };
 
-        const legacy = fleetPayload.sessions.find((item) => item.session.id === "session-legacy-question");
-        assert.ok(legacy);
-        assert.equal(legacy?.category, "degraded_active");
-        assert.equal(legacy?.categoryReason, "missing_runtime_signal");
-        assert.equal(legacy?.status.status, "blocked");
+        assert.equal(fleetPayload.sessions.length, 1);
+        assert.equal(fleetPayload.totals.totalSessions, 1);
         assert.equal(fleetPayload.totals.needsHuman, 1);
+        assert.equal(fleetPayload.sessions[0]?.session.id, "session-legacy-question");
+        assert.equal(fleetPayload.sessions[0]?.status.status, "needs_input");
       } finally {
         database.close();
         httpServer.close();
@@ -1056,7 +1171,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
-    name: "Andon fleet marks legacy-only sessions without runtime state as non-flowing",
+    name: "Andon fleet shows mirrored runtime card after legacy summary ingest",
     run: async () => {
       const tempDir = makeTempDir("andon-fleet-legacy-runtime-missing");
       const databasePath = path.join(tempDir, "andon.sqlite");
@@ -1119,7 +1234,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
             categoryReason: string;
             status: { status: string; explanation: string; evidence: string[] };
           }>;
-          totals: { activeAgents: number };
+          totals: { totalSessions: number; activeAgents: number };
         };
 
         const item = fleetPayload.sessions.find((session) => session.session.id === "session-runtime-missing");
@@ -1131,6 +1246,11 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         assert.ok(item?.status.evidence.some((line) => /no runtime session signal/i.test(line)));
         assert.equal(fleetPayload.totals.activeAgents, 0);
       } finally {
+        if (prev === undefined) {
+          delete process.env.ANDON_DB_PATH;
+        } else {
+          process.env.ANDON_DB_PATH = prev;
+        }
         database.close();
         httpServer.close();
       }
@@ -1215,7 +1335,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
-    name: "Andon fleet treats cold running runtime sessions as degraded and non-live",
+    name: "Andon fleet keeps running runtime status even when freshness is cold",
     run: async () => {
       const tempDir = makeTempDir("andon-fleet-runtime-cold-running");
       const databasePath = path.join(tempDir, "andon.sqlite");
@@ -1314,7 +1434,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
-    name: "Andon fleet excludes legacy-only sessions whenever runtime sessions exist",
+    name: "Andon fleet shows disconnected legacy sessions when runtime sessions exist",
     run: async () => {
       const tempDir = makeTempDir("andon-fleet-runtime-missing-visible");
       const databasePath = path.join(tempDir, "andon.sqlite");
@@ -1387,13 +1507,133 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
             category: string;
             categoryReason: string;
           }>;
-          totals: { totalSessions: number };
+          totals: { totalSessions: number; activeAgents: number; needsHuman: number };
         };
 
         const legacyItem = payload.sessions.find((item) => item.session.id === "legacy-visible-session");
-        assert.equal(legacyItem, undefined);
+        assert.ok(legacyItem);
+        assert.equal(legacyItem?.status.status, "needs_input");
+        assert.match(legacyItem?.status.explanation ?? "", /Runtime session is /i);
         assert.equal(payload.sessions.some((item) => item.session.id === "runtime-session"), true);
-        assert.equal(payload.totals.totalSessions, 1);
+        assert.equal(payload.totals.totalSessions, 2);
+        assert.equal(payload.totals.activeAgents, 1);
+        assert.equal(payload.totals.needsHuman, 1);
+      } finally {
+        database.close();
+        httpServer.close();
+      }
+    }
+  },
+  {
+    name: "Andon fleet surfaces disconnected legacy checkpoint-only sessions as parked below runtime",
+    run: async () => {
+      const tempDir = makeTempDir("andon-fleet-checkpoint-noise");
+      const databasePath = path.join(tempDir, "andon.sqlite");
+      createDatabase(databasePath);
+      const database = new DatabaseSync(databasePath);
+      const httpServer = createServer(createAndonHandler(database));
+
+      try {
+        httpServer.listen(0, "127.0.0.1");
+        await once(httpServer, "listening");
+        const address = httpServer.address();
+        if (!address || typeof address === "string") {
+          throw new Error("Could not determine the Andon API test port");
+        }
+        const port = address.port;
+
+        const now = Date.now();
+        const runtimeTimestamp = new Date(now - 30 * 1000).toISOString();
+        const legacyStartedAt = new Date(now - 70 * 60 * 1000).toISOString();
+        const noisyCheckpointAt = new Date(now - 45 * 1000).toISOString();
+
+        upsertRuntimeSession(database, {
+          id: "runtime-live-session",
+          runtimeId: "local",
+          agentName: "runtime-agent",
+          repoName: "holistic",
+          repoPath: "D:/Projects/active/holistic",
+          status: "running",
+          activity: "editing",
+          startedAt: runtimeTimestamp,
+          updatedAt: runtimeTimestamp
+        });
+
+        database.prepare(
+          `
+            INSERT INTO sessions (
+              id,
+              agent_name,
+              runtime_name,
+              repo_path,
+              worktree_path,
+              objective,
+              current_phase,
+              started_at,
+              ended_at,
+              last_event_at,
+              last_summary
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `
+        ).run(
+          "legacy-checkpoint-noise",
+          "legacy-agent",
+          "codex",
+          "D:/Projects/active/holistic",
+          "D:/Projects/active/holistic",
+          "Legacy session with checkpoint-only signals",
+          "execute",
+          legacyStartedAt,
+          null,
+          noisyCheckpointAt,
+          "Checkpoint saved"
+        );
+
+        database.prepare(
+          `
+            INSERT INTO events (
+              id,
+              session_id,
+              task_id,
+              runtime_name,
+              type,
+              phase,
+              source,
+              summary,
+              payload_json,
+              created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `
+        ).run(
+          "legacy-checkpoint-noise-event",
+          "legacy-checkpoint-noise",
+          null,
+          "codex",
+          "session.checkpoint_created",
+          "execute",
+          "system",
+          "Saved checkpoint",
+          "{}",
+          noisyCheckpointAt
+        );
+
+        const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
+        assert.equal(fleetResponse.status, 200);
+        const payload = (await fleetResponse.json()) as {
+          sessions: Array<{ session: { id: string }; status: { status: string }; attentionRank: number }>;
+          totals: { totalSessions: number };
+        };
+
+        assert.equal(payload.sessions.some((item) => item.session.id === "runtime-live-session"), true);
+        assert.equal(payload.sessions.some((item) => item.session.id === "legacy-checkpoint-noise"), true);
+        assert.equal(payload.totals.totalSessions, 2);
+        const runtimeIdx = payload.sessions.findIndex((item) => item.session.id === "runtime-live-session");
+        const legacyIdx = payload.sessions.findIndex((item) => item.session.id === "legacy-checkpoint-noise");
+        assert.ok(runtimeIdx >= 0 && legacyIdx >= 0);
+        assert.ok(runtimeIdx < legacyIdx);
+        const legacyRow = payload.sessions[legacyIdx];
+        assert.equal(legacyRow?.status.status, "parked");
+        assert.ok((legacyRow?.attentionRank ?? 0) <= (payload.sessions[runtimeIdx]?.attentionRank ?? 0));
       } finally {
         database.close();
         httpServer.close();
@@ -1625,10 +1865,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
         const statusById = new Map(payload.sessions.map((item) => [item.session.id, item.status.status]));
         assert.equal(statusById.get("runtime-waiting-approval"), "awaiting_review");
-        assert.equal(statusById.has("runtime-paused"), false);
+        assert.equal(statusById.get("runtime-paused"), "parked");
         assert.equal(statusById.has("runtime-completed"), false);
-        assert.equal(payload.sessions.every((item) => item.category !== "historical"), true);
-        assert.equal(payload.totals.totalSessions, 1);
         assert.equal(payload.totals.needsHuman, 1);
       } finally {
         database.close();

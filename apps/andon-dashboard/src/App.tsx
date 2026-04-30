@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   AgentEvent,
   FleetResponse,
-  FleetSessionItem,
   RecommendationUrgency,
   SessionDetailResponse,
   SessionRecord,
@@ -18,6 +17,15 @@ import {
   postCallback,
   subscribeToStream,
 } from "./api.ts";
+import {
+  buildAttentionQueue,
+  buildMissionSessionViewModels,
+  filterAndSortMissionSessionViewModels,
+  type MissionSort,
+  type MissionStatusFilter,
+  type MissionSessionViewModel,
+} from "./mission-control-view-model.ts";
+import { shouldShowRuntimeTelemetryGap } from "./runtime-telemetry-gap.ts";
 
 /* ───────────────────────────── hooks ───────────────────────────── */
 
@@ -110,11 +118,6 @@ function formatHourLabel(value: string): string {
   return new Date(value).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
-function trimLine(value: string | null | undefined, max = 110): string {
-  if (!value) return "—";
-  return value.length > max ? `${value.slice(0, max - 1)}...` : value;
-}
-
 function statusTone(status: string | undefined | null): string {
   return (status ?? "parked").replace(/_/g, "-");
 }
@@ -135,27 +138,6 @@ function urgencyTone(urgency: RecommendationUrgency | undefined): string {
 
 function byAttention(a: SessionRecord, b: SessionRecord) {
   return new Date(b.lastEventAt).getTime() - new Date(a.lastEventAt).getTime();
-}
-
-function needsHuman(status: SessionStatus): boolean {
-  return status === "blocked" || status === "needs_input" || status === "awaiting_review" || status === "at_risk";
-}
-
-function whyNow(item: FleetSessionItem): string {
-  return trimLine(item.blockedReason ?? item.status.evidence[0] ?? item.status.explanation, 120);
-}
-
-function freshnessSortValue(value: FleetSessionItem["heartbeatFreshness"]): number {
-  if (value === "fresh") return 3;
-  if (value === "stale") return 2;
-  return 1;
-}
-
-/** Matches Andon API heartbeat windows (5m / 20m). */
-function freshnessLabel(value: FleetSessionItem["heartbeatFreshness"]): string {
-  if (value === "fresh") return "Live (<5 min)";
-  if (value === "stale") return "Quiet (5–20 min)";
-  return "Cold (>20 min)";
 }
 
 function riskReasonToStatus(reasonLabel: string): SessionStatus | "all" {
@@ -329,13 +311,15 @@ function MissionControlPage() {
   const [data, setData] = useState<FleetResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const search = new URLSearchParams(window.location.search);
-  const [statusFilter, setStatusFilter] = useState<"all" | SessionStatus>(() => {
+  const [statusFilter, setStatusFilter] = useState<MissionStatusFilter>(() => {
     const raw = search.get("status");
-    if (!raw) return "all";
-    return (Object.keys(statusLabels).includes(raw) ? raw : "all") as "all" | SessionStatus;
+    if (!raw) return "operational";
+    return ((raw === "all" || raw === "operational" || Object.keys(statusLabels).includes(raw))
+      ? raw
+      : "operational") as MissionStatusFilter;
   });
   const [repoFilter, setRepoFilter] = useState<string>(() => search.get("repo") ?? "all");
-  const [sortBy, setSortBy] = useState<"attention" | "freshness" | "recent">(() => {
+  const [sortBy, setSortBy] = useState<MissionSort>(() => {
     const raw = search.get("sort");
     return raw === "freshness" || raw === "recent" ? raw : "attention";
   });
@@ -350,13 +334,7 @@ function MissionControlPage() {
   useEffect(() => loadData(), [loadData]);
   useLiveStream(loadData);
   useHeartbeat(loadData);
-
-  const rawSessions = data?.sessions ?? [];
-  const sessions = rawSessions.map((item) => ({
-    ...item,
-    availableActions: item.availableActions ?? ["inspect"],
-    attentionBreakdown: item.attentionBreakdown ?? { status: 0, urgency: 0, freshness: 0 }
-  }));
+  const sessionViewModels = useMemo(() => buildMissionSessionViewModels(data?.sessions ?? []), [data]);
   const totals = data?.totals ?? {
     totalSessions: 0,
     activeAgents: 0,
@@ -369,40 +347,35 @@ function MissionControlPage() {
   const riskReasons = data?.riskReasons ?? [];
   const recentEvents = data?.recentEvents ?? [];
   const heatmap = data?.heatmap ?? [];
-  const attentionQueue = sessions.filter((item) => needsHuman(item.status.status)).slice(0, 6);
   const repoOptions = useMemo(
-    () => ["all", ...Array.from(new Set(sessions.map((item) => item.repoName))).sort()],
-    [sessions]
+    () => ["all", ...Array.from(new Set(sessionViewModels.map((item) => item.repoName))).sort()],
+    [sessionViewModels],
   );
-  const visibleSessions = useMemo(() => {
-    const filtered = sessions.filter((item) => {
-      if (statusFilter !== "all" && item.status.status !== statusFilter) {
-        return false;
-      }
-      if (repoFilter !== "all" && item.repoName !== repoFilter) {
-        return false;
-      }
-      return true;
-    });
-
-    return [...filtered].sort((a, b) => {
-      if (sortBy === "freshness") {
-        const byFreshness = freshnessSortValue(b.heartbeatFreshness) - freshnessSortValue(a.heartbeatFreshness);
-        if (byFreshness !== 0) return byFreshness;
-      } else if (sortBy === "recent") {
-        const byRecent = new Date(b.session.lastEventAt).getTime() - new Date(a.session.lastEventAt).getTime();
-        if (byRecent !== 0) return byRecent;
-      } else {
-        const byAttention = b.attentionRank - a.attentionRank;
-        if (byAttention !== 0) return byAttention;
-      }
-      return new Date(b.session.lastEventAt).getTime() - new Date(a.session.lastEventAt).getTime();
-    });
-  }, [sessions, statusFilter, repoFilter, sortBy]);
+  const visibleSessions = useMemo(
+    () => filterAndSortMissionSessionViewModels(sessionViewModels, { statusFilter, repoFilter, sortBy }),
+    [sessionViewModels, statusFilter, repoFilter, sortBy],
+  );
+  const operationalSessions = useMemo(
+    () => filterAndSortMissionSessionViewModels(sessionViewModels, { statusFilter: "operational", repoFilter, sortBy: "attention" }),
+    [sessionViewModels, repoFilter],
+  );
+  const activeNowSessions = useMemo(
+    () => operationalSessions.filter((item) => item.status === "running"),
+    [operationalSessions],
+  );
+  const visibleAttentionCount = useMemo(
+    () => visibleSessions.filter((item) => item.needsIntervention || item.isDegraded).length,
+    [visibleSessions],
+  );
+  const monitorSessions = useMemo(
+    () => visibleSessions.filter((item) => !item.needsIntervention && !item.isDegraded),
+    [visibleSessions],
+  );
+  const attentionQueue = useMemo(() => buildAttentionQueue(visibleSessions, visibleSessions.length), [visibleSessions]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (statusFilter === "all") params.delete("status");
+    if (statusFilter === "operational") params.delete("status");
     else params.set("status", statusFilter);
     if (repoFilter === "all") params.delete("repo");
     else params.set("repo", repoFilter);
@@ -437,98 +410,158 @@ function MissionControlPage() {
     await postCallback(sessionId, action);
     await loadData();
   };
+  const primaryActionLabel: Record<Exclude<MissionSessionViewModel["primaryAction"], null>, string> = {
+    approve: "Approve",
+    pause: "Pause",
+    resume: "Resume",
+  };
 
   return (
-    <main className="mission-control">
-      <section className="hero-panel compact">
-        <p className="kicker">Mission Control</p>
-        <h1>Fleet overview</h1>
-        <p className="hero-copy">Generated {timeAgo(data.generatedAt)}. Runtime truth and intervention priority are ranked in one board.</p>
-        {sessions.length === 0 && (
-          <p className="hero-copy mission-empty-hint">
-            No sessions on this board right now (empty database or old idle runs hidden). Recent signals and the 24h heatmap still reflect stored activity; use <a href="/history">History</a> for the full ledger.
-          </p>
-        )}
-        <div className="mission-legend">
-          <span><b>Freshness</b> Runtime heartbeat recency</span>
-          <span><b>Attention rank</b> Priority score from status + urgency + recency</span>
+    <main className="mission-control mission-dense">
+      <section className="panel mission-topbar">
+        <div>
+          <p className="kicker">Mission Control</p>
+          <p className="mission-title">Operator board</p>
+          <p className="mission-subtitle">Intervene fast: blockers and degraded runtime rows are always surfaced before narrative detail.</p>
         </div>
-        <div className="fleet-totals">
-          <div><dt>Total sessions</dt><dd>{totals.totalSessions}</dd></div>
-          <div><dt>Active agents</dt><dd>{totals.activeAgents}</dd></div>
-          <div><dt>Needs human</dt><dd>{totals.needsHuman}</dd></div>
-          <div><dt>Blocked</dt><dd>{totals.blocked}</dd></div>
-          <div><dt>At risk</dt><dd>{totals.atRisk}</dd></div>
-          <div><dt>Awaiting review</dt><dd>{totals.awaitingReview}</dd></div>
-          <div><dt>Completed today</dt><dd>{totals.completedToday}</dd></div>
-        </div>
-        <div className="risk-rollup">
-          <p className="kicker">Top risk reasons</p>
-          <div className="risk-chips">
-            {riskReasons.length === 0 ? (
-              <span className="risk-chip">No active risk clusters</span>
-            ) : (
-              riskReasons.map((reason) => (
-                <button
-                  key={reason.label}
-                  type="button"
-                  className="risk-chip"
-                  onClick={() => {
-                    const target = riskReasonToStatus(reason.label);
-                    setStatusFilter(target);
-                    setSortBy("attention");
-                  }}
-                >
-                  {reason.label} ({reason.count})
-                </button>
-              ))
-            )}
-          </div>
+        <div className="mission-topbar-meta">
+          <span>Updated {timeAgo(data.generatedAt)}</span>
+          <a href="/history">History</a>
         </div>
       </section>
 
-      <section className="work-grid mission-grid">
-        <article className="panel attention-panel">
-          <div className="section-head">
-            <p className="kicker">Attention Queue</p>
-            <span className="muted">{attentionQueue.length} item(s)</span>
-          </div>
-          {attentionQueue.length === 0 ? <p className="muted">No sessions currently need intervention.</p> : (
-            <ol className="attention-list">
-              {attentionQueue.map((item) => (
-                <li key={item.session.id}>
-                  <div>
-                    <StatusLine status={item.status.status} />
-                    <strong>{item.session.agentName}</strong>
-                    <p><b>Why now:</b> {whyNow(item)}</p>
-                    <p><b>Next:</b> {item.recommendedAction}</p>
-                    <small>{item.repoName} · waiting {timeAgo(item.session.lastEventAt)}</small>
-                  </div>
-                  <div className="attention-actions">
-                    <a className="text-link" href={`/session/${item.session.id}`}>Inspect</a>
-                    {item.availableActions.includes("approve") ? (
-                      <button className="button secondary" type="button" onClick={() => handleAction(item.session.id, "approve")}>Approve</button>
-                    ) : item.availableActions.includes("resume") ? (
-                      <button className="button secondary" type="button" onClick={() => handleAction(item.session.id, "resume")}>Resume</button>
-                    ) : item.availableActions.includes("pause") ? (
-                      <button className="button secondary" type="button" onClick={() => handleAction(item.session.id, "pause")}>Pause</button>
-                    ) : null}
-                  </div>
-                </li>
-              ))}
-            </ol>
-          )}
-        </article>
+      {sessionViewModels.length === 0 && (
+        <section className="panel mission-empty-banner">
+          No sessions are currently visible on the board. Activity panels still show stored fleet signals.
+        </section>
+      )}
 
-        <article className="panel timeline-panel">
+      {shouldShowRuntimeTelemetryGap(data) && (
+        <section className="panel mission-runtime-gap-banner" role="status" aria-live="polite">
+          <p className="kicker">Runtime telemetry gap</p>
+          <p>
+            <strong>Mission Control lists live rows from runtime data only.</strong> Recent activity shows legacy
+            Andon events in this database, but <code>runtime_sessions</code> is empty — usually because rows were
+            inserted outside <code>POST /events</code> (the ingest path that mirrors a runtime row) or the DB file
+            does not match <code>ANDON_DB_PATH</code> for your collector/API. Use one shared SQLite file and ingest via
+            the API, or run <code>npm run andon:dev</code> so services share the default DB.
+          </p>
+          <p className="muted">
+            Call <code>GET /health/andon</code> (or <code>npm run andon:health</code>) to inspect DB path and counts.
+          </p>
+        </section>
+      )}
+
+      <section className="mission-kpis" aria-label="Mission summary strip">
+        <div className="mission-kpi"><dt>Operational rows</dt><dd>{operationalSessions.length}</dd></div>
+        <div className="mission-kpi"><dt>Active now</dt><dd>{activeNowSessions.length}</dd></div>
+        <div className="mission-kpi is-critical"><dt>Needs action</dt><dd>{operationalSessions.filter((item) => item.needsIntervention).length}</dd></div>
+        <div className="mission-kpi"><dt>Degraded runtime</dt><dd>{operationalSessions.filter((item) => item.isDegraded).length}</dd></div>
+        <div className="mission-kpi"><dt>Visible rows</dt><dd>{visibleSessions.length}</dd></div>
+        <div className="mission-kpi"><dt>Completed today</dt><dd>{totals.completedToday}</dd></div>
+      </section>
+      {activeNowSessions.length > 0 && (
+        <section className="panel command-lane" aria-label="Active now">
           <div className="section-head">
-            <p className="kicker">Agent Grid</p>
-            <a href="/history">History</a>
+            <p className="kicker">Active now</p>
+            <span className="muted">{activeNowSessions.length} session(s)</span>
+          </div>
+          <div className="lane-table" role="table">
+            <div className="lane-row lane-head" role="row">
+              <span>State</span>
+              <span>Agent / repo</span>
+              <span>Current objective</span>
+              <span>Freshness</span>
+              <span>Inspect</span>
+            </div>
+            {activeNowSessions.map((item) => (
+              <div key={item.id} className="lane-row lane-item" role="row">
+                <div className="lane-cell lane-state"><StatusLine status={item.status} /></div>
+                <div className="lane-cell lane-agent"><strong>{item.agentName}</strong><small>{item.repoName}</small></div>
+                <div className="lane-cell">{item.headline}</div>
+                <div className="lane-cell lane-freshness"><span>{item.freshnessLabel}</span><small>{timeAgo(item.lastEventAt)}</small></div>
+                <div className="lane-cell lane-actions"><a className="text-link" href={`/session/${item.id}`}>Inspect</a></div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+      <section className="mission-scan-bands" aria-label="Attention split">
+        <article className="scan-band is-act">
+          <p>Act now</p>
+          <strong>{visibleAttentionCount}</strong>
+          <span>visible rows requiring intervention or degraded runtime follow-up</span>
+        </article>
+        <article className="scan-band is-watch">
+          <p>Monitor</p>
+          <strong>{monitorSessions.length}</strong>
+          <span>visible rows stable enough for passive monitoring</span>
+        </article>
+      </section>
+
+      <section className="panel command-lane" aria-label="Intervention lane">
+        <div className="section-head">
+          <p className="kicker">Intervention lane</p>
+          <span className="muted">{visibleAttentionCount} row(s)</span>
+        </div>
+        {attentionQueue.length === 0 ? (
+          <p className="muted">No visible sessions currently require intervention or degraded runtime follow-up.</p>
+        ) : (
+          <div className="lane-table" role="table">
+            <div className="lane-row lane-head" role="row">
+              <span>State</span>
+              <span>Agent / repo</span>
+              <span>Why now</span>
+              <span>Next action</span>
+              <span>Freshness</span>
+              <span>Operate</span>
+            </div>
+            {attentionQueue.map((item) => (
+              <div
+                key={item.id}
+                className={`lane-row lane-item ${item.isDegraded ? "is-degraded" : ""} urgency-${urgencyTone(item.urgency)}`.trim()}
+                role="row"
+              >
+                <div className="lane-cell lane-state">
+                  <StatusLine status={item.status} />
+                  <span className={`urgency urgency-${urgencyTone(item.urgency)}`}>{item.urgency}</span>
+                  {item.degradedBadge && <span className="degraded-pill">{item.degradedBadge}</span>}
+                </div>
+                <div className="lane-cell lane-agent">
+                  <strong>{item.agentName}</strong>
+                  <small>{item.repoName}</small>
+                </div>
+                <div className="lane-cell">{item.whyNow}</div>
+                <div className="lane-cell">{item.nextAction}</div>
+                <div className="lane-cell lane-freshness">
+                  <span>{item.freshnessLabel}</span>
+                  <small>{timeAgo(item.lastEventAt)}</small>
+                </div>
+                <div className="lane-cell lane-actions">
+                  <a className="text-link" href={`/session/${item.id}`}>Inspect</a>
+                  {item.primaryAction && (
+                    <button className="button secondary" type="button" onClick={() => handleAction(item.id, item.primaryAction)}>
+                      {primaryActionLabel[item.primaryAction]}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="mission-board-layout">
+        <article className="panel fleet-table-panel">
+          <div className="section-head">
+            <p className="kicker">Monitor board</p>
+            <span className="muted">{monitorSessions.length} row(s)</span>
           </div>
           <div className="fleet-controls">
             <label>
               <span>Status</span>
-              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "all" | SessionStatus)}>
+              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as MissionStatusFilter)}>
+                <option value="operational">Operational (default)</option>
                 <option value="all">All</option>
                 {Object.keys(statusLabels).map((status) => (
                   <option key={status} value={status}>
@@ -549,85 +582,115 @@ function MissionControlPage() {
             </label>
             <label>
               <span>Sort</span>
-              <select value={sortBy} onChange={(event) => setSortBy(event.target.value as "attention" | "freshness" | "recent")}>
-                <option value="attention">Attention rank</option>
+              <select value={sortBy} onChange={(event) => setSortBy(event.target.value as MissionSort)}>
+                <option value="attention">Intervention first</option>
                 <option value="freshness">Freshness</option>
                 <option value="recent">Recent activity</option>
               </select>
             </label>
           </div>
-          <section className="fleet-grid">
-            {visibleSessions.map((item: FleetSessionItem) => (
-              <a key={item.session.id} className="fleet-card" href={`/session/${item.session.id}`}>
-                <div className="section-head">
-                  <StatusLine status={item.status.status} />
-                  <span className={`urgency urgency-${urgencyTone(item.recommendation.urgency)}`}>{item.recommendation.urgency}</span>
+          <div className="fleet-table" role="table">
+            <div className="fleet-table-row fleet-table-head" role="row">
+              <span>State</span>
+              <span>Agent</span>
+              <span>Headline</span>
+              <span>Why now</span>
+              <span>Next</span>
+              <span>Meta</span>
+            </div>
+            {monitorSessions.map((item) => (
+              <a
+                key={item.id}
+                className={`fleet-table-row fleet-table-item is-monitor status-${statusTone(item.status)} ${item.isDegraded ? "is-degraded" : ""}`.trim()}
+                href={`/session/${item.id}`}
+              >
+                <div className="fleet-col fleet-col-state">
+                  <StatusLine status={item.status} />
+                  <span className={`urgency urgency-${urgencyTone(item.urgency)}`}>{item.urgency}</span>
+                  {item.degradedBadge && <span className="degraded-pill">{item.degradedBadge}</span>}
                 </div>
-                <h3>{item.session.agentName}</h3>
-                <p className="fleet-card-copy">{item.activeTask?.title ?? item.session.objective}</p>
-                <dl className="metric-list">
-                  <div><dt>Repo</dt><dd>{item.repoName}</dd></div>
-                  <div><dt>Runtime</dt><dd>{item.session.runtime}</dd></div>
-                  <div><dt>Phase</dt><dd>{phaseLabels[item.session.currentPhase] ?? item.session.currentPhase}</dd></div>
-                  <div><dt>Freshness</dt><dd title={item.heartbeatFreshness}>{freshnessLabel(item.heartbeatFreshness)}</dd></div>
-                  <div><dt>Attention rank</dt><dd>{item.attentionRank}</dd></div>
-                  <div><dt>Next action</dt><dd>{item.recommendedAction}</dd></div>
-                </dl>
-                <details className="fleet-score-details">
-                  <summary>Rank details</summary>
-                  <p className="fleet-score-breakdown">
-                    score = status {item.attentionBreakdown.status}
-                    {" + "}urgency {item.attentionBreakdown.urgency}
-                    {" + "}freshness {item.attentionBreakdown.freshness}
-                  </p>
-                </details>
-                <p className="fleet-card-context"><b>Why now:</b> {whyNow(item)}</p>
-                <p className="fleet-card-context"><b>Latest change:</b> {trimLine(item.session.lastSummary ?? item.status.explanation, 95)}</p>
+                <div className="fleet-col fleet-col-agent">
+                  <strong>{item.agentName}</strong>
+                  <small>{item.repoName}</small>
+                </div>
+                <div className="fleet-col">{item.headline}</div>
+                <div className="fleet-col">{item.whyNow}</div>
+                <div className="fleet-col">{item.nextAction}</div>
+                <div className="fleet-col fleet-col-meta">
+                  <span>{phaseLabels[item.item.session.currentPhase] ?? item.item.session.currentPhase}</span>
+                  <span>{item.freshnessLabel}</span>
+                  <span>{timeAgo(item.lastEventAt)}</span>
+                </div>
               </a>
             ))}
-            {visibleSessions.length === 0 && (
+            {monitorSessions.length === 0 && (
               <p className="muted">
-                {sessions.length === 0
-                  ? "No agent sessions on the board."
-                  : "No sessions match the current filters."}
+                {visibleSessions.length === 0
+                  ? "No sessions match the current filters."
+                  : "All visible sessions are already in the intervention lane."}
               </p>
             )}
-          </section>
+          </div>
         </article>
+        <aside className="mission-side-stack">
+          <article className="panel">
+            <p className="kicker">Top risk reasons</p>
+            <div className="risk-chips">
+              {riskReasons.length === 0 ? (
+                <span className="risk-chip">No active risk clusters</span>
+              ) : (
+                riskReasons.map((reason) => (
+                  <button
+                    key={reason.label}
+                    type="button"
+                    className="risk-chip"
+                    onClick={() => {
+                      const target = riskReasonToStatus(reason.label);
+                      setStatusFilter(target);
+                      setSortBy("attention");
+                    }}
+                  >
+                    {reason.label} ({reason.count})
+                  </button>
+                ))
+              )}
+            </div>
+          </article>
 
-        <article className="panel">
-          <p className="kicker">Activity Heatmap (24h)</p>
-          <p className="muted heatmap-caption">Signal volume by hour (fleet-wide).</p>
-          <div className="heatmap">
-            {heatmap.length === 0 ? (
-              <p className="muted">No signals recorded in the last 24 hours.</p>
-            ) : (
-              heatmap.map((cell) => (
-                <div key={cell.hourStart} className="heatmap-cell" title={`${formatHourLabel(cell.hourStart)}: ${cell.count} signal(s)`}>
-                  <span style={{ height: `${Math.max(8, Math.min(100, cell.count * 10))}%` }} />
-                  <small>{formatHourLabel(cell.hourStart)}</small>
-                </div>
-              ))
-            )}
-          </div>
-        </article>
+          <article className="panel">
+            <p className="kicker">Activity Heatmap (24h)</p>
+            <p className="muted heatmap-caption">Signal volume by hour (fleet-wide).</p>
+            <div className="heatmap">
+              {heatmap.length === 0 ? (
+                <p className="muted">No signals recorded in the last 24 hours.</p>
+              ) : (
+                heatmap.map((cell) => (
+                  <div key={cell.hourStart} className="heatmap-cell" title={`${formatHourLabel(cell.hourStart)}: ${cell.count} signal(s)`}>
+                    <span style={{ height: `${Math.max(8, Math.min(100, cell.count * 10))}%` }} />
+                    <small>{formatHourLabel(cell.hourStart)}</small>
+                  </div>
+                ))
+              )}
+            </div>
+          </article>
 
-        <article className="panel">
-          <div className="section-head">
-            <p className="kicker">Recent Signals</p>
-            <span className="muted">{recentEvents.length}</span>
-          </div>
-          <div className="recent-signals">
-            {recentEvents.slice(0, 12).map((item) => (
-              <a key={item.id} href={`/session/${item.sessionId}`}>
-                <span className={`event-pill event-${eventTone(item.type)}`}>{item.type}</span>
-                <p>{item.summary ?? "No summary provided."}</p>
-                <small>{item.agentName} · {item.repoName} · {timeAgo(item.createdAt)}</small>
-              </a>
-            ))}
-            {recentEvents.length === 0 && <p className="muted">No fleet events yet.</p>}
-          </div>
-        </article>
+          <article className="panel">
+            <div className="section-head">
+              <p className="kicker">Recent Signals</p>
+              <span className="muted">{recentEvents.length}</span>
+            </div>
+            <div className="recent-signals">
+              {recentEvents.slice(0, 10).map((item) => (
+                <a key={item.id} href={`/session/${item.sessionId}`}>
+                  <span className={`event-pill event-${eventTone(item.type)}`}>{item.type}</span>
+                  <p>{item.summary ?? "No summary provided."}</p>
+                  <small>{item.agentName} · {item.repoName} · {timeAgo(item.createdAt)}</small>
+                </a>
+              ))}
+              {recentEvents.length === 0 && <p className="muted">No fleet events yet.</p>}
+            </div>
+          </article>
+        </aside>
       </section>
     </main>
   );
