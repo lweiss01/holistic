@@ -152,7 +152,7 @@ function runtimeSessionToSessionRecord(session: RuntimeSession): SessionRecord {
 
 function runtimeStatusToFleetStatus(
   status: RuntimeSession["status"],
-  freshness: FleetSessionItem["heartbeatFreshness"]
+  _freshness: FleetSessionItem["heartbeatFreshness"]
 ): SessionStatus {
   if (status === "waiting_for_input") return "needs_input";
   if (status === "waiting_for_approval") return "awaiting_review";
@@ -160,7 +160,7 @@ function runtimeStatusToFleetStatus(
   if (status === "completed") return "awaiting_review";
   if (status === "paused" || status === "cancelled") return "parked";
   if (status === "running" || status === "starting") {
-    return freshness === "cold" ? "parked" : "running";
+    return "running";
   }
   return "parked";
 }
@@ -574,7 +574,7 @@ function summarizeRiskReasons(sessions: FleetSessionItem[]): Array<{ label: stri
 
 export async function getFleet(
   database: DatabaseSync,
-  holisticBridge: HolisticBridge
+  _holisticBridge: HolisticBridge
 ): Promise<FleetResponse> {
   const runtimeSessions = listRuntimeSessions(database);
   if (runtimeSessions.length > 0) {
@@ -653,7 +653,7 @@ export async function getFleet(
 
     const totals = {
       totalSessions: fleetSessions.length,
-      activeAgents: fleetSessions.filter((item) => item.status.status === "running" && item.heartbeatFreshness !== "cold").length,
+      activeAgents: fleetSessions.filter((item) => item.status.status === "running").length,
       needsHuman: fleetSessions.filter((item) => ["needs_input", "blocked", "awaiting_review", "at_risk"].includes(item.status.status)).length,
       blocked: fleetSessions.filter((item) => item.status.status === "blocked").length,
       atRisk: fleetSessions.filter((item) => item.status.status === "at_risk").length,
@@ -719,122 +719,20 @@ export async function getFleet(
     };
   }
 
-  const rows = database
-    .prepare("SELECT * FROM sessions ORDER BY ended_at IS NULL DESC, last_event_at DESC LIMIT 30")
-    .all() as Record<string, unknown>[];
-
   const now = Date.now();
-  const sessionDetails = await Promise.all(
-    rows.map(async (row) => {
-      const session = mapSession(row);
-      const detail = await buildSessionDetail(database, session, holisticBridge);
-      const runtimeSessionPresent = hasRuntimeSessionSignal(database, detail.session.id);
-      const runtimeConfirmsWaiting =
-        detail.status.status === "needs_input"
-          ? hasRuntimeWaitingSignal(database, detail.session.id)
-          : false;
-      const runtimeTruthMissing =
-        !runtimeSessionPresent
-        && (detail.status.status === "running" || detail.status.status === "queued" || detail.status.status === "needs_input");
-      const effectiveStatus = (detail.status.status === "needs_input" && !runtimeConfirmsWaiting) || runtimeTruthMissing
-        ? {
-          ...detail.status,
-          status: "parked" as const,
-          explanation: runtimeTruthMissing
-            ? "Session has no runtime heartbeat and is treated as non-flowing."
-            : "Session is not currently waiting according to runtime state.",
-          evidence: runtimeTruthMissing
-            ? ["No runtime session signal is active for this session."]
-            : ["No runtime waiting_for_input signal is active for this session."]
-        }
-        : detail.status;
-      const effectiveRecommendation = detail.status.status === "needs_input" && !runtimeConfirmsWaiting
-        ? buildRuntimeRecommendation("parked")
-        : detail.recommendation;
-      const worktreeName = detail.session.worktreePath !== detail.session.repoPath
-        ? repoName(detail.session.worktreePath)
-        : null;
-      const itemBase: Omit<FleetSessionItem, "attentionRank"> = {
-        session: detail.session,
-        activeTask: detail.activeTask,
-        status: effectiveStatus,
-        recommendation: effectiveRecommendation,
-        supervision: detail.supervision,
-        heartbeatFreshness: heartbeatFreshness(
-          detail.supervision.lastMeaningfulEventAt ?? detail.session.lastEventAt,
-          now
-        ),
-        blockedReason: effectiveStatus.status === "blocked" || effectiveStatus.status === "needs_input"
-          ? (effectiveStatus.evidence[0] ?? effectiveStatus.explanation)
-          : null,
-        recommendedAction: effectiveRecommendation.actionLabel,
-        availableActions: availableFleetActions(effectiveStatus.status),
-        repoName: repoName(detail.session.repoPath),
-        worktreeName
-      };
-      const attentionBreakdown = attentionScoreParts(
-        itemBase.status.status,
-        itemBase.recommendation.urgency,
-        itemBase.heartbeatFreshness
-      );
-
-      return {
-        ...itemBase,
-        attentionBreakdown,
-        attentionRank: attentionBreakdown.status + attentionBreakdown.urgency + attentionBreakdown.freshness
-      };
-    })
-  );
-
-  const fleetSessions = sessionDetails
-    .filter((item) => {
-      if (isMissionControlHousekeepingObjective(item.session.objective)) {
-        return false;
-      }
-      const ageMs = now - new Date(heartbeatReferenceTimestamp(item)).getTime();
-      const staleBeyondWindow = ageMs > MISSION_CONTROL_STALE_PARKED_MS;
-      const isNonUrgentStale =
-        item.heartbeatFreshness === "cold"
-        && (item.status.status === "parked" || item.status.status === "running" || item.status.status === "queued");
-      if (staleBeyondWindow && isNonUrgentStale) {
-        return false;
-      }
-      return true;
-    })
-    .sort((a, b) => {
-    if (b.attentionRank !== a.attentionRank) {
-      return b.attentionRank - a.attentionRank;
-    }
-    return new Date(b.session.lastEventAt).getTime() - new Date(a.session.lastEventAt).getTime();
-    });
-
-  const completedToday = fleetSessions.filter((item) => {
-    if (!item.session.endedAt) {
-      return false;
-    }
-    return new Date(item.session.endedAt).toDateString() === new Date(now).toDateString();
-  }).length;
-
-  const totals = {
-    totalSessions: fleetSessions.length,
-    activeAgents: fleetSessions.filter((item) => {
-      if (item.session.endedAt !== null || item.status.status === "parked") {
-        return false;
-      }
-      return item.heartbeatFreshness !== "cold";
-    }).length,
-    needsHuman: fleetSessions.filter((item) => ["needs_input", "blocked", "awaiting_review", "at_risk"].includes(item.status.status)).length,
-    blocked: fleetSessions.filter((item) => item.status.status === "blocked").length,
-    atRisk: fleetSessions.filter((item) => item.status.status === "at_risk").length,
-    awaitingReview: fleetSessions.filter((item) => item.status.status === "awaiting_review").length,
-    completedToday
-  };
-
   return {
     generatedAt: new Date(now).toISOString(),
-    totals,
-    riskReasons: summarizeRiskReasons(fleetSessions),
-    sessions: fleetSessions,
+    totals: {
+      totalSessions: 0,
+      activeAgents: 0,
+      needsHuman: 0,
+      blocked: 0,
+      atRisk: 0,
+      awaitingReview: 0,
+      completedToday: 0
+    },
+    riskReasons: [],
+    sessions: [],
     recentEvents: getRecentFleetEvents(database),
     heatmap: getFleetHeatmap(database)
   };

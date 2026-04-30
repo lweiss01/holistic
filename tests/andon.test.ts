@@ -983,7 +983,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
-    name: "Andon fleet ignores legacy unresolved questions without runtime waiting signal",
+    name: "Andon fleet excludes legacy unresolved questions without runtime session status",
     run: async () => {
       const tempDir = makeTempDir("andon-fleet-legacy-question");
       const databasePath = path.join(tempDir, "andon.sqlite");
@@ -1039,13 +1039,12 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
         assert.equal(fleetResponse.status, 200);
         const fleetPayload = (await fleetResponse.json()) as {
-          totals: { needsHuman: number };
-          sessions: Array<{ session: { id: string }; status: { status: string } }>;
+          totals: { totalSessions: number; needsHuman: number };
+          sessions: Array<{ session: { id: string } }>;
         };
 
-        const legacy = fleetPayload.sessions.find((item) => item.session.id === "session-legacy-question");
-        assert.ok(legacy);
-        assert.equal(legacy?.status.status, "parked");
+        assert.equal(fleetPayload.sessions.length, 0);
+        assert.equal(fleetPayload.totals.totalSessions, 0);
         assert.equal(fleetPayload.totals.needsHuman, 0);
       } finally {
         database.close();
@@ -1054,7 +1053,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
-    name: "Andon fleet marks legacy-only sessions without runtime state as non-flowing",
+    name: "Andon fleet omits legacy-only sessions when runtime state is missing",
     run: async () => {
       const tempDir = makeTempDir("andon-fleet-legacy-runtime-missing");
       const databasePath = path.join(tempDir, "andon.sqlite");
@@ -1113,16 +1112,13 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         const fleetPayload = (await fleetResponse.json()) as {
           sessions: Array<{
             session: { id: string };
-            status: { status: string; explanation: string; evidence: string[] };
           }>;
-          totals: { activeAgents: number };
+          totals: { totalSessions: number; activeAgents: number };
         };
 
         const item = fleetPayload.sessions.find((session) => session.session.id === "session-runtime-missing");
-        assert.ok(item);
-        assert.equal(item?.status.status, "parked");
-        assert.match(item?.status.explanation ?? "", /no runtime heartbeat/i);
-        assert.ok(item?.status.evidence.some((line) => /no runtime session signal/i.test(line)));
+        assert.equal(item, undefined);
+        assert.equal(fleetPayload.totals.totalSessions, 0);
         assert.equal(fleetPayload.totals.activeAgents, 0);
       } finally {
         database.close();
@@ -1131,7 +1127,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
-    name: "Andon fleet treats cold running runtime sessions as parked and non-active",
+    name: "Andon fleet keeps running runtime status even when freshness is cold",
     run: async () => {
       const tempDir = makeTempDir("andon-fleet-runtime-cold-running");
       const databasePath = path.join(tempDir, "andon.sqlite");
@@ -1171,8 +1167,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         const item = payload.sessions.find((session) => session.session.id === "runtime-cold-running");
         assert.ok(item);
         assert.equal(item?.heartbeatFreshness, "cold");
-        assert.equal(item?.status.status, "parked");
-        assert.equal(payload.totals.activeAgents, 0);
+        assert.equal(item?.status.status, "running");
+        assert.equal(payload.totals.activeAgents, 1);
       } finally {
         database.close();
         httpServer.close();
@@ -1297,7 +1293,6 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         const payload = (await fleetResponse.json()) as {
           sessions: Array<{
             session: { id: string };
-            status: { status: string; explanation: string };
           }>;
           totals: { totalSessions: number };
         };
@@ -1305,6 +1300,115 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         const legacyItem = payload.sessions.find((item) => item.session.id === "legacy-visible-session");
         assert.equal(legacyItem, undefined);
         assert.equal(payload.sessions.some((item) => item.session.id === "runtime-session"), true);
+        assert.equal(payload.totals.totalSessions, 1);
+      } finally {
+        database.close();
+        httpServer.close();
+      }
+    }
+  },
+  {
+    name: "Andon fleet ignores disconnected legacy sessions with only checkpoint freshness noise",
+    run: async () => {
+      const tempDir = makeTempDir("andon-fleet-checkpoint-noise");
+      const databasePath = path.join(tempDir, "andon.sqlite");
+      createDatabase(databasePath);
+      const database = new DatabaseSync(databasePath);
+      const httpServer = createServer(createAndonHandler(database));
+
+      try {
+        httpServer.listen(0, "127.0.0.1");
+        await once(httpServer, "listening");
+        const address = httpServer.address();
+        if (!address || typeof address === "string") {
+          throw new Error("Could not determine the Andon API test port");
+        }
+        const port = address.port;
+
+        const now = Date.now();
+        const runtimeTimestamp = new Date(now - 30 * 1000).toISOString();
+        const legacyStartedAt = new Date(now - 70 * 60 * 1000).toISOString();
+        const noisyCheckpointAt = new Date(now - 45 * 1000).toISOString();
+
+        upsertRuntimeSession(database, {
+          id: "runtime-live-session",
+          runtimeId: "local",
+          agentName: "runtime-agent",
+          repoName: "holistic",
+          repoPath: "D:/Projects/active/holistic",
+          status: "running",
+          activity: "editing",
+          startedAt: runtimeTimestamp,
+          updatedAt: runtimeTimestamp
+        });
+
+        database.prepare(
+          `
+            INSERT INTO sessions (
+              id,
+              agent_name,
+              runtime_name,
+              repo_path,
+              worktree_path,
+              objective,
+              current_phase,
+              started_at,
+              ended_at,
+              last_event_at,
+              last_summary
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `
+        ).run(
+          "legacy-checkpoint-noise",
+          "legacy-agent",
+          "codex",
+          "D:/Projects/active/holistic",
+          "D:/Projects/active/holistic",
+          "Legacy session with checkpoint-only signals",
+          "execute",
+          legacyStartedAt,
+          null,
+          noisyCheckpointAt,
+          "Checkpoint saved"
+        );
+
+        database.prepare(
+          `
+            INSERT INTO events (
+              id,
+              session_id,
+              task_id,
+              runtime_name,
+              type,
+              phase,
+              source,
+              summary,
+              payload_json,
+              created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `
+        ).run(
+          "legacy-checkpoint-noise-event",
+          "legacy-checkpoint-noise",
+          null,
+          "codex",
+          "session.checkpoint_created",
+          "execute",
+          "system",
+          "Saved checkpoint",
+          "{}",
+          noisyCheckpointAt
+        );
+
+        const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
+        assert.equal(fleetResponse.status, 200);
+        const payload = (await fleetResponse.json()) as {
+          sessions: Array<{ session: { id: string } }>;
+          totals: { totalSessions: number };
+        };
+
+        assert.equal(payload.sessions.some((item) => item.session.id === "runtime-live-session"), true);
+        assert.equal(payload.sessions.some((item) => item.session.id === "legacy-checkpoint-noise"), false);
         assert.equal(payload.totals.totalSessions, 1);
       } finally {
         database.close();
