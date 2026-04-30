@@ -6,6 +6,7 @@ This directory holds cross-cutting planning that is not tied to GSD runtime stat
 
 | Concern | Where it lives |
 |--------|----------------|
+| **Andon recovery contract** | [`docs/andon-recovery-plan.md`](../docs/andon-recovery-plan.md) - canonical until replaced |
 | **Execution** (waves, slices, tasks, checklists) | [`.gsd/`](../.gsd/) - especially [`.gsd/PROJECT.md`](../.gsd/PROJECT.md) and [`.gsd/milestones/`](../.gsd/milestones/) |
 | **Capability contract** | [`.gsd/REQUIREMENTS.md`](../.gsd/REQUIREMENTS.md) |
 | **Andon design -> code map** | [`docs/andon-design-tokens.md`](../docs/andon-design-tokens.md), [`docs/andon-mvp.md`](../docs/andon-mvp.md) |
@@ -20,3 +21,4 @@ This directory holds cross-cutting planning that is not tied to GSD runtime stat
 
 - [RECONCILIATION-2026-04-18.md](./RECONCILIATION-2026-04-18.md) - dated gap analysis from the earlier Andon dashboard shape; keep as historical context.
 - [CANON-LAYERS.md](./CANON-LAYERS.md) - stable statement of Holistic runtime adapters, Holistic grounding, and Andon supervision layers.
+- [ROADMAP.md](./ROADMAP.md) and [`phases/01-runtime-truth-boundary`](./phases/01-runtime-truth-boundary/) are superseded for Andon recovery execution by [`docs/andon-recovery-plan.md`](../docs/andon-recovery-plan.md). Keep them as historical context until cleanup.

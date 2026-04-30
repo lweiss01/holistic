@@ -31,6 +31,7 @@ Even if everything else got stripped away, agents must be able to pick up where 
 - **Automated tests** - run `npm test` for the current count (core, security, redaction, MCP, Andon); the suite grows as modules land
 - **Working in production** - dogfooding in this repo
 - **Andon MVP scaffold in-repo** - SQLite-backed API, rules engine, collector, React dashboard, mock or **file-backed** Holistic bridge (`HOLISTIC_REPO`), SSE `session_update` snapshots, Holistic CLI telemetry hooks
+- **Andon recovery active** - `docs/andon-recovery-plan.md` is the canonical Andon recovery contract. Prior M005-M010 Andon milestone docs are historical context until reconciled around Option D: rebuild runtime harness and dashboard around a clean contract while salvaging useful runtime scaffolding.
 
 **What works:**
 - `holistic bootstrap` - one-command machine setup
@@ -93,11 +94,6 @@ See `.gsd/REQUIREMENTS.md` for the explicit capability contract, requirement sta
 - [ ] M002: Team/Org Mode - Planned (contributor identity, team sessions, regression ownership, PR export)
 - [ ] M003: Focused Integrations - Planned (MCP patterns, thin editor setups, compatibility tests)
 - [ ] M004: Reliability Bug Hunt - Planned/partial (commit execution, sync portability, daemon reliability, repo snapshot performance)
-- [ ] M005: Andon MVP - In progress (single-session baseline, local runbook, rules engine, file-backed grounding, SSE refresh, dashboard proof)
-- [x] M006: Runtime Core and Persistence - Complete (runtime-core contract, runtime storage schema, runtime repository plumbing, additive compatibility audit, and reconciliation docs complete; runtime-service wiring continues in M007)
-- [ ] M007: Runtime Service and Local Adapter - Planned (runtime-service API, local runner, NDJSON events, lifecycle tracking, heartbeats, stale-session detection)
-- [ ] M008: Guardrails, Approvals, and Worktree Isolation - Planned (approval tiers, graceful stop escalation, per-session worktrees, dirty-worktree preservation, overlap detection)
-- [ ] M009: Fleet Intelligence - Planned (activity derivation, attention ranking, failure/stall detection, approval visibility, overlap and Holistic-vs-runtime drift reasoning)
-- [ ] M010: Mission Control UX - Planned (fleet homepage, `/fleet` endpoint, Fleet Header, Attention Queue, Agent Grid, Activity Heatmap, Recent Signals Rail, drill-down continuity)
+- [ ] M005-M010: Andon runtime/Mission Control docs - Superseded for execution by `docs/andon-recovery-plan.md`; retain as historical context until cleanup
 
 
