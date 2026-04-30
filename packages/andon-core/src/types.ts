@@ -41,6 +41,8 @@ export const RECOMMENDATION_URGENCY = ["low", "medium", "high"] as const;
 
 /** Dashboard attention tier (Build A); not the same axis as `SessionStatus`. */
 export const SUPERVISION_SEVERITIES = ["info", "low", "medium", "high", "critical"] as const;
+export const OPERATIONAL_CATEGORIES = ["live", "needs_action", "degraded_active", "historical"] as const;
+export const SIGNAL_FRESHNESS_STATES = ["fresh", "stale", "cold", "unknown"] as const;
 
 export type SessionStatus = (typeof SESSION_STATUSES)[number];
 export type SessionPhase = (typeof SESSION_PHASES)[number];
@@ -49,6 +51,8 @@ export type EventSource = (typeof EVENT_SOURCES)[number];
 export type AgentRuntime = (typeof AGENT_RUNTIMES)[number];
 export type RecommendationUrgency = (typeof RECOMMENDATION_URGENCY)[number];
 export type SupervisionSeverity = (typeof SUPERVISION_SEVERITIES)[number];
+export type OperationalCategory = (typeof OPERATIONAL_CATEGORIES)[number];
+export type SignalFreshnessState = (typeof SIGNAL_FRESHNESS_STATES)[number];
 
 export interface SupervisionSignals {
   lastMeaningfulEventAt: string | null;
@@ -155,6 +159,23 @@ export interface FleetSessionItem {
   status: StatusDecision;
   recommendation: Recommendation;
   supervision: SupervisionSignals;
+  category: OperationalCategory;
+  categoryReason:
+    | "runtime_active"
+    | "waiting_for_input"
+    | "awaiting_review"
+    | "blocked_or_failed"
+    | "missing_runtime_signal"
+    | "terminated"
+    | "parked"
+    | "stale_runtime"
+    | "db_mismatch"
+    | "legacy_active"
+    | "unknown";
+  rawRuntimeStatus: string | null;
+  lastSignalAt: string | null;
+  signalAgeMs: number | null;
+  freshness: SignalFreshnessState;
   attentionRank: number;
   attentionBreakdown: {
     status: number;

@@ -1040,13 +1040,15 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         assert.equal(fleetResponse.status, 200);
         const fleetPayload = (await fleetResponse.json()) as {
           totals: { needsHuman: number };
-          sessions: Array<{ session: { id: string }; status: { status: string } }>;
+          sessions: Array<{ session: { id: string }; status: { status: string }; category: string; categoryReason: string }>;
         };
 
         const legacy = fleetPayload.sessions.find((item) => item.session.id === "session-legacy-question");
         assert.ok(legacy);
-        assert.equal(legacy?.status.status, "parked");
-        assert.equal(fleetPayload.totals.needsHuman, 0);
+        assert.equal(legacy?.category, "degraded_active");
+        assert.equal(legacy?.categoryReason, "missing_runtime_signal");
+        assert.equal(legacy?.status.status, "blocked");
+        assert.equal(fleetPayload.totals.needsHuman, 1);
       } finally {
         database.close();
         httpServer.close();
@@ -1113,6 +1115,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         const fleetPayload = (await fleetResponse.json()) as {
           sessions: Array<{
             session: { id: string };
+            category: string;
+            categoryReason: string;
             status: { status: string; explanation: string; evidence: string[] };
           }>;
           totals: { activeAgents: number };
@@ -1120,7 +1124,9 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
         const item = fleetPayload.sessions.find((session) => session.session.id === "session-runtime-missing");
         assert.ok(item);
-        assert.equal(item?.status.status, "parked");
+        assert.equal(item?.category, "degraded_active");
+        assert.equal(item?.categoryReason, "missing_runtime_signal");
+        assert.equal(item?.status.status, "blocked");
         assert.match(item?.status.explanation ?? "", /no runtime heartbeat/i);
         assert.ok(item?.status.evidence.some((line) => /no runtime session signal/i.test(line)));
         assert.equal(fleetPayload.totals.activeAgents, 0);
@@ -1131,7 +1137,85 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
-    name: "Andon fleet treats cold running runtime sessions as parked and non-active",
+    name: "Andon fleet keeps one active runtime session visible and excludes fifty terminated sessions",
+    run: async () => {
+      const tempDir = makeTempDir("andon-fleet-active-plus-terminated");
+      const databasePath = path.join(tempDir, "andon.sqlite");
+      createDatabase(databasePath);
+      const database = new DatabaseSync(databasePath);
+      const httpServer = createServer(createAndonHandler(database));
+
+      try {
+        httpServer.listen(0, "127.0.0.1");
+        await once(httpServer, "listening");
+        const address = httpServer.address();
+        if (!address || typeof address === "string") {
+          throw new Error("Could not determine the Andon API test port");
+        }
+        const port = address.port;
+
+        const now = Date.now();
+        const activeTs = new Date(now - 60 * 1000).toISOString();
+        upsertRuntimeSession(database, {
+          id: "runtime-active-now",
+          runtimeId: "local",
+          agentName: "active-agent",
+          repoName: "holistic",
+          repoPath: "D:/Projects/active/holistic",
+          status: "running",
+          activity: "editing",
+          startedAt: activeTs,
+          updatedAt: activeTs,
+          metadata: { objective: "Repair Mission Control truth engine" }
+        });
+
+        for (let index = 0; index < 50; index += 1) {
+          const endedAt = new Date(now - (index + 10) * 60 * 1000).toISOString();
+          upsertRuntimeSession(database, {
+            id: `runtime-terminated-${index}`,
+            runtimeId: "local",
+            agentName: "old-agent",
+            repoName: "holistic",
+            repoPath: "D:/Projects/active/holistic",
+            status: "completed",
+            activity: "idle",
+            startedAt: endedAt,
+            updatedAt: endedAt,
+            completedAt: endedAt
+          });
+        }
+
+        const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
+        assert.equal(fleetResponse.status, 200);
+        const payload = (await fleetResponse.json()) as {
+          sessions: Array<{
+            session: { id: string };
+            category: string;
+            rawRuntimeStatus: string | null;
+            lastSignalAt: string | null;
+            signalAgeMs: number | null;
+            freshness: string;
+          }>;
+          totals: { totalSessions: number; activeAgents: number };
+        };
+
+        assert.equal(payload.totals.totalSessions, 1);
+        assert.equal(payload.totals.activeAgents, 1);
+        assert.equal(payload.sessions.length, 1);
+        assert.equal(payload.sessions[0]?.session.id, "runtime-active-now");
+        assert.equal(payload.sessions[0]?.category, "live");
+        assert.equal(payload.sessions[0]?.rawRuntimeStatus, "running");
+        assert.equal(payload.sessions[0]?.lastSignalAt, activeTs);
+        assert.equal(typeof payload.sessions[0]?.signalAgeMs, "number");
+        assert.equal(payload.sessions[0]?.freshness, "fresh");
+      } finally {
+        database.close();
+        httpServer.close();
+      }
+    }
+  },
+  {
+    name: "Andon fleet treats cold running runtime sessions as degraded and non-live",
     run: async () => {
       const tempDir = makeTempDir("andon-fleet-runtime-cold-running");
       const databasePath = path.join(tempDir, "andon.sqlite");
@@ -1164,14 +1248,16 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
         assert.equal(fleetResponse.status, 200);
         const payload = (await fleetResponse.json()) as {
-          sessions: Array<{ session: { id: string }; status: { status: string }; heartbeatFreshness: string }>;
+          sessions: Array<{ session: { id: string }; status: { status: string }; heartbeatFreshness: string; category: string; freshness: string }>;
           totals: { activeAgents: number };
         };
 
         const item = payload.sessions.find((session) => session.session.id === "runtime-cold-running");
         assert.ok(item);
         assert.equal(item?.heartbeatFreshness, "cold");
-        assert.equal(item?.status.status, "parked");
+        assert.equal(item?.freshness, "cold");
+        assert.equal(item?.category, "degraded_active");
+        assert.equal(item?.status.status, "blocked");
         assert.equal(payload.totals.activeAgents, 0);
       } finally {
         database.close();
@@ -1228,7 +1314,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
-    name: "Andon fleet keeps legacy-only sessions visible as runtime-missing parked entries",
+    name: "Andon fleet keeps recent legacy-only sessions visible as degraded runtime-missing entries",
     run: async () => {
       const tempDir = makeTempDir("andon-fleet-runtime-missing-visible");
       const databasePath = path.join(tempDir, "andon.sqlite");
@@ -1298,12 +1384,16 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           sessions: Array<{
             session: { id: string };
             status: { status: string; explanation: string };
+            category: string;
+            categoryReason: string;
           }>;
         };
 
         const legacyItem = payload.sessions.find((item) => item.session.id === "legacy-visible-session");
         assert.ok(legacyItem);
-        assert.equal(legacyItem?.status.status, "parked");
+        assert.equal(legacyItem?.category, "degraded_active");
+        assert.equal(legacyItem?.categoryReason, "missing_runtime_signal");
+        assert.equal(legacyItem?.status.status, "blocked");
         assert.match(legacyItem?.status.explanation ?? "", /runtime/i);
       } finally {
         database.close();
@@ -1367,15 +1457,17 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
         assert.equal(fleetResponse.status, 200);
         const payload = (await fleetResponse.json()) as {
-          sessions: Array<{ session: { id: string }; status: { status: string } }>;
-          totals: { needsHuman: number };
+          sessions: Array<{ session: { id: string }; status: { status: string }; category: string }>;
+          totals: { needsHuman: number; totalSessions: number };
         };
 
         const statusById = new Map(payload.sessions.map((item) => [item.session.id, item.status.status]));
         assert.equal(statusById.get("runtime-waiting-approval"), "awaiting_review");
-        assert.equal(statusById.get("runtime-paused"), "parked");
-        assert.equal(statusById.get("runtime-completed"), "awaiting_review");
-        assert.equal(payload.totals.needsHuman, 2);
+        assert.equal(statusById.has("runtime-paused"), false);
+        assert.equal(statusById.has("runtime-completed"), false);
+        assert.equal(payload.sessions.every((item) => item.category !== "historical"), true);
+        assert.equal(payload.totals.totalSessions, 1);
+        assert.equal(payload.totals.needsHuman, 1);
       } finally {
         database.close();
         httpServer.close();
