@@ -161,10 +161,10 @@ function runtimeStatusToFleetStatus(
   if (status === "waiting_for_input") return "needs_input";
   if (status === "waiting_for_approval") return "awaiting_review";
   if (status === "blocked" || status === "failed") return "blocked";
-  if (status === "completed") return "awaiting_review";
+  if (status === "completed") return "parked";
   if (status === "paused" || status === "cancelled") return "parked";
   if (status === "running" || status === "starting") {
-    return "running";
+    return freshness === "cold" ? "blocked" : "running";
   }
   return "parked";
 }
@@ -523,6 +523,67 @@ function heartbeatFreshness(lastEventAt: string, now = Date.now()): "fresh" | "s
   return "cold";
 }
 
+function categoryRank(category: FleetSessionItem["category"]): number {
+  const weights: Record<FleetSessionItem["category"], number> = {
+    needs_action: 300,
+    degraded_active: 200,
+    live: 100,
+    historical: 0
+  };
+  return weights[category];
+}
+
+function runtimeCategory(
+  runtimeSession: RuntimeSession,
+  freshness: FleetSessionItem["heartbeatFreshness"]
+): Pick<FleetSessionItem, "category" | "categoryReason"> {
+  if (runtimeSession.status === "completed" || runtimeSession.status === "cancelled") {
+    return { category: "historical", categoryReason: "terminated" };
+  }
+  if (runtimeSession.status === "paused") {
+    return { category: "historical", categoryReason: "parked" };
+  }
+  if (runtimeSession.status === "waiting_for_input") {
+    return { category: "needs_action", categoryReason: "waiting_for_input" };
+  }
+  if (runtimeSession.status === "waiting_for_approval") {
+    return { category: "needs_action", categoryReason: "awaiting_review" };
+  }
+  if (runtimeSession.status === "blocked" || runtimeSession.status === "failed") {
+    return { category: "degraded_active", categoryReason: "blocked_or_failed" };
+  }
+  if (runtimeSession.status === "running" || runtimeSession.status === "starting") {
+    return freshness === "cold"
+      ? { category: "degraded_active", categoryReason: "stale_runtime" }
+      : { category: "live", categoryReason: "runtime_active" };
+  }
+  return { category: "degraded_active", categoryReason: "unknown" };
+}
+
+function legacyCategory(
+  item: Pick<FleetSessionItem, "session" | "status" | "heartbeatFreshness">
+): Pick<FleetSessionItem, "category" | "categoryReason"> {
+  if (item.session.endedAt) {
+    return { category: "historical", categoryReason: "terminated" };
+  }
+  if (item.status.status === "parked") {
+    return { category: "historical", categoryReason: "parked" };
+  }
+  if (item.heartbeatFreshness === "cold") {
+    return { category: "historical", categoryReason: "stale_runtime" };
+  }
+  if (item.status.status === "awaiting_review") {
+    return { category: "needs_action", categoryReason: "awaiting_review" };
+  }
+  if (item.status.status === "needs_input") {
+    return { category: "needs_action", categoryReason: "waiting_for_input" };
+  }
+  if (item.status.status === "blocked" || item.status.status === "at_risk") {
+    return { category: "degraded_active", categoryReason: "blocked_or_failed" };
+  }
+  return { category: "degraded_active", categoryReason: "missing_runtime_signal" };
+}
+
 function attentionScore(item: Omit<FleetSessionItem, "attentionRank">): number {
   const parts = attentionScoreParts(item.status.status, item.recommendation.urgency, item.heartbeatFreshness);
   return parts.status + parts.urgency + parts.freshness;
@@ -681,9 +742,11 @@ export async function getFleet(
         .filter((event) => event.type !== "session.heartbeat")
         .at(-1)?.timestamp ?? runtimeSession.updatedAt;
       const freshness = heartbeatFreshness(referenceTimestamp, now);
+      const ageMs = signalAgeMs(referenceTimestamp, now);
       const statusValue = runtimeStatusToFleetStatus(runtimeSession.status, freshness);
       const supervision = buildRuntimeSupervision(runtimeEvents, statusValue);
       const recommendation = buildRuntimeRecommendation(statusValue);
+      const category = runtimeCategory(runtimeSession, freshness);
 
       const itemBase: Omit<FleetSessionItem, "attentionRank"> = {
         session,
@@ -698,6 +761,11 @@ export async function getFleet(
         },
         recommendation,
         supervision,
+        ...category,
+        rawRuntimeStatus: runtimeSession.status,
+        lastSignalAt: referenceTimestamp,
+        signalAgeMs: ageMs,
+        freshness,
         heartbeatFreshness: freshness,
         blockedReason: statusValue === "blocked"
           ? (runtimeEvents.at(-1)?.message ?? "Runtime reported a blocking condition.")
@@ -719,13 +787,16 @@ export async function getFleet(
       return {
         ...itemBase,
         attentionBreakdown,
-        attentionRank: attentionBreakdown.status + attentionBreakdown.urgency + attentionBreakdown.freshness
+        attentionRank: categoryRank(itemBase.category) + attentionBreakdown.status + attentionBreakdown.urgency + attentionBreakdown.freshness
       };
       });
 
     const fleetSessions = [...runtimeItems]
       .filter((item) => isPrimaryMissionControlItem(item, now))
       .sort((a, b) => {
+        if (categoryRank(b.category) !== categoryRank(a.category)) {
+          return categoryRank(b.category) - categoryRank(a.category);
+        }
         if (b.attentionRank !== a.attentionRank) {
           return b.attentionRank - a.attentionRank;
         }

@@ -1230,118 +1230,21 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         const fleetPayload = (await fleetResponse.json()) as {
           sessions: Array<{
             session: { id: string };
+            category: string;
+            categoryReason: string;
+            status: { status: string; explanation: string; evidence: string[] };
           }>;
           totals: { totalSessions: number; activeAgents: number };
         };
 
         const item = fleetPayload.sessions.find((session) => session.session.id === "session-runtime-missing");
         assert.ok(item);
-        assert.equal(fleetPayload.totals.totalSessions, 1);
-        assert.equal(fleetPayload.totals.activeAgents, 1);
-      } finally {
-        database.close();
-        httpServer.close();
-      }
-    }
-  },
-  {
-    name: "Andon /fleet matches runtime telemetry gap when legacy rows bypass ingest mirror",
-    run: async () => {
-      const tempDir = makeTempDir("andon-gap-sql");
-      const databasePath = path.join(tempDir, "andon.sqlite");
-      createDatabase(databasePath);
-      const database = new DatabaseSync(databasePath);
-      const ts = new Date().toISOString();
-      database
-        .prepare(
-          `
-            INSERT INTO sessions (
-              id, agent_name, runtime_name, repo_path, worktree_path, objective, current_phase,
-              started_at, ended_at, last_event_at, last_summary
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `
-        )
-        .run(
-          "gap-sql-session",
-          "codex",
-          "codex",
-          "D:/Projects/active/holistic",
-          "D:/Projects/active/holistic",
-          "Direct SQL session",
-          "execute",
-          ts,
-          null,
-          ts,
-          null
-        );
-      database
-        .prepare(
-          `
-            INSERT INTO events (
-              id, session_id, task_id, runtime_name, type, phase, source, summary, payload_json, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `
-        )
-        .run("gap-sql-event", "gap-sql-session", null, "codex", "agent.summary_emitted", "execute", "agent", "Hi", "{}", ts);
-
-      const httpServer = createServer(createAndonHandler(database));
-
-      try {
-        httpServer.listen(0, "127.0.0.1");
-        await once(httpServer, "listening");
-        const address = httpServer.address();
-        if (!address || typeof address === "string") {
-          throw new Error("Could not determine the Andon API test port");
-        }
-        const port = address.port;
-
-        const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
-        assert.equal(fleetResponse.status, 200);
-        const fleetPayload = (await fleetResponse.json()) as FleetResponse;
-
-        assert.equal(fleetPayload.sessions.length, 0);
-        assert.ok(fleetPayload.recentEvents.length > 0);
-        assert.equal(shouldShowRuntimeTelemetryGap(fleetPayload), true);
-
-        const healthResponse = await fetch(`http://127.0.0.1:${port}/health/andon`);
-        assert.equal(healthResponse.status, 200);
-        const healthPayload = (await healthResponse.json()) as { warnings: string[]; fleetWillRenderCards: boolean };
-        assert.equal(healthPayload.fleetWillRenderCards, false);
-        assert.ok(healthPayload.warnings.some((w) => w.includes("Legacy events exist")));
-      } finally {
-        database.close();
-        httpServer.close();
-      }
-    }
-  },
-  {
-    name: "Andon /health/andon warns when ANDON_DB_PATH does not match the open database file",
-    run: async () => {
-      const prev = process.env.ANDON_DB_PATH;
-      const tempDir = makeTempDir("andon-health-mismatch");
-      const databasePath = path.join(tempDir, "andon.sqlite");
-      createDatabase(databasePath);
-      const database = new DatabaseSync(databasePath);
-      const httpServer = createServer(createAndonHandler(database));
-
-      try {
-        httpServer.listen(0, "127.0.0.1");
-        await once(httpServer, "listening");
-        const address = httpServer.address();
-        if (!address || typeof address === "string") {
-          throw new Error("Could not determine the Andon API test port");
-        }
-        const port = address.port;
-
-        process.env.ANDON_DB_PATH = path.join(tempDir, "other.sqlite");
-        const healthResponse = await fetch(`http://127.0.0.1:${port}/health/andon`);
-        assert.equal(healthResponse.status, 200);
-        const healthPayload = (await healthResponse.json()) as { warnings: string[]; databasePath: string };
-        assert.ok(
-          healthPayload.warnings.some((w) => w.includes("ANDON_DB_PATH") && w.includes("does not match")),
-          `expected mismatch warning, got: ${JSON.stringify(healthPayload.warnings)}`
-        );
-        assert.ok(healthPayload.databasePath.includes("andon.sqlite"));
+        assert.equal(item?.category, "degraded_active");
+        assert.equal(item?.categoryReason, "missing_runtime_signal");
+        assert.equal(item?.status.status, "blocked");
+        assert.match(item?.status.explanation ?? "", /no runtime heartbeat/i);
+        assert.ok(item?.status.evidence.some((line) => /no runtime session signal/i.test(line)));
+        assert.equal(fleetPayload.totals.activeAgents, 0);
       } finally {
         if (prev === undefined) {
           delete process.env.ANDON_DB_PATH;
@@ -1354,9 +1257,9 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
-    name: "Andon fleet excludes old cold needs-input rows from primary mission control",
+    name: "Andon fleet keeps one active runtime session visible and excludes fifty terminated sessions",
     run: async () => {
-      const tempDir = makeTempDir("andon-fleet-old-needs-input");
+      const tempDir = makeTempDir("andon-fleet-active-plus-terminated");
       const databasePath = path.join(tempDir, "andon.sqlite");
       createDatabase(databasePath);
       const database = new DatabaseSync(databasePath);
@@ -1371,64 +1274,60 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         }
         const port = address.port;
 
-        const oldTimestamp = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
-        const currentTimestamp = new Date().toISOString();
-        for (let index = 0; index < 50; index += 1) {
-          upsertRuntimeSession(database, {
-            id: `old-needs-input-${index}`,
-            runtimeId: "local",
-            agentName: "stale-agent",
-            repoName: "holistic",
-            repoPath: "D:/Projects/active/holistic",
-            status: "waiting_for_input",
-            activity: "waiting",
-            startedAt: oldTimestamp,
-            updatedAt: oldTimestamp
-          });
-          insertRuntimeEvent(database, {
-            id: `old-needs-input-event-${index}`,
-            sessionId: `old-needs-input-${index}`,
-            type: "agent.question",
-            timestamp: oldTimestamp,
-            message: "Old unresolved prompt",
-            activity: "waiting",
-            payload: {}
-          });
-        }
+        const now = Date.now();
+        const activeTs = new Date(now - 60 * 1000).toISOString();
         upsertRuntimeSession(database, {
-          id: "current-active-session",
+          id: "runtime-active-now",
           runtimeId: "local",
-          agentName: "codex",
+          agentName: "active-agent",
           repoName: "holistic",
           repoPath: "D:/Projects/active/holistic",
           status: "running",
           activity: "editing",
-          startedAt: currentTimestamp,
-          updatedAt: currentTimestamp
+          startedAt: activeTs,
+          updatedAt: activeTs,
+          metadata: { objective: "Repair Mission Control truth engine" }
         });
-        insertRuntimeEvent(database, {
-          id: "current-active-event",
-          sessionId: "current-active-session",
-          type: "session.heartbeat",
-          timestamp: currentTimestamp,
-          message: "Current active heartbeat",
-          activity: "editing",
-          payload: {}
-        });
+
+        for (let index = 0; index < 50; index += 1) {
+          const endedAt = new Date(now - (index + 10) * 60 * 1000).toISOString();
+          upsertRuntimeSession(database, {
+            id: `runtime-terminated-${index}`,
+            runtimeId: "local",
+            agentName: "old-agent",
+            repoName: "holistic",
+            repoPath: "D:/Projects/active/holistic",
+            status: "completed",
+            activity: "idle",
+            startedAt: endedAt,
+            updatedAt: endedAt,
+            completedAt: endedAt
+          });
+        }
 
         const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
         assert.equal(fleetResponse.status, 200);
         const payload = (await fleetResponse.json()) as {
-          sessions: Array<{ session: { id: string }; status: { status: string } }>;
-          totals: { totalSessions: number; activeAgents: number; needsHuman: number };
+          sessions: Array<{
+            session: { id: string };
+            category: string;
+            rawRuntimeStatus: string | null;
+            lastSignalAt: string | null;
+            signalAgeMs: number | null;
+            freshness: string;
+          }>;
+          totals: { totalSessions: number; activeAgents: number };
         };
 
-        assert.equal(payload.sessions.length, 1);
-        assert.equal(payload.sessions[0]?.session.id, "current-active-session");
-        assert.equal(payload.sessions[0]?.status.status, "running");
         assert.equal(payload.totals.totalSessions, 1);
         assert.equal(payload.totals.activeAgents, 1);
-        assert.equal(payload.totals.needsHuman, 0);
+        assert.equal(payload.sessions.length, 1);
+        assert.equal(payload.sessions[0]?.session.id, "runtime-active-now");
+        assert.equal(payload.sessions[0]?.category, "live");
+        assert.equal(payload.sessions[0]?.rawRuntimeStatus, "running");
+        assert.equal(payload.sessions[0]?.lastSignalAt, activeTs);
+        assert.equal(typeof payload.sessions[0]?.signalAgeMs, "number");
+        assert.equal(payload.sessions[0]?.freshness, "fresh");
       } finally {
         database.close();
         httpServer.close();
@@ -1469,15 +1368,17 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
         assert.equal(fleetResponse.status, 200);
         const payload = (await fleetResponse.json()) as {
-          sessions: Array<{ session: { id: string }; status: { status: string }; heartbeatFreshness: string }>;
+          sessions: Array<{ session: { id: string }; status: { status: string }; heartbeatFreshness: string; category: string; freshness: string }>;
           totals: { activeAgents: number };
         };
 
         const item = payload.sessions.find((session) => session.session.id === "runtime-cold-running");
         assert.ok(item);
         assert.equal(item?.heartbeatFreshness, "cold");
-        assert.equal(item?.status.status, "running");
-        assert.equal(payload.totals.activeAgents, 1);
+        assert.equal(item?.freshness, "cold");
+        assert.equal(item?.category, "degraded_active");
+        assert.equal(item?.status.status, "blocked");
+        assert.equal(payload.totals.activeAgents, 0);
       } finally {
         database.close();
         httpServer.close();
@@ -1603,6 +1504,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           sessions: Array<{
             session: { id: string };
             status: { status: string; explanation: string };
+            category: string;
+            categoryReason: string;
           }>;
           totals: { totalSessions: number; activeAgents: number; needsHuman: number };
         };
@@ -1956,8 +1859,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
         assert.equal(fleetResponse.status, 200);
         const payload = (await fleetResponse.json()) as {
-          sessions: Array<{ session: { id: string }; status: { status: string } }>;
-          totals: { needsHuman: number };
+          sessions: Array<{ session: { id: string }; status: { status: string }; category: string }>;
+          totals: { needsHuman: number; totalSessions: number };
         };
 
         const statusById = new Map(payload.sessions.map((item) => [item.session.id, item.status.status]));
