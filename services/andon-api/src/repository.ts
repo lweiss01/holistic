@@ -35,6 +35,29 @@ function parseJson(text: string): Record<string, unknown> {
 function repoName(repoPath: string): string {
   return repoPath.split(/[\\/]/).filter(Boolean).at(-1) ?? repoPath;
 }
+const UNKNOWN_AGENT_SOURCE_LABEL = "unknown (source missing)";
+const NO_RUNTIME_OBJECTIVE_LABEL = "No runtime objective";
+
+function asNonEmptyString(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function isGenericUnknownAgent(agentName: string): boolean {
+  const normalized = agentName.trim().toLowerCase();
+  return normalized === "unknown" || normalized === UNKNOWN_AGENT_SOURCE_LABEL;
+}
+
+function normalizeAttributedAgentName(value: unknown): string | null {
+  const normalized = asNonEmptyString(value);
+  if (!normalized) {
+    return null;
+  }
+  return isGenericUnknownAgent(normalized) ? null : normalized;
+}
 
 const MISSION_CONTROL_HOUSEKEEPING_OBJECTIVE_MARKERS = [
   "passively capture repo activity",
@@ -53,37 +76,45 @@ function isMissionControlHousekeepingObjective(objective: string): boolean {
 }
 
 function inferAgentName(payload: Record<string, unknown>, existingAgentName: string | undefined): string {
-  const direct = payload.agentName;
-  if (typeof direct === "string" && direct.trim().length > 0) {
-    return direct.trim();
+  const direct = normalizeAttributedAgentName(payload.agentName);
+  if (direct) {
+    return direct;
   }
-
-  const alternate = payload.agent;
-  if (typeof alternate === "string" && alternate.trim().length > 0) {
-    return alternate.trim();
+  const alternate = normalizeAttributedAgentName(payload.agent);
+  if (alternate) {
+    return alternate;
   }
-
-  if (existingAgentName && existingAgentName.trim().length > 0) {
-    return existingAgentName;
+  const existing = normalizeAttributedAgentName(existingAgentName);
+  if (existing) {
+    return existing;
   }
-
-  return inferAgentFromEnvironment();
+  return UNKNOWN_AGENT_SOURCE_LABEL;
 }
 
-function inferAgentFromEnvironment(): string {
-  if (process.env.CURSOR_AGENT === "1" || process.env.CURSOR_EXTENSION_HOST_ROLE === "agent-exec") {
-    return "cursor";
+function resolveFleetAgentName(input: {
+  runtimeAgentName?: unknown;
+  runtimeMetadata?: Record<string, unknown> | null;
+  legacyAgentName?: unknown;
+}): string {
+  const runtimeDirect = normalizeAttributedAgentName(input.runtimeAgentName);
+  if (runtimeDirect) {
+    return runtimeDirect;
   }
-  if (process.env.CLAUDECODE === "1" || process.env.CLAUDE_DESKTOP === "1") {
-    return "claude";
+  const runtimeMeta = normalizeAttributedAgentName(input.runtimeMetadata?.agentName);
+  if (runtimeMeta) {
+    return runtimeMeta;
   }
-  return "unknown";
+  const legacy = normalizeAttributedAgentName(input.legacyAgentName);
+  if (legacy) {
+    return legacy;
+  }
+  return UNKNOWN_AGENT_SOURCE_LABEL;
 }
 
-function normalizeDisplayAgentName(agentName: string): string {
-  return agentName && agentName.trim().length > 0 && agentName !== "unknown"
-    ? agentName
-    : inferAgentFromEnvironment();
+function resolveRuntimeObjective(metadata: Record<string, unknown> | undefined): string {
+  return asNonEmptyString(metadata?.objective)
+    ?? asNonEmptyString(metadata?.prompt)
+    ?? NO_RUNTIME_OBJECTIVE_LABEL;
 }
 
 
@@ -103,11 +134,14 @@ function runtimeActivityToPhase(activity: RuntimeSession["activity"]): SessionRe
 function runtimeSessionToSessionRecord(session: RuntimeSession): SessionRecord {
   return {
     id: session.id,
-    agentName: normalizeDisplayAgentName(session.agentName),
+    agentName: resolveFleetAgentName({
+      runtimeAgentName: session.agentName,
+      runtimeMetadata: session.metadata
+    }),
     runtime: mapRuntimeIdToAgentRuntime(session.runtimeId),
     repoPath: session.repoPath,
     worktreePath: session.worktreePath ?? session.repoPath,
-    objective: String(session.metadata?.objective ?? session.metadata?.prompt ?? `Runtime ${session.activity}`),
+    objective: resolveRuntimeObjective(session.metadata),
     currentPhase: runtimeActivityToPhase(session.activity),
     startedAt: session.startedAt,
     endedAt: session.completedAt ?? null,
@@ -226,7 +260,7 @@ function signalAgeMs(lastSignalAt: string | null, now: number): number | null {
 function mapSession(row: Record<string, unknown>): SessionRecord {
   return {
     id: String(row.id),
-    agentName: normalizeDisplayAgentName(String(row.agent_name)),
+    agentName: resolveFleetAgentName({ legacyAgentName: row.agent_name }),
     runtime: String(row.runtime_name) as SessionRecord["runtime"],
     repoPath: String(row.repo_path),
     worktreePath: String(row.worktree_path),
@@ -670,65 +704,7 @@ export async function getFleet(
       };
     });
 
-    const runtimeSessionIds = new Set(runtimeSessions.map((session) => session.id));
-    const legacyRows = database
-      .prepare("SELECT * FROM sessions ORDER BY ended_at IS NULL DESC, last_event_at DESC LIMIT 30")
-      .all() as Record<string, unknown>[];
-    const disconnectedLegacyItems = legacyRows
-      .map(mapSession)
-      .filter((session) => !runtimeSessionIds.has(session.id))
-      .filter((session) => !isMissionControlHousekeepingObjective(session.objective))
-      .map((session) => {
-        const freshness = heartbeatFreshness(session.lastEventAt, now);
-        const lastSignalAt = session.lastEventAt;
-        const ageMs = signalAgeMs(lastSignalAt, now);
-        const isRecentActiveLegacy = !session.endedAt && freshness !== "cold";
-        const statusValue: SessionStatus = isRecentActiveLegacy ? "blocked" : "parked";
-        const recommendation = buildRuntimeRecommendation(statusValue);
-        const itemBase: Omit<FleetSessionItem, "attentionRank"> = {
-          session,
-          activeTask: null,
-          status: {
-            status: statusValue,
-            phase: session.currentPhase,
-            explanation: isRecentActiveLegacy
-              ? "Session appears active but has no runtime heartbeat."
-              : "Runtime feed is unavailable for this session.",
-            evidence: ["No runtime session signal is active for this session."]
-          },
-          recommendation,
-          supervision: {
-            lastMeaningfulEventAt: session.lastEventAt,
-            supervisionSeverity: isRecentActiveLegacy ? "critical" : "info"
-          },
-          category: isRecentActiveLegacy ? "degraded_active" : "historical",
-          categoryReason: session.endedAt ? "terminated" : "missing_runtime_signal",
-          rawRuntimeStatus: null,
-          lastSignalAt,
-          signalAgeMs: ageMs,
-          freshness,
-          heartbeatFreshness: freshness,
-          blockedReason: null,
-          recommendedAction: recommendation.actionLabel,
-          availableActions: availableFleetActions(statusValue),
-          repoName: repoName(session.repoPath),
-          worktreeName: session.worktreePath !== session.repoPath
-            ? repoName(session.worktreePath)
-            : null
-        };
-        const attentionBreakdown = attentionScoreParts(
-          itemBase.status.status,
-          itemBase.recommendation.urgency,
-          itemBase.heartbeatFreshness
-        );
-        return {
-          ...itemBase,
-          attentionBreakdown,
-          attentionRank: categoryRank(itemBase.category) + attentionBreakdown.status + attentionBreakdown.urgency + attentionBreakdown.freshness
-        };
-      });
-
-    const fleetSessions = [...runtimeItems, ...disconnectedLegacyItems]
+    const fleetSessions = [...runtimeItems]
       .filter((item) => item.category !== "historical")
       .filter((item) => {
         const ageMs = now - new Date(item.supervision.lastMeaningfulEventAt ?? item.session.startedAt).getTime();
@@ -774,23 +750,31 @@ export async function getFleet(
           e.message AS summary,
           e.timestamp AS created_at,
           s.agent_name,
-          s.repo_path
+          s.repo_path,
+          s.metadata_json
         FROM runtime_events e
         JOIN runtime_sessions s ON s.id = e.session_id
         ORDER BY e.timestamp DESC
         LIMIT 40
       `
     ).all() as Record<string, unknown>[];
-
-    const recentEvents: FleetRecentEvent[] = runtimeRecentRows.map((row) => ({
-      id: String(row.id),
-      sessionId: String(row.session_id),
-      type: "agent.summary_emitted",
-      summary: row.summary ? String(row.summary) : String(row.type),
-      createdAt: String(row.created_at),
-      agentName: normalizeDisplayAgentName(String(row.agent_name)),
-      repoName: repoName(String(row.repo_path))
-    }));
+    const recentEvents: FleetRecentEvent[] = runtimeRecentRows.map((row) => {
+      const metadata = row.metadata_json
+        ? parseJson(String(row.metadata_json))
+        : {};
+      return {
+        id: String(row.id),
+        sessionId: String(row.session_id),
+        type: "agent.summary_emitted",
+        summary: row.summary ? String(row.summary) : String(row.type),
+        createdAt: String(row.created_at),
+        agentName: resolveFleetAgentName({
+          runtimeAgentName: row.agent_name,
+          runtimeMetadata: metadata
+        }),
+        repoName: repoName(String(row.repo_path))
+      };
+    });
 
     const heatmapRows = database.prepare(
       `
@@ -1010,8 +994,12 @@ function ensureSession(database: DatabaseSync, event: AgentEvent): void {
   const payload = event.payload as Record<string, unknown>;
   const existing = getSessionRow(database, event.sessionId);
   const nextPhase = (event.phase ?? payload.currentPhase ?? "plan") as SessionRecord["currentPhase"];
-  const objective = String(payload.objective ?? existing?.objective ?? "Unknown objective");
-  const agentName = normalizeDisplayAgentName(inferAgentName(payload, existing?.agentName));
+  const payloadObjective = asNonEmptyString(payload.objective);
+  const payloadPrompt = asNonEmptyString(payload.prompt);
+  const objective = event.type === "session.started"
+    ? (payloadObjective ?? payloadPrompt ?? NO_RUNTIME_OBJECTIVE_LABEL)
+    : (payloadObjective ?? payloadPrompt ?? existing?.objective ?? "Unknown objective");
+  const agentName = inferAgentName(payload, existing?.agentName);
   const runtime = String(payload.runtime ?? event.runtime ?? existing?.runtime ?? "unknown");
   const repoPath = String(payload.repoPath ?? existing?.repoPath ?? process.cwd());
   const worktreePath = String(payload.worktreePath ?? existing?.worktreePath ?? process.cwd());

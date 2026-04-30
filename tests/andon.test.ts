@@ -17,7 +17,7 @@ import {
 } from "../packages/andon-core/src/index.ts";
 import type { RuntimeSession } from "../packages/runtime-core/src/index.ts";
 import { getSessionTimeline, ingestEvents, mapFleetHeatmapRows, mapRecentFleetEvents } from "../services/andon-api/src/repository.ts";
-import { upsertRuntimeSession } from "../services/andon-api/src/runtime-repository.ts";
+import { insertRuntimeEvent, upsertRuntimeSession } from "../services/andon-api/src/runtime-repository.ts";
 import { createAndonHandler } from "../services/andon-api/src/server.ts";
 import { shouldPostProgressHeartbeat } from "../services/andon-collector/src/index.ts";
 import { normalizeOpenHarnessStreamEvent } from "../services/andon-collector/src/openharness-adapter.ts";
@@ -1314,7 +1314,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
-    name: "Andon fleet keeps recent legacy-only sessions visible as degraded runtime-missing entries",
+    name: "Andon fleet excludes legacy-only sessions whenever runtime sessions exist",
     run: async () => {
       const tempDir = makeTempDir("andon-fleet-runtime-missing-visible");
       const databasePath = path.join(tempDir, "andon.sqlite");
@@ -1387,18 +1387,180 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
             category: string;
             categoryReason: string;
           }>;
+          totals: { totalSessions: number };
         };
 
         const legacyItem = payload.sessions.find((item) => item.session.id === "legacy-visible-session");
-        assert.ok(legacyItem);
-        assert.equal(legacyItem?.category, "degraded_active");
-        assert.equal(legacyItem?.categoryReason, "missing_runtime_signal");
-        assert.equal(legacyItem?.status.status, "blocked");
-        assert.match(legacyItem?.status.explanation ?? "", /runtime/i);
+        assert.equal(legacyItem, undefined);
+        assert.equal(payload.sessions.some((item) => item.session.id === "runtime-session"), true);
+        assert.equal(payload.totals.totalSessions, 1);
       } finally {
         database.close();
         httpServer.close();
       }
+    }
+  },
+  {
+    name: "Andon fleet resolves runtime objectives and unknown agent identity from runtime metadata",
+    run: async () => {
+      const tempDir = makeTempDir("andon-fleet-runtime-objective-identity");
+      const databasePath = path.join(tempDir, "andon.sqlite");
+      createDatabase(databasePath);
+      const database = new DatabaseSync(databasePath);
+      const httpServer = createServer(createAndonHandler(database));
+
+      try {
+        httpServer.listen(0, "127.0.0.1");
+        await once(httpServer, "listening");
+        const address = httpServer.address();
+        if (!address || typeof address === "string") {
+          throw new Error("Could not determine the Andon API test port");
+        }
+        const port = address.port;
+        const now = new Date().toISOString();
+
+        upsertRuntimeSession(database, {
+          id: "runtime-objective-metadata",
+          runtimeId: "local",
+          agentName: "unknown",
+          repoName: "holistic",
+          repoPath: "D:/Projects/active/holistic",
+          status: "running",
+          activity: "editing",
+          startedAt: now,
+          updatedAt: now,
+          metadata: {
+            objective: "Objective from runtime metadata",
+            prompt: "Prompt that should not override objective"
+          }
+        });
+        upsertRuntimeSession(database, {
+          id: "runtime-objective-prompt",
+          runtimeId: "local",
+          agentName: "unknown",
+          repoName: "holistic",
+          repoPath: "D:/Projects/active/holistic",
+          status: "running",
+          activity: "editing",
+          startedAt: now,
+          updatedAt: now,
+          metadata: {
+            prompt: "Prompt-backed runtime objective"
+          }
+        });
+        upsertRuntimeSession(database, {
+          id: "runtime-objective-missing",
+          runtimeId: "local",
+          agentName: "unknown",
+          repoName: "holistic",
+          repoPath: "D:/Projects/active/holistic",
+          status: "running",
+          activity: "editing",
+          startedAt: now,
+          updatedAt: now,
+          metadata: {}
+        });
+
+        insertRuntimeEvent(database, {
+          id: "runtime-objective-event-1",
+          sessionId: "runtime-objective-metadata",
+          type: "session.started",
+          timestamp: now,
+          severity: "info",
+          message: "Runtime objective metadata session started."
+        });
+        insertRuntimeEvent(database, {
+          id: "runtime-objective-event-2",
+          sessionId: "runtime-objective-prompt",
+          type: "session.started",
+          timestamp: now,
+          severity: "info",
+          message: "Runtime prompt objective session started."
+        });
+        insertRuntimeEvent(database, {
+          id: "runtime-objective-event-3",
+          sessionId: "runtime-objective-missing",
+          type: "session.started",
+          timestamp: now,
+          severity: "info",
+          message: "Runtime missing objective session started."
+        });
+
+        const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
+        assert.equal(fleetResponse.status, 200);
+        const payload = (await fleetResponse.json()) as {
+          sessions: Array<{ session: { id: string; agentName: string; objective: string } }>;
+          recentEvents: Array<{ sessionId: string; agentName: string }>;
+        };
+
+        const sessionById = new Map(payload.sessions.map((item) => [item.session.id, item.session]));
+        assert.equal(sessionById.get("runtime-objective-metadata")?.objective, "Objective from runtime metadata");
+        assert.equal(sessionById.get("runtime-objective-prompt")?.objective, "Prompt-backed runtime objective");
+        assert.equal(sessionById.get("runtime-objective-missing")?.objective, "No runtime objective");
+        assert.equal(sessionById.get("runtime-objective-metadata")?.agentName, "unknown (source missing)");
+        assert.equal(sessionById.get("runtime-objective-prompt")?.agentName, "unknown (source missing)");
+        assert.equal(sessionById.get("runtime-objective-missing")?.agentName, "unknown (source missing)");
+        assert.equal(
+          payload.recentEvents.some((event) => event.sessionId === "runtime-objective-metadata" && event.agentName === "unknown (source missing)"),
+          true
+        );
+      } finally {
+        database.close();
+        httpServer.close();
+      }
+    }
+  },
+  {
+    name: "Andon ingest resets objective on session.started when no runtime objective is provided",
+    run: () => {
+      const tempDir = makeTempDir("andon-session-start-objective-reset");
+      const databasePath = path.join(tempDir, "andon.sqlite");
+      createDatabase(databasePath);
+      const database = new DatabaseSync(databasePath);
+
+      ingestEvents(database, [
+        {
+          id: "session-reset-start-1",
+          sessionId: "session-reset-objective",
+          runtime: "codex",
+          taskId: null,
+          type: "session.started",
+          phase: "execute",
+          source: "agent",
+          timestamp: "2026-04-18T13:00:00.000Z",
+          summary: "Initial start with explicit objective.",
+          payload: {
+            objective: "Initial objective from prior run",
+            agentName: "reset-agent",
+            runtime: "codex",
+            repoPath: "D:/Projects/active/holistic",
+            worktreePath: "D:/Projects/active/holistic"
+          }
+        },
+        {
+          id: "session-reset-start-2",
+          sessionId: "session-reset-objective",
+          runtime: "codex",
+          taskId: null,
+          type: "session.started",
+          phase: "execute",
+          source: "agent",
+          timestamp: "2026-04-18T13:01:00.000Z",
+          summary: "Restarted without objective payload.",
+          payload: {
+            agentName: "reset-agent",
+            runtime: "codex",
+            repoPath: "D:/Projects/active/holistic",
+            worktreePath: "D:/Projects/active/holistic"
+          }
+        }
+      ]);
+
+      const row = database
+        .prepare("SELECT objective FROM sessions WHERE id = ?")
+        .get("session-reset-objective") as { objective: string } | undefined;
+      assert.equal(row?.objective, "No runtime objective");
+      database.close();
     }
   },
   {

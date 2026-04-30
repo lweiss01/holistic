@@ -74,6 +74,23 @@ function ensureRuntimeTaskInput(body: unknown): RuntimeTaskInput {
   if (!runtimeId || !prompt || !repoPath || !repoName || !agentName) {
     throw new Error("runtimeId, prompt, repoPath, repoName, and agentName are required.");
   }
+  const metadata = candidate.metadata && typeof candidate.metadata === "object"
+    ? { ...(candidate.metadata as Record<string, unknown>) }
+    : {};
+  const topLevelObjective = typeof candidate.objective === "string" && candidate.objective.trim().length > 0
+    ? candidate.objective.trim()
+    : null;
+  const metadataPrompt = typeof metadata.prompt === "string" && metadata.prompt.trim().length > 0
+    ? metadata.prompt.trim()
+    : prompt;
+  const metadataObjective = typeof metadata.objective === "string" && metadata.objective.trim().length > 0
+    ? metadata.objective.trim()
+    : (topLevelObjective ?? metadataPrompt);
+  metadata.prompt = metadataPrompt;
+  metadata.objective = metadataObjective;
+  if (!(typeof metadata.agentName === "string" && metadata.agentName.trim().length > 0)) {
+    metadata.agentName = agentName;
+  }
 
   return {
     runtimeId,
@@ -85,9 +102,7 @@ function ensureRuntimeTaskInput(body: unknown): RuntimeTaskInput {
     worktreePath: candidate.worktreePath ? String(candidate.worktreePath) : undefined,
     constraints: Array.isArray(candidate.constraints) ? candidate.constraints.map(String) : undefined,
     contextFiles: Array.isArray(candidate.contextFiles) ? candidate.contextFiles.map(String) : undefined,
-    metadata: candidate.metadata && typeof candidate.metadata === "object"
-      ? (candidate.metadata as Record<string, unknown>)
-      : undefined
+    metadata
   };
 }
 
