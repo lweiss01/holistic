@@ -763,40 +763,43 @@ export async function getFleet(
     const runtimeItems = runtimeSessions
       .filter((runtimeSession) => !isTerminalRuntimeStatus(runtimeSession.status))
       .map((runtimeSession) => {
-      const session = runtimeSessionToSessionRecord(runtimeSession);
-      const runtimeEvents = getRuntimeEvents(database, runtimeSession.id);
-      const referenceTimestamp = runtimeEvents
-        .filter((event) => event.type !== "session.heartbeat")
-        .at(-1)?.timestamp ?? runtimeSession.updatedAt;
-      const freshness = heartbeatFreshness(referenceTimestamp, now);
-      const ageMs = signalAgeMs(referenceTimestamp, now);
-      const isMirror = isAndonIngestMirrorSession(runtimeSession);
-      const statusValue = isMirror
-        ? "blocked"
-        : runtimeStatusToFleetStatus(runtimeSession.status, freshness);
-      const supervision = buildRuntimeSupervision(runtimeEvents, statusValue);
-      const recommendation = buildRuntimeRecommendation(statusValue);
-      const category = runtimeCategory(runtimeSession, freshness);
+       const session = runtimeSessionToSessionRecord(runtimeSession);
+       const runtimeEvents = getRuntimeEvents(database, runtimeSession.id);
+       const isMirror = isAndonIngestMirrorSession(runtimeSession);
+       const hasNonHeartbeatRuntimeEvent = runtimeEvents.some((event) => event.type !== "session.heartbeat");
+       const missingRuntimeSignal = isMirror && !hasNonHeartbeatRuntimeEvent;
+       const referenceTimestamp = runtimeEvents
+         .filter((event) => event.type !== "session.heartbeat")
+         .at(-1)?.timestamp ?? runtimeSession.updatedAt;
+       const freshness = heartbeatFreshness(referenceTimestamp, now);
+       const ageMs = signalAgeMs(referenceTimestamp, now);
+       const baseStatus = runtimeStatusToFleetStatus(runtimeSession.status, freshness);
+       const statusValue = missingRuntimeSignal && baseStatus === "running"
+         ? "blocked"
+         : baseStatus;
+       const supervision = buildRuntimeSupervision(runtimeEvents, statusValue);
+       const recommendation = buildRuntimeRecommendation(statusValue);
+       const category = runtimeCategory(runtimeSession, freshness);
 
-      const itemBase: Omit<FleetSessionItem, "attentionRank"> = {
-        session,
-        activeTask: null,
-        status: {
-          status: statusValue,
-          phase: session.currentPhase,
-          explanation: isMirror
-            ? "Session has no runtime heartbeat (mirrored from legacy ingest)."
-            : `Runtime session is ${runtimeSession.status}.`,
-          evidence: runtimeEvents.length > 0
-            ? [runtimeEvents.at(-1)?.message ?? runtimeEvents.at(-1)?.type ?? "Runtime event received."]
-            : isMirror
-              ? ["No runtime session signal is active for this session."]
-              : ["No runtime events recorded yet."]
-        },
-        recommendation,
-        supervision,
-        ...category,
-        rawRuntimeStatus: runtimeSession.status,
+       const itemBase: Omit<FleetSessionItem, "attentionRank"> = {
+         session,
+         activeTask: null,
+         status: {
+           status: statusValue,
+           phase: session.currentPhase,
+           explanation: missingRuntimeSignal && statusValue === "blocked"
+             ? "No runtime heartbeat (mirrored from legacy ingest)."
+             : `Runtime session is ${runtimeSession.status}.`,
+           evidence: missingRuntimeSignal
+             ? ["No runtime session signal is active for this session."]
+             : runtimeEvents.length > 0
+               ? [runtimeEvents.at(-1)?.message ?? runtimeEvents.at(-1)?.type ?? "Runtime event received."]
+               : ["No runtime events recorded yet."]
+         },
+         recommendation,
+         supervision,
+         ...category,
+         rawRuntimeStatus: runtimeSession.status,
         lastSignalAt: referenceTimestamp,
         signalAgeMs: ageMs,
         freshness,

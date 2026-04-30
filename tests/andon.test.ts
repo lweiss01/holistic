@@ -695,7 +695,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         };
         assert.ok(Boolean(fleetPayload.generatedAt));
         assert.equal(fleetPayload.totals.totalSessions, 1);
-        assert.equal(fleetPayload.totals.activeAgents, 1);
+        assert.equal(fleetPayload.totals.activeAgents, 0);
         assert.ok(Array.isArray(fleetPayload.riskReasons));
         assert.equal(fleetPayload.sessions[0]?.session.id, "session-andon-mvp");
         assert.equal(typeof fleetPayload.sessions[0]?.attentionRank, "number");
