@@ -36,21 +36,6 @@ function repoName(repoPath: string): string {
   return repoPath.split(/[\\/]/).filter(Boolean).at(-1) ?? repoPath;
 }
 
-const MISSION_CONTROL_HOUSEKEEPING_OBJECTIVE_MARKERS = [
-  "passively capture repo activity",
-  "capture work and prepare a clean handoff",
-  "prepare a durable handoff",
-  "document the current work",
-  "pause at a natural breakpoint"
-];
-
-function isMissionControlHousekeepingObjective(objective: string): boolean {
-  const normalized = objective.trim().toLowerCase();
-  if (!normalized) {
-    return false;
-  }
-  return MISSION_CONTROL_HOUSEKEEPING_OBJECTIVE_MARKERS.some((marker) => normalized.includes(marker));
-}
 
 function inferAgentName(payload: Record<string, unknown>, existingAgentName: string | undefined): string {
   const direct = payload.agentName;
@@ -116,33 +101,14 @@ function runtimeSessionToSessionRecord(session: RuntimeSession): SessionRecord {
   };
 }
 
-function runtimeStatusToFleetStatus(
-  status: RuntimeSession["status"],
-  freshness: FleetSessionItem["heartbeatFreshness"]
-): SessionStatus {
+function runtimeStatusToFleetStatus(status: RuntimeSession["status"]): SessionStatus {
   if (status === "waiting_for_input") return "needs_input";
   if (status === "waiting_for_approval") return "awaiting_review";
   if (status === "blocked" || status === "failed") return "blocked";
   if (status === "completed") return "awaiting_review";
   if (status === "paused" || status === "cancelled") return "parked";
-  if (status === "running" || status === "starting") {
-    return freshness === "cold" ? "parked" : "running";
-  }
+  if (status === "running" || status === "starting") return "running";
   return "parked";
-}
-
-function hasRuntimeWaitingSignal(database: DatabaseSync, sessionId: string): boolean {
-  const session = database.prepare(
-    "SELECT status FROM runtime_sessions WHERE id = ? LIMIT 1"
-  ).get(sessionId) as { status?: string } | undefined;
-  return session?.status === "waiting_for_input";
-}
-
-function hasRuntimeSessionSignal(database: DatabaseSync, sessionId: string): boolean {
-  const session = database.prepare(
-    "SELECT id FROM runtime_sessions WHERE id = ? LIMIT 1"
-  ).get(sessionId) as { id?: string } | undefined;
-  return Boolean(session?.id);
 }
 
 function buildRuntimeRecommendation(status: SessionStatus): Recommendation {
@@ -211,9 +177,6 @@ function buildRuntimeSupervision(
   };
 }
 
-function heartbeatReferenceTimestamp(item: Pick<FleetSessionItem, "session" | "supervision">): string {
-  return item.supervision.lastMeaningfulEventAt ?? item.session.startedAt;
-}
 
 function mapSession(row: Record<string, unknown>): SessionRecord {
   return {
@@ -280,8 +243,6 @@ export const DEFAULT_TIMELINE_LIMIT = 500;
 export const MAX_TIMELINE_LIMIT = 10_000;
 /** Max events loaded for rules engines (status + recommendation tail). */
 export const MAX_EVENTS_FOR_RULES = 8000;
-/** Parked sessions older than this are removed from Mission Control fleet view. */
-export const MISSION_CONTROL_STALE_PARKED_MS = 60 * 60 * 1000;
 
 function countEventsForSession(database: DatabaseSync, sessionId: string): number {
   const row = database
@@ -396,10 +357,6 @@ function heartbeatFreshness(lastEventAt: string, now = Date.now()): "fresh" | "s
   return "cold";
 }
 
-function attentionScore(item: Omit<FleetSessionItem, "attentionRank">): number {
-  const parts = attentionScoreParts(item.status.status, item.recommendation.urgency, item.heartbeatFreshness);
-  return parts.status + parts.urgency + parts.freshness;
-}
 
 function attentionScoreParts(
   status: FleetSessionItem["status"]["status"],
@@ -432,26 +389,6 @@ function attentionScoreParts(
   };
 }
 
-function getRecentFleetEvents(database: DatabaseSync): FleetRecentEvent[] {
-  const rows = database.prepare(
-    `
-      SELECT
-        e.id,
-        e.session_id,
-        e.type,
-        e.summary,
-        e.created_at,
-        s.agent_name,
-        s.repo_path
-      FROM events e
-      JOIN sessions s ON s.id = e.session_id
-      ORDER BY e.created_at DESC
-      LIMIT 40
-    `
-  ).all() as Record<string, unknown>[];
-
-  return mapRecentFleetEvents(rows);
-}
 
 export function mapRecentFleetEvents(rows: Record<string, unknown>[]): FleetRecentEvent[] {
   return rows.map((row) => ({
@@ -465,22 +402,6 @@ export function mapRecentFleetEvents(rows: Record<string, unknown>[]): FleetRece
   }));
 }
 
-function getFleetHeatmap(database: DatabaseSync): FleetHeatmapCell[] {
-  const rows = database.prepare(
-    `
-      SELECT
-        strftime('%Y-%m-%dT%H:00:00.000Z', created_at) AS hour_start,
-        COUNT(*) AS c
-      FROM events
-      WHERE created_at >= datetime('now', '-24 hours')
-      GROUP BY hour_start
-      ORDER BY hour_start DESC
-      LIMIT 24
-    `
-  ).all() as Array<{ hour_start: string; c: number | bigint }>;
-
-  return mapFleetHeatmapRows(rows);
-}
 
 export function mapFleetHeatmapRows(
   rows: Array<{ hour_start: string; c: number | bigint }>
@@ -540,19 +461,19 @@ function summarizeRiskReasons(sessions: FleetSessionItem[]): Array<{ label: stri
 
 export async function getFleet(
   database: DatabaseSync,
-  holisticBridge: HolisticBridge
+  _holisticBridge: HolisticBridge
 ): Promise<FleetResponse> {
+  const now = Date.now();
   const runtimeSessions = listRuntimeSessions(database);
-  if (runtimeSessions.length > 0) {
-    const now = Date.now();
-    const runtimeItems = runtimeSessions.map((runtimeSession) => {
+  const fleetSessions = runtimeSessions
+    .map((runtimeSession) => {
       const session = runtimeSessionToSessionRecord(runtimeSession);
       const runtimeEvents = getRuntimeEvents(database, runtimeSession.id);
       const referenceTimestamp = runtimeEvents
         .filter((event) => event.type !== "session.heartbeat")
         .at(-1)?.timestamp ?? runtimeSession.updatedAt;
       const freshness = heartbeatFreshness(referenceTimestamp, now);
-      const statusValue = runtimeStatusToFleetStatus(runtimeSession.status, freshness);
+      const statusValue = runtimeStatusToFleetStatus(runtimeSession.status);
       const supervision = buildRuntimeSupervision(runtimeEvents, statusValue);
       const recommendation = buildRuntimeRecommendation(statusValue);
 
@@ -592,224 +513,12 @@ export async function getFleet(
         attentionBreakdown,
         attentionRank: attentionBreakdown.status + attentionBreakdown.urgency + attentionBreakdown.freshness
       };
-    });
-
-    const runtimeSessionIds = new Set(runtimeSessions.map((session) => session.id));
-    const legacyRows = database
-      .prepare("SELECT * FROM sessions ORDER BY ended_at IS NULL DESC, last_event_at DESC LIMIT 30")
-      .all() as Record<string, unknown>[];
-    const disconnectedLegacyItems = legacyRows
-      .map(mapSession)
-      .filter((session) => !runtimeSessionIds.has(session.id))
-      .filter((session) => !isMissionControlHousekeepingObjective(session.objective))
-      .map((session) => {
-        const freshness = heartbeatFreshness(session.lastEventAt, now);
-        const recommendation = buildRuntimeRecommendation("parked");
-        const itemBase: Omit<FleetSessionItem, "attentionRank"> = {
-          session,
-          activeTask: null,
-          status: {
-            status: "parked",
-            phase: session.currentPhase,
-            explanation: "Runtime feed is unavailable for this session.",
-            evidence: ["No runtime session signal is active for this session."]
-          },
-          recommendation,
-          supervision: {
-            lastMeaningfulEventAt: session.lastEventAt,
-            supervisionSeverity: "info"
-          },
-          heartbeatFreshness: freshness,
-          blockedReason: null,
-          recommendedAction: recommendation.actionLabel,
-          availableActions: availableFleetActions("parked"),
-          repoName: repoName(session.repoPath),
-          worktreeName: session.worktreePath !== session.repoPath
-            ? repoName(session.worktreePath)
-            : null
-        };
-        const attentionBreakdown = attentionScoreParts(
-          itemBase.status.status,
-          itemBase.recommendation.urgency,
-          itemBase.heartbeatFreshness
-        );
-        return {
-          ...itemBase,
-          attentionBreakdown,
-          attentionRank: attentionBreakdown.status + attentionBreakdown.urgency + attentionBreakdown.freshness
-        };
-      });
-
-    const fleetSessions = [...runtimeItems, ...disconnectedLegacyItems]
-      .filter((item) => {
-        const ageMs = now - new Date(item.supervision.lastMeaningfulEventAt ?? item.session.startedAt).getTime();
-        const staleBeyondWindow = ageMs > MISSION_CONTROL_STALE_PARKED_MS;
-        const isNonUrgentStale =
-          item.heartbeatFreshness === "cold"
-          && (item.status.status === "parked" || item.status.status === "running" || item.status.status === "queued");
-        return !(staleBeyondWindow && isNonUrgentStale);
-      })
-      .sort((a, b) => {
-        if (b.attentionRank !== a.attentionRank) {
-          return b.attentionRank - a.attentionRank;
-        }
-        return new Date(b.session.lastEventAt).getTime() - new Date(a.session.lastEventAt).getTime();
-      });
-
-    const completedToday = fleetSessions.filter((item) => {
-      if (!item.session.endedAt) {
-        return false;
-      }
-      return new Date(item.session.endedAt).toDateString() === new Date(now).toDateString();
-    }).length;
-
-    const totals = {
-      totalSessions: fleetSessions.length,
-      activeAgents: fleetSessions.filter((item) => item.status.status === "running" && item.heartbeatFreshness !== "cold").length,
-      needsHuman: fleetSessions.filter((item) => ["needs_input", "blocked", "awaiting_review", "at_risk"].includes(item.status.status)).length,
-      blocked: fleetSessions.filter((item) => item.status.status === "blocked").length,
-      atRisk: fleetSessions.filter((item) => item.status.status === "at_risk").length,
-      awaitingReview: fleetSessions.filter((item) => item.status.status === "awaiting_review").length,
-      completedToday
-    };
-
-    const runtimeRecentRows = database.prepare(
-      `
-        SELECT
-          e.id,
-          e.session_id,
-          e.type,
-          e.message AS summary,
-          e.timestamp AS created_at,
-          s.agent_name,
-          s.repo_path
-        FROM runtime_events e
-        JOIN runtime_sessions s ON s.id = e.session_id
-        ORDER BY e.timestamp DESC
-        LIMIT 40
-      `
-    ).all() as Record<string, unknown>[];
-
-    const recentEvents: FleetRecentEvent[] = runtimeRecentRows.map((row) => ({
-      id: String(row.id),
-      sessionId: String(row.session_id),
-      type: "agent.summary_emitted",
-      summary: row.summary ? String(row.summary) : String(row.type),
-      createdAt: String(row.created_at),
-      agentName: normalizeDisplayAgentName(String(row.agent_name)),
-      repoName: repoName(String(row.repo_path))
-    }));
-
-    const heatmapRows = database.prepare(
-      `
-        SELECT
-          strftime('%Y-%m-%dT%H:00:00.000Z', timestamp) AS hour_start,
-          COUNT(*) AS c
-        FROM runtime_events
-        WHERE timestamp >= datetime('now', '-24 hours')
-        GROUP BY hour_start
-        ORDER BY hour_start DESC
-        LIMIT 24
-      `
-    ).all() as Array<{ hour_start: string; c: number | bigint }>;
-
-    return {
-      generatedAt: new Date(now).toISOString(),
-      totals,
-      riskReasons: summarizeRiskReasons(fleetSessions),
-      sessions: fleetSessions,
-      recentEvents,
-      heatmap: mapFleetHeatmapRows(heatmapRows)
-    };
-  }
-
-  const rows = database
-    .prepare("SELECT * FROM sessions ORDER BY ended_at IS NULL DESC, last_event_at DESC LIMIT 30")
-    .all() as Record<string, unknown>[];
-
-  const now = Date.now();
-  const sessionDetails = await Promise.all(
-    rows.map(async (row) => {
-      const session = mapSession(row);
-      const detail = await buildSessionDetail(database, session, holisticBridge);
-      const runtimeSessionPresent = hasRuntimeSessionSignal(database, detail.session.id);
-      const runtimeConfirmsWaiting =
-        detail.status.status === "needs_input"
-          ? hasRuntimeWaitingSignal(database, detail.session.id)
-          : false;
-      const runtimeTruthMissing =
-        !runtimeSessionPresent
-        && (detail.status.status === "running" || detail.status.status === "queued" || detail.status.status === "needs_input");
-      const effectiveStatus = (detail.status.status === "needs_input" && !runtimeConfirmsWaiting) || runtimeTruthMissing
-        ? {
-          ...detail.status,
-          status: "parked" as const,
-          explanation: runtimeTruthMissing
-            ? "Session has no runtime heartbeat and is treated as non-flowing."
-            : "Session is not currently waiting according to runtime state.",
-          evidence: runtimeTruthMissing
-            ? ["No runtime session signal is active for this session."]
-            : ["No runtime waiting_for_input signal is active for this session."]
-        }
-        : detail.status;
-      const effectiveRecommendation = detail.status.status === "needs_input" && !runtimeConfirmsWaiting
-        ? buildRuntimeRecommendation("parked")
-        : detail.recommendation;
-      const worktreeName = detail.session.worktreePath !== detail.session.repoPath
-        ? repoName(detail.session.worktreePath)
-        : null;
-      const itemBase: Omit<FleetSessionItem, "attentionRank"> = {
-        session: detail.session,
-        activeTask: detail.activeTask,
-        status: effectiveStatus,
-        recommendation: effectiveRecommendation,
-        supervision: detail.supervision,
-        heartbeatFreshness: heartbeatFreshness(
-          detail.supervision.lastMeaningfulEventAt ?? detail.session.lastEventAt,
-          now
-        ),
-        blockedReason: effectiveStatus.status === "blocked" || effectiveStatus.status === "needs_input"
-          ? (effectiveStatus.evidence[0] ?? effectiveStatus.explanation)
-          : null,
-        recommendedAction: effectiveRecommendation.actionLabel,
-        availableActions: availableFleetActions(effectiveStatus.status),
-        repoName: repoName(detail.session.repoPath),
-        worktreeName
-      };
-      const attentionBreakdown = attentionScoreParts(
-        itemBase.status.status,
-        itemBase.recommendation.urgency,
-        itemBase.heartbeatFreshness
-      );
-
-      return {
-        ...itemBase,
-        attentionBreakdown,
-        attentionRank: attentionBreakdown.status + attentionBreakdown.urgency + attentionBreakdown.freshness
-      };
-    })
-  );
-
-  const fleetSessions = sessionDetails
-    .filter((item) => {
-      if (isMissionControlHousekeepingObjective(item.session.objective)) {
-        return false;
-      }
-      const ageMs = now - new Date(heartbeatReferenceTimestamp(item)).getTime();
-      const staleBeyondWindow = ageMs > MISSION_CONTROL_STALE_PARKED_MS;
-      const isNonUrgentStale =
-        item.heartbeatFreshness === "cold"
-        && (item.status.status === "parked" || item.status.status === "running" || item.status.status === "queued");
-      if (staleBeyondWindow && isNonUrgentStale) {
-        return false;
-      }
-      return true;
     })
     .sort((a, b) => {
-    if (b.attentionRank !== a.attentionRank) {
-      return b.attentionRank - a.attentionRank;
-    }
-    return new Date(b.session.lastEventAt).getTime() - new Date(a.session.lastEventAt).getTime();
+      if (b.attentionRank !== a.attentionRank) {
+        return b.attentionRank - a.attentionRank;
+      }
+      return new Date(b.session.lastEventAt).getTime() - new Date(a.session.lastEventAt).getTime();
     });
 
   const completedToday = fleetSessions.filter((item) => {
@@ -821,12 +530,7 @@ export async function getFleet(
 
   const totals = {
     totalSessions: fleetSessions.length,
-    activeAgents: fleetSessions.filter((item) => {
-      if (item.session.endedAt !== null || item.status.status === "parked") {
-        return false;
-      }
-      return item.heartbeatFreshness !== "cold";
-    }).length,
+    activeAgents: fleetSessions.filter((item) => item.status.status === "running").length,
     needsHuman: fleetSessions.filter((item) => ["needs_input", "blocked", "awaiting_review", "at_risk"].includes(item.status.status)).length,
     blocked: fleetSessions.filter((item) => item.status.status === "blocked").length,
     atRisk: fleetSessions.filter((item) => item.status.status === "at_risk").length,
@@ -834,13 +538,53 @@ export async function getFleet(
     completedToday
   };
 
+  const runtimeRecentRows = database.prepare(
+    `
+      SELECT
+        e.id,
+        e.session_id,
+        e.type,
+        e.message AS summary,
+        e.timestamp AS created_at,
+        s.agent_name,
+        s.repo_path
+      FROM runtime_events e
+      JOIN runtime_sessions s ON s.id = e.session_id
+      ORDER BY e.timestamp DESC
+      LIMIT 40
+    `
+  ).all() as Record<string, unknown>[];
+
+  const recentEvents: FleetRecentEvent[] = runtimeRecentRows.map((row) => ({
+    id: String(row.id),
+    sessionId: String(row.session_id),
+    type: "agent.summary_emitted",
+    summary: row.summary ? String(row.summary) : String(row.type),
+    createdAt: String(row.created_at),
+    agentName: normalizeDisplayAgentName(String(row.agent_name)),
+    repoName: repoName(String(row.repo_path))
+  }));
+
+  const heatmapRows = database.prepare(
+    `
+      SELECT
+        strftime('%Y-%m-%dT%H:00:00.000Z', timestamp) AS hour_start,
+        COUNT(*) AS c
+      FROM runtime_events
+      WHERE timestamp >= datetime('now', '-24 hours')
+      GROUP BY hour_start
+      ORDER BY hour_start DESC
+      LIMIT 24
+    `
+  ).all() as Array<{ hour_start: string; c: number | bigint }>;
+
   return {
     generatedAt: new Date(now).toISOString(),
     totals,
     riskReasons: summarizeRiskReasons(fleetSessions),
     sessions: fleetSessions,
-    recentEvents: getRecentFleetEvents(database),
-    heatmap: getFleetHeatmap(database)
+    recentEvents,
+    heatmap: mapFleetHeatmapRows(heatmapRows)
   };
 }
 
