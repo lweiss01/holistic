@@ -83,7 +83,7 @@ function makeFleetItem(overrides: Partial<FleetSessionItem> = {}): FleetSessionI
 
 const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
   {
-    name: "Andon Mission Control marks runtime-missing sessions as degraded with explicit why-now copy",
+    name: "Andon Mission Control does not degrade parked runtime-missing history rows",
     run: () => {
       const item = makeFleetItem({
         session: { id: "runtime-missing-1", lastEventAt: "2026-04-29T12:11:00.000Z" },
@@ -99,18 +99,37 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
       const [viewModel] = buildMissionSessionViewModels([item]);
       assert.ok(viewModel);
-      assert.equal(viewModel.isDegraded, true);
-      assert.equal(viewModel.degradedBadge, "Runtime signal missing");
-      assert.match(viewModel.whyNow, /runtime signal missing/i);
+      assert.equal(viewModel.isDegraded, false);
+      assert.equal(viewModel.degradedBadge, null);
     },
   },
   {
-    name: "Andon Mission Control labels cold parked sessions as heartbeat-degraded",
+    name: "Andon Mission Control treats parked runtime-mirror-missing copy as history",
+    run: () => {
+      const item = makeFleetItem({
+        session: { id: "legacy-mirror-1", lastEventAt: "2026-04-29T12:11:00.000Z" },
+        status: {
+          status: "parked",
+          explanation: "No linked runtime session; this row is legacy Andon telemetry only.",
+          evidence: ["Runtime mirror missing for this session id.", "Last legacy signal: agent.summary_emitted."],
+        },
+        heartbeatFreshness: "stale",
+        availableActions: ["inspect", "resume"],
+      });
+
+      const [viewModel] = buildMissionSessionViewModels([item]);
+      assert.ok(viewModel);
+      assert.equal(viewModel.isDegraded, false);
+      assert.equal(viewModel.degradedBadge, null);
+    },
+  },
+  {
+    name: "Andon Mission Control only labels cold running sessions as heartbeat-degraded",
     run: () => {
       const item = makeFleetItem({
         session: { id: "cold-running-1" },
         status: {
-          status: "parked",
+          status: "running",
           explanation: "Runtime session is running.",
           evidence: ["No runtime events recorded yet."],
         },
@@ -139,7 +158,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     },
   },
   {
-    name: "Andon Mission Control attention sorting keeps intervention sessions ahead of non-intervention ties",
+    name: "Andon Mission Control attention sorting keeps active sessions ahead of intervention ties",
     run: () => {
       const running = makeFleetItem({
         session: { id: "running-tie", lastEventAt: "2026-04-29T12:10:00.000Z" },
@@ -168,10 +187,65 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         repoFilter: "all",
         sortBy: "attention",
       });
-      assert.equal(ordered[0]?.id, "needs-input-tie");
+      assert.equal(ordered[0]?.id, "running-tie");
 
       const queue = buildAttentionQueue(ordered, 4);
       assert.equal(queue[0]?.id, "needs-input-tie");
+    },
+  },
+  {
+    name: "Andon Mission Control keeps active sessions first in attention sorting",
+    run: () => {
+      const active = makeFleetItem({
+        session: { id: "active-first", lastEventAt: "2026-04-29T12:11:00.000Z" },
+        status: { status: "running" },
+        attentionRank: 5,
+      });
+      const needsInput = makeFleetItem({
+        session: { id: "needs-input-second", lastEventAt: "2026-04-29T12:12:00.000Z" },
+        status: { status: "needs_input" },
+        attentionRank: 15,
+      });
+
+      const ordered = filterAndSortMissionSessionViewModels(buildMissionSessionViewModels([needsInput, active]), {
+        statusFilter: "all",
+        repoFilter: "all",
+        sortBy: "attention",
+      });
+      assert.equal(ordered[0]?.id, "active-first");
+      assert.equal(ordered[1]?.id, "needs-input-second");
+    },
+  },
+  {
+    name: "Andon Mission Control operational filter hides old non-operational rows",
+    run: () => {
+      const active = makeFleetItem({ session: { id: "active-operational" }, status: { status: "running" } });
+      const blocked = makeFleetItem({ session: { id: "blocked-operational" }, status: { status: "blocked" } });
+      const oldParked = makeFleetItem({
+        session: { id: "old-parked-non-operational" },
+        status: { status: "parked", explanation: "Session parked by operator", evidence: ["Completed last week"] },
+        heartbeatFreshness: "stale",
+      });
+      const runtimeMissingParked = makeFleetItem({
+        session: { id: "runtime-missing-history" },
+        status: {
+          status: "parked",
+          explanation: "No linked runtime session; this row is legacy Andon telemetry only.",
+          evidence: ["Runtime mirror missing for this session id."],
+        },
+        heartbeatFreshness: "cold",
+      });
+
+      const ordered = filterAndSortMissionSessionViewModels(buildMissionSessionViewModels([oldParked, runtimeMissingParked, blocked, active]), {
+        statusFilter: "operational",
+        repoFilter: "all",
+        sortBy: "attention",
+      });
+
+      assert.deepEqual(
+        ordered.map((item) => item.id),
+        ["active-operational", "blocked-operational"]
+      );
     },
   },
 ];

@@ -39,11 +39,14 @@ completed: 2026-04-29
 
 ## Verification
 
-- `npm run test:andon` now passes all Phase 01 RTM tests, including the new mixed-visibility regression.
-- Two unrelated pre-existing Andon failures remain:
-  - `Andon lastMeaningfulEvent skips idle pings but falls back to newest event`
-  - `Andon status Why keeps substantive work first and surfaces latest checkpoint when distinct`
-- `npm test` reports the same two existing failures and no new failures from this plan's changes.
+- `npm run test:andon` passes all Phase 01 RTM tests, including mixed runtime + disconnected legacy visibility.
+- `npm test` (full suite) passes as of 2026-04-29 execute-phase run.
+
+## Plan execution note — 2026-04-29 (`$gsd-execute-phase 1`)
+
+- Implemented `listLegacySessionsWithoutRuntimeMirror`, `buildDisconnectedLegacyFleetItem`, and `buildRuntimeMissingMirrorRecommendation` in `services/andon-api/src/repository.ts`; merged disconnected legacy rows into the runtime-present `getFleet` path after runtime-only filtering/sort.
+- Applied the same cold parked + one-hour stale filter used for runtime rows to disconnected legacy rows so stale legacy-only noise stays off the board.
+- Updated `tests/andon.test.ts`: mixed-fleet contract, checkpoint-noise legacy surfaces as parked below runtime attention.
 
 ## Self-Check: PASSED
 
