@@ -22,11 +22,15 @@ import {
   deriveStatus
 } from "../../../packages/andon-core/src/index.ts";
 import type { HolisticBridge } from "../../../packages/holistic-bridge-types/src/index.ts";
+import type { HolisticRuntimeEvent } from "../../../packages/runtime-core/src/index.ts";
 import {
   getRuntimeEvents,
-  listRuntimeSessions
+  getRuntimeSession,
+  insertRuntimeEvent,
+  listRuntimeSessions,
+  upsertRuntimeSession
 } from "./runtime-repository.ts";
-import type { RuntimeSession } from "../../../packages/runtime-core/src/index.ts";
+import type { RuntimeId, RuntimeSession } from "../../../packages/runtime-core/src/index.ts";
 
 function parseJson(text: string): Record<string, unknown> {
   return JSON.parse(text) as Record<string, unknown>;
@@ -165,6 +169,10 @@ function runtimeStatusToFleetStatus(
   return "parked";
 }
 
+function isTerminalRuntimeStatus(status: RuntimeSession["status"]): boolean {
+  return status === "completed" || status === "cancelled" || status === "failed";
+}
+
 function hasRuntimeWaitingSignal(database: DatabaseSync, sessionId: string): boolean {
   const session = database.prepare(
     "SELECT status FROM runtime_sessions WHERE id = ? LIMIT 1"
@@ -220,6 +228,82 @@ function buildRuntimeRecommendation(status: SessionStatus): Recommendation {
   };
 }
 
+function buildRuntimeMissingMirrorRecommendation(): Recommendation {
+  return {
+    urgency: "low",
+    title: "Legacy session without runtime mirror",
+    actionLabel: "Inspect or connect runtime",
+    description:
+      "This Andon session has no linked runtime session; live status is disconnected and informational only."
+  };
+}
+
+function listLegacySessionsWithoutRuntimeMirror(database: DatabaseSync): SessionRecord[] {
+  const rows = database
+    .prepare(
+      `
+        SELECT s.*
+        FROM sessions s
+        WHERE s.ended_at IS NULL
+          AND NOT EXISTS (SELECT 1 FROM runtime_sessions r WHERE r.id = s.id)
+        ORDER BY s.last_event_at DESC
+        LIMIT 50
+      `
+    )
+    .all() as Record<string, unknown>[];
+  return rows.map(mapSession);
+}
+
+function buildDisconnectedLegacyFleetItem(
+  database: DatabaseSync,
+  session: SessionRecord,
+  now: number
+): FleetSessionItem {
+  const events = getEventsTailForRules(database, session.id, 200);
+  const statusValue: SessionStatus = "parked";
+  const recommendation = buildRuntimeMissingMirrorRecommendation();
+  const supervision = buildSupervisionSignals(events, statusValue, recommendation.urgency);
+  const referenceTimestamp = supervision.lastMeaningfulEventAt ?? session.lastEventAt;
+  const freshness = heartbeatFreshness(referenceTimestamp, now);
+  const itemBase: Omit<FleetSessionItem, "attentionRank"> = {
+    session,
+    activeTask: null,
+    status: {
+      status: statusValue,
+      phase: session.currentPhase,
+      explanation: "No linked runtime session; this row is legacy Andon telemetry only.",
+      evidence: [
+        "Runtime mirror missing for this session id.",
+        events.length > 0
+          ? `Last legacy signal: ${events.at(-1)?.type ?? "event"}.`
+          : "No legacy events recorded."
+      ]
+    },
+    recommendation,
+    supervision,
+    heartbeatFreshness: freshness,
+    blockedReason: null,
+    recommendedAction: recommendation.actionLabel,
+    availableActions: availableFleetActions(statusValue),
+    repoName: session.repoPath.split(/[\\/]/).filter(Boolean).at(-1) ?? session.repoPath,
+    worktreeName: session.worktreePath !== session.repoPath
+      ? (session.worktreePath.split(/[\\/]/).filter(Boolean).at(-1) ?? session.worktreePath)
+      : null
+  };
+
+  const attentionBreakdown = attentionScoreParts(
+    itemBase.status.status,
+    itemBase.recommendation.urgency,
+    itemBase.heartbeatFreshness
+  );
+
+  return {
+    ...itemBase,
+    attentionBreakdown,
+    attentionRank: attentionBreakdown.status + attentionBreakdown.urgency + attentionBreakdown.freshness
+  };
+}
+
 function buildRuntimeSupervision(
   runtimeEvents: Array<{ timestamp: string; type: string }>,
   status: SessionStatus
@@ -247,6 +331,15 @@ function buildRuntimeSupervision(
 
 function heartbeatReferenceTimestamp(item: Pick<FleetSessionItem, "session" | "supervision">): string {
   return item.supervision.lastMeaningfulEventAt ?? item.session.startedAt;
+}
+
+function isPrimaryMissionControlItem(item: FleetSessionItem, now: number): boolean {
+  const ageMs = now - new Date(item.supervision.lastMeaningfulEventAt ?? item.session.startedAt).getTime();
+  const staleBeyondWindow = ageMs > MISSION_CONTROL_STALE_PARKED_MS;
+  if (staleBeyondWindow && item.heartbeatFreshness === "cold") {
+    return false;
+  }
+  return true;
 }
 
 function mapSession(row: Record<string, unknown>): SessionRecord {
@@ -579,7 +672,9 @@ export async function getFleet(
   const runtimeSessions = listRuntimeSessions(database);
   if (runtimeSessions.length > 0) {
     const now = Date.now();
-    const runtimeItems = runtimeSessions.map((runtimeSession) => {
+    const runtimeItems = runtimeSessions
+      .filter((runtimeSession) => !isTerminalRuntimeStatus(runtimeSession.status))
+      .map((runtimeSession) => {
       const session = runtimeSessionToSessionRecord(runtimeSession);
       const runtimeEvents = getRuntimeEvents(database, runtimeSession.id);
       const referenceTimestamp = runtimeEvents
@@ -626,17 +721,10 @@ export async function getFleet(
         attentionBreakdown,
         attentionRank: attentionBreakdown.status + attentionBreakdown.urgency + attentionBreakdown.freshness
       };
-    });
+      });
 
     const fleetSessions = [...runtimeItems]
-      .filter((item) => {
-        const ageMs = now - new Date(item.supervision.lastMeaningfulEventAt ?? item.session.startedAt).getTime();
-        const staleBeyondWindow = ageMs > MISSION_CONTROL_STALE_PARKED_MS;
-        const isNonUrgentStale =
-          item.heartbeatFreshness === "cold"
-          && (item.status.status === "parked" || item.status.status === "running" || item.status.status === "queued");
-        return !(staleBeyondWindow && isNonUrgentStale);
-      })
+      .filter((item) => isPrimaryMissionControlItem(item, now))
       .sort((a, b) => {
         if (b.attentionRank !== a.attentionRank) {
           return b.attentionRank - a.attentionRank;
@@ -644,7 +732,21 @@ export async function getFleet(
         return new Date(b.session.lastEventAt).getTime() - new Date(a.session.lastEventAt).getTime();
       });
 
-    const completedToday = fleetSessions.filter((item) => {
+    const legacySessions = listLegacySessionsWithoutRuntimeMirror(database);
+    const legacyFleetItems = legacySessions.map((session) =>
+      buildDisconnectedLegacyFleetItem(database, session, now)
+    );
+
+    const legacyFleetFiltered = legacyFleetItems.filter((item) => isPrimaryMissionControlItem(item, now));
+
+    const fleetSessionsCombined = [...fleetSessions, ...legacyFleetFiltered].sort((a, b) => {
+      if (b.attentionRank !== a.attentionRank) {
+        return b.attentionRank - a.attentionRank;
+      }
+      return new Date(b.session.lastEventAt).getTime() - new Date(a.session.lastEventAt).getTime();
+    });
+
+    const completedToday = fleetSessionsCombined.filter((item) => {
       if (!item.session.endedAt) {
         return false;
       }
@@ -652,12 +754,14 @@ export async function getFleet(
     }).length;
 
     const totals = {
-      totalSessions: fleetSessions.length,
-      activeAgents: fleetSessions.filter((item) => item.status.status === "running").length,
-      needsHuman: fleetSessions.filter((item) => ["needs_input", "blocked", "awaiting_review", "at_risk"].includes(item.status.status)).length,
-      blocked: fleetSessions.filter((item) => item.status.status === "blocked").length,
-      atRisk: fleetSessions.filter((item) => item.status.status === "at_risk").length,
-      awaitingReview: fleetSessions.filter((item) => item.status.status === "awaiting_review").length,
+      totalSessions: fleetSessionsCombined.length,
+      activeAgents: fleetSessionsCombined.filter((item) => item.status.status === "running").length,
+      needsHuman: fleetSessionsCombined.filter((item) =>
+        ["needs_input", "blocked", "awaiting_review", "at_risk"].includes(item.status.status)
+      ).length,
+      blocked: fleetSessionsCombined.filter((item) => item.status.status === "blocked").length,
+      atRisk: fleetSessionsCombined.filter((item) => item.status.status === "at_risk").length,
+      awaitingReview: fleetSessionsCombined.filter((item) => item.status.status === "awaiting_review").length,
       completedToday
     };
 
@@ -712,8 +816,8 @@ export async function getFleet(
     return {
       generatedAt: new Date(now).toISOString(),
       totals,
-      riskReasons: summarizeRiskReasons(fleetSessions),
-      sessions: fleetSessions,
+      riskReasons: summarizeRiskReasons(fleetSessionsCombined),
+      sessions: fleetSessionsCombined,
       recentEvents,
       heatmap: mapFleetHeatmapRows(heatmapRows)
     };
@@ -859,6 +963,98 @@ function ensureSession(database: DatabaseSync, event: AgentEvent): void {
     );
 }
 
+function phaseToMirrorRuntimeActivity(phase: SessionRecord["currentPhase"]): RuntimeSession["activity"] {
+  if (phase === "plan") {
+    return "planning";
+  }
+  if (phase === "research") {
+    return "reading";
+  }
+  if (phase === "test") {
+    return "running_tests";
+  }
+  return "editing";
+}
+
+function coerceMirrorRuntimeId(session: SessionRecord): RuntimeId {
+  if (session.runtime === "codex" || session.runtime === "openharness") {
+    return session.runtime;
+  }
+  return "local";
+}
+
+function legacyAgentEventToMirrorRuntimeStatus(event: AgentEvent): RuntimeSession["status"] {
+  if (event.type === "session.ended") {
+    return "completed";
+  }
+  if (event.type === "agent.question_asked") {
+    const payload = event.payload as Record<string, unknown>;
+    if (payload.resolved === false) {
+      return "waiting_for_input";
+    }
+  }
+  return "running";
+}
+
+/**
+ * When legacy Andon events arrive via POST /events, upsert a minimal runtime_sessions row so Mission Control
+ * has a real fleet card without requiring a separate runtime-service task start. Rows are tagged in metadata
+ * so runtime-service (non-mirror) sessions are never overwritten.
+ */
+function maybeUpsertMirrorRuntimeFromLegacyEvent(database: DatabaseSync, event: AgentEvent): void {
+  const sessionRow = getSessionRow(database, event.sessionId);
+  if (!sessionRow) {
+    return;
+  }
+
+  const existingRt = getRuntimeSession(database, event.sessionId);
+  if (existingRt && existingRt.metadata?.andonIngestMirror !== true) {
+    return;
+  }
+
+  const status = legacyAgentEventToMirrorRuntimeStatus(event);
+  const activity = phaseToMirrorRuntimeActivity(sessionRow.currentPhase);
+  const completedAt = status === "completed" ? event.timestamp : undefined;
+
+  const metadata: Record<string, unknown> = {
+    andonIngestMirror: true,
+    source: "andon.ingest.mirror",
+    objective: sessionRow.objective,
+    prompt: sessionRow.objective,
+    lastLegacyEventType: event.type
+  };
+
+  const runtimeSession: RuntimeSession = {
+    id: sessionRow.id,
+    runtimeId: coerceMirrorRuntimeId(sessionRow),
+    agentName: sessionRow.agentName,
+    repoName: repoName(sessionRow.repoPath),
+    repoPath: sessionRow.repoPath,
+    worktreePath: sessionRow.worktreePath,
+    branch: undefined,
+    status,
+    activity,
+    pid: existingRt?.pid,
+    startedAt: sessionRow.startedAt,
+    updatedAt: event.timestamp,
+    completedAt,
+    metadata
+  };
+
+  upsertRuntimeSession(database, runtimeSession);
+
+  const rtEvent: HolisticRuntimeEvent = {
+    id: `mirror-evt-${event.id}`,
+    sessionId: sessionRow.id,
+    type: "session.heartbeat",
+    timestamp: event.timestamp,
+    message: `Legacy ingest: ${event.type}${event.summary ? ` — ${event.summary}` : ""}`,
+    activity,
+    payload: { legacyEventId: event.id, legacyEventType: event.type }
+  };
+  insertRuntimeEvent(database, rtEvent);
+}
+
 function upsertTask(database: DatabaseSync, event: AgentEvent): void {
   if (!event.taskId) {
     return;
@@ -935,6 +1131,8 @@ export function ingestEvents(database: DatabaseSync, events: AgentEvent[]): { in
         JSON.stringify(event.payload ?? {}),
         event.timestamp
       );
+
+      maybeUpsertMirrorRuntimeFromLegacyEvent(database, event);
     }
 
     database.exec("COMMIT");

@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:net";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
@@ -12,6 +12,8 @@ const windowsShell = process.platform === "win32"
   : null;
 const apiUrl = process.env.ANDON_API_BASE_URL ?? "http://127.0.0.1:4318";
 const dashboardPreferredPort = Number(process.env.ANDON_DASHBOARD_PORT ?? "5173");
+const runtimePreferredPort = Number(process.env.RUNTIME_SERVICE_PORT ?? "4320");
+const defaultAndonDbPath = process.env.ANDON_DB_PATH ?? join(repoRoot, "services", "andon-api", "data", "andon.sqlite");
 
 function parseApiPort(urlString) {
   try {
@@ -87,8 +89,21 @@ async function isApiHealthy(url) {
   }
 }
 
-async function runMigrate() {
-  const migrate = spawnLogged(process.execPath, ["scripts/andon-migrate.mjs"], {}, "migrate");
+async function isRuntimeServiceHealthy(port) {
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/health`);
+    if (!response.ok) {
+      return false;
+    }
+    const payload = await response.json();
+    return payload?.ok === true && payload?.service === "runtime-service";
+  } catch {
+    return false;
+  }
+}
+
+async function runMigrate(env) {
+  const migrate = spawnLogged(process.execPath, ["scripts/andon-migrate.mjs"], { env }, "migrate");
   await waitForExit(migrate, "andon:db:migrate");
 }
 
@@ -138,6 +153,8 @@ function getAndonCommandPids() {
       "$rows = Get-CimInstance Win32_Process | Where-Object {",
       "  $_.CommandLine -and (",
       "    $_.CommandLine -match 'services[\\\\/]andon-api[\\\\/]src[\\\\/]server\\\\.ts' -or",
+      "    $_.CommandLine -match 'services[\\\\/]runtime-service[\\\\/]src[\\\\/]server\\\\.ts' -or",
+      "    $_.CommandLine -match 'scripts[\\\\/]andon-runtime-writer\\\\.mjs' -or",
       "    $_.CommandLine -match 'apps[\\\\/]andon-dashboard' -or",
       "    $_.CommandLine -match 'scripts[\\\\/]andon-dev\\\\.mjs'",
       "  )",
@@ -151,7 +168,7 @@ function getAndonCommandPids() {
       .filter((value) => Number.isInteger(value) && value > 0);
   }
 
-  const result = spawnSync("sh", ["-lc", "ps -ax -o pid=,command= | rg \"andon-api/src/server.ts|apps/andon-dashboard|scripts/andon-dev.mjs\""], { encoding: "utf8" });
+  const result = spawnSync("sh", ["-lc", "ps -ax -o pid=,command= | rg \"andon-api/src/server.ts|runtime-service/src/server.ts|scripts/andon-runtime-writer.mjs|apps/andon-dashboard|scripts/andon-dev.mjs\""], { encoding: "utf8" });
   if (result.status !== 0) {
     return [];
   }
@@ -195,19 +212,24 @@ async function isPortFree(port) {
   });
 }
 
-async function preflightCleanup(apiPort, dashboardPort) {
+async function preflightCleanup(apiPort, dashboardPort, runtimePort) {
   const apiFreeBefore = await isPortFree(apiPort);
   const dashboardFreeBefore = await isPortFree(dashboardPort);
+  const runtimeFreeBefore = await isPortFree(runtimePort);
   if (!apiFreeBefore) {
     console.log(`[preflight] Port ${apiPort} is already occupied.`);
   }
   if (!dashboardFreeBefore) {
     console.log(`[preflight] Port ${dashboardPort} is already occupied.`);
   }
+  if (!runtimeFreeBefore) {
+    console.log(`[preflight] Port ${runtimePort} is already occupied.`);
+  }
 
   const candidatePids = unique([
     ...getListeningPidsOnPort(apiPort),
     ...getListeningPidsOnPort(dashboardPort),
+    ...getListeningPidsOnPort(runtimePort),
     ...getAndonCommandPids()
   ]).filter((pid) => pid !== process.pid);
 
@@ -236,10 +258,12 @@ async function preflightCleanup(apiPort, dashboardPort) {
 
   const apiFreeAfter = await isPortFree(apiPort);
   const dashboardFreeAfter = await isPortFree(dashboardPort);
-  if (!apiFreeAfter || !dashboardFreeAfter) {
+  const runtimeFreeAfter = await isPortFree(runtimePort);
+  if (!apiFreeAfter || !dashboardFreeAfter || !runtimeFreeAfter) {
     const blockedPorts = [
       !apiFreeAfter ? apiPort : null,
-      !dashboardFreeAfter ? dashboardPort : null
+      !dashboardFreeAfter ? dashboardPort : null,
+      !runtimeFreeAfter ? runtimePort : null
     ].filter(Boolean);
     console.warn(`[preflight] Port(s) still occupied after cleanup: ${blockedPorts.join(", ")}.`);
   }
@@ -247,21 +271,29 @@ async function preflightCleanup(apiPort, dashboardPort) {
 
 async function main() {
   const apiPort = parseApiPort(apiUrl);
+  const sharedAndonEnv = {
+    ...process.env,
+    HOLISTIC_REPO: process.env.HOLISTIC_REPO ?? repoRoot,
+    ANDON_DB_PATH: defaultAndonDbPath,
+  };
+
   console.log("Andon dev startup");
   console.log(`Repo root      : ${repoRoot}`);
   console.log(`API base URL   : ${apiUrl}`);
   console.log(`API port       : ${apiPort}`);
+  console.log(`Runtime port   : ${runtimePreferredPort}`);
+  console.log(`ANDON_DB_PATH  : ${defaultAndonDbPath}`);
   console.log(`Dashboard port : ${dashboardPreferredPort}`);
   console.log("");
 
-  await preflightCleanup(apiPort, dashboardPreferredPort);
-  await runMigrate();
+  await preflightCleanup(apiPort, dashboardPreferredPort, runtimePreferredPort);
+  await runMigrate(sharedAndonEnv);
 
-  const children = [];
+  const managedChildren = [];
   const stopAll = () => {
-    for (const child of children) {
-      if (!child.killed) {
-        child.kill("SIGTERM");
+    for (const { proc } of managedChildren) {
+      if (!proc.killed) {
+        proc.kill("SIGTERM");
       }
     }
   };
@@ -277,15 +309,37 @@ async function main() {
       process.execPath,
       ["--experimental-strip-types", "services/andon-api/src/server.ts"],
       {
-        env: {
-          ...process.env,
-          HOLISTIC_REPO: process.env.HOLISTIC_REPO ?? repoRoot,
-        },
+        env: sharedAndonEnv,
       },
       "api"
     );
-    children.push(api);
+    managedChildren.push({ proc: api, label: "api" });
   }
+
+  const runtimeAlreadyRunning = await isRuntimeServiceHealthy(runtimePreferredPort);
+  if (runtimeAlreadyRunning) {
+    console.log(`[runtime] Reusing existing runtime service on port ${runtimePreferredPort}`);
+  } else {
+    const runtime = spawnLogged(
+      process.execPath,
+      ["--experimental-strip-types", "services/runtime-service/src/server.ts"],
+      {
+        env: sharedAndonEnv,
+      },
+      "runtime"
+    );
+    managedChildren.push({ proc: runtime, label: "runtime" });
+  }
+
+  const runtimeWriter = spawnLogged(
+    process.execPath,
+    ["scripts/andon-runtime-writer.mjs"],
+    {
+      env: sharedAndonEnv,
+    },
+    "runtime-writer"
+  );
+  managedChildren.push({ proc: runtimeWriter, label: "runtime-writer" });
 
   let resolvedDashboardUrl = null;
   const dashboard = spawnLogged(
@@ -296,7 +350,7 @@ async function main() {
     {
       cwd: dashboardRoot,
       env: {
-        ...process.env,
+        ...sharedAndonEnv,
         VITE_ANDON_API_BASE_URL: process.env.VITE_ANDON_API_BASE_URL ?? apiUrl,
       },
     },
@@ -309,16 +363,17 @@ async function main() {
       }
     }
   );
-  children.push(dashboard);
+  managedChildren.push({ proc: dashboard, label: "dashboard" });
 
   console.log("");
   console.log("Dashboard UI   : waiting for Vite local URL...");
   console.log(`Backend health : ${apiUrl}/health`);
+  console.log(`Runtime health : http://127.0.0.1:${runtimePreferredPort}/health`);
+  console.log(`Runtime writer : holistic active-session observer`);
+  console.log(`Andon DB health: ${apiUrl}/health/andon`);
   console.log("");
 
-  await Promise.race(children.map((child, index) =>
-    waitForExit(child, index === 0 && !apiAlreadyRunning ? "api" : "dashboard")
-  ));
+  await Promise.race(managedChildren.map(({ proc, label }) => waitForExit(proc, label)));
   stopAll();
 }
 

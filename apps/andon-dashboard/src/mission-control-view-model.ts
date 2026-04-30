@@ -3,7 +3,7 @@ import type {
   SessionStatus,
 } from "../../../packages/andon-core/src/index.ts";
 
-export type MissionStatusFilter = "all" | SessionStatus;
+export type MissionStatusFilter = "all" | "operational" | SessionStatus;
 export type MissionSort = "attention" | "freshness" | "recent";
 
 export interface MissionSessionViewModel {
@@ -33,6 +33,8 @@ const RUNTIME_MISSING_MARKERS = [
   "runtime feed is unavailable",
   "no runtime heartbeat",
   "non-flowing",
+  "runtime mirror missing",
+  "no linked runtime session",
 ];
 
 function trimLine(value: string | null | undefined, max = 110): string {
@@ -52,6 +54,10 @@ export function isInterventionStatus(status: SessionStatus): boolean {
   return status === "blocked" || status === "needs_input" || status === "awaiting_review" || status === "at_risk";
 }
 
+export function isOperationalMissionSession(item: Pick<MissionSessionViewModel, "status" | "isDegraded">): boolean {
+  return item.status === "running" || isInterventionStatus(item.status) || item.isDegraded;
+}
+
 function freshnessSortValue(value: FleetSessionItem["heartbeatFreshness"]): number {
   if (value === "fresh") return 3;
   if (value === "stale") return 2;
@@ -64,17 +70,17 @@ function hasRuntimeMissingSignal(item: FleetSessionItem): boolean {
 }
 
 export function isMissionSessionDegraded(item: FleetSessionItem): boolean {
-  if (hasRuntimeMissingSignal(item)) {
+  if (hasRuntimeMissingSignal(item) && item.status.status !== "parked") {
     return true;
   }
-  return item.status.status === "parked" && item.heartbeatFreshness === "cold";
+  return item.status.status === "running" && item.heartbeatFreshness === "cold";
 }
 
 function degradedBadge(item: FleetSessionItem): string | null {
   if (!isMissionSessionDegraded(item)) {
     return null;
   }
-  if (hasRuntimeMissingSignal(item)) {
+  if (hasRuntimeMissingSignal(item) && item.status.status !== "parked") {
     return "Runtime signal missing";
   }
   return "Heartbeat degraded";
@@ -89,11 +95,11 @@ function freshnessLabel(item: FleetSessionItem): string {
 
 function missionWhyNow(item: FleetSessionItem): string {
   const reason = trimLine(item.blockedReason ?? item.status.evidence[0] ?? item.status.explanation, 120);
-  if (hasRuntimeMissingSignal(item)) {
+  if (hasRuntimeMissingSignal(item) && item.status.status !== "parked") {
     return "Runtime signal missing; session is treated as non-flowing.";
   }
   const coldRuntimeWithoutRecentHeartbeat =
-    item.status.status === "parked"
+    item.status.status === "running"
     && item.heartbeatFreshness === "cold"
     && (
       /runtime session is running/i.test(item.status.explanation)
@@ -121,6 +127,9 @@ function compareMissionViewModels(
   b: MissionSessionViewModel,
   sortBy: MissionSort,
 ): number {
+  const activeFirst = Number(b.status === "running") - Number(a.status === "running");
+  if (activeFirst !== 0) return activeFirst;
+
   if (sortBy === "freshness") {
     const byFreshness = freshnessSortValue(b.item.heartbeatFreshness) - freshnessSortValue(a.item.heartbeatFreshness);
     if (byFreshness !== 0) return byFreshness;
@@ -181,7 +190,10 @@ export function filterAndSortMissionSessionViewModels(
 ): MissionSessionViewModel[] {
   const { statusFilter, repoFilter, sortBy } = options;
   const filtered = items.filter((item) => {
-    if (statusFilter !== "all" && item.status !== statusFilter) {
+    if (statusFilter === "operational" && !isOperationalMissionSession(item)) {
+      return false;
+    }
+    if (statusFilter !== "all" && statusFilter !== "operational" && item.status !== statusFilter) {
       return false;
     }
     if (repoFilter !== "all" && item.repoName !== repoFilter) {

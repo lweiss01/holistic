@@ -25,6 +25,7 @@ import {
   type MissionStatusFilter,
   type MissionSessionViewModel,
 } from "./mission-control-view-model.ts";
+import { shouldShowRuntimeTelemetryGap } from "./runtime-telemetry-gap.ts";
 
 /* ───────────────────────────── hooks ───────────────────────────── */
 
@@ -312,8 +313,10 @@ function MissionControlPage() {
   const search = new URLSearchParams(window.location.search);
   const [statusFilter, setStatusFilter] = useState<MissionStatusFilter>(() => {
     const raw = search.get("status");
-    if (!raw) return "all";
-    return (Object.keys(statusLabels).includes(raw) ? raw : "all") as MissionStatusFilter;
+    if (!raw) return "operational";
+    return ((raw === "all" || raw === "operational" || Object.keys(statusLabels).includes(raw))
+      ? raw
+      : "operational") as MissionStatusFilter;
   });
   const [repoFilter, setRepoFilter] = useState<string>(() => search.get("repo") ?? "all");
   const [sortBy, setSortBy] = useState<MissionSort>(() => {
@@ -344,14 +347,6 @@ function MissionControlPage() {
   const riskReasons = data?.riskReasons ?? [];
   const recentEvents = data?.recentEvents ?? [];
   const heatmap = data?.heatmap ?? [];
-  const fleetInterventionCount = useMemo(
-    () => sessionViewModels.filter((item) => item.needsIntervention).length,
-    [sessionViewModels],
-  );
-  const fleetDegradedCount = useMemo(
-    () => sessionViewModels.filter((item) => item.isDegraded).length,
-    [sessionViewModels],
-  );
   const repoOptions = useMemo(
     () => ["all", ...Array.from(new Set(sessionViewModels.map((item) => item.repoName))).sort()],
     [sessionViewModels],
@@ -360,9 +355,13 @@ function MissionControlPage() {
     () => filterAndSortMissionSessionViewModels(sessionViewModels, { statusFilter, repoFilter, sortBy }),
     [sessionViewModels, statusFilter, repoFilter, sortBy],
   );
-  const visibleDegradedCount = useMemo(
-    () => visibleSessions.filter((item) => item.isDegraded).length,
-    [visibleSessions],
+  const operationalSessions = useMemo(
+    () => filterAndSortMissionSessionViewModels(sessionViewModels, { statusFilter: "operational", repoFilter, sortBy: "attention" }),
+    [sessionViewModels, repoFilter],
+  );
+  const activeNowSessions = useMemo(
+    () => operationalSessions.filter((item) => item.status === "running"),
+    [operationalSessions],
   );
   const visibleAttentionCount = useMemo(
     () => visibleSessions.filter((item) => item.needsIntervention || item.isDegraded).length,
@@ -376,7 +375,7 @@ function MissionControlPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (statusFilter === "all") params.delete("status");
+    if (statusFilter === "operational") params.delete("status");
     else params.set("status", statusFilter);
     if (repoFilter === "all") params.delete("repo");
     else params.set("repo", repoFilter);
@@ -437,20 +436,56 @@ function MissionControlPage() {
         </section>
       )}
 
+      {shouldShowRuntimeTelemetryGap(data) && (
+        <section className="panel mission-runtime-gap-banner" role="status" aria-live="polite">
+          <p className="kicker">Runtime telemetry gap</p>
+          <p>
+            <strong>Mission Control lists live rows from runtime data only.</strong> Recent activity shows legacy
+            Andon events in this database, but <code>runtime_sessions</code> is empty — usually because rows were
+            inserted outside <code>POST /events</code> (the ingest path that mirrors a runtime row) or the DB file
+            does not match <code>ANDON_DB_PATH</code> for your collector/API. Use one shared SQLite file and ingest via
+            the API, or run <code>npm run andon:dev</code> so services share the default DB.
+          </p>
+          <p className="muted">
+            Call <code>GET /health/andon</code> (or <code>npm run andon:health</code>) to inspect DB path and counts.
+          </p>
+        </section>
+      )}
+
       <section className="mission-kpis" aria-label="Mission summary strip">
+        <div className="mission-kpi"><dt>Operational rows</dt><dd>{operationalSessions.length}</dd></div>
+        <div className="mission-kpi"><dt>Active now</dt><dd>{activeNowSessions.length}</dd></div>
+        <div className="mission-kpi is-critical"><dt>Needs action</dt><dd>{operationalSessions.filter((item) => item.needsIntervention).length}</dd></div>
+        <div className="mission-kpi"><dt>Degraded runtime</dt><dd>{operationalSessions.filter((item) => item.isDegraded).length}</dd></div>
         <div className="mission-kpi"><dt>Visible rows</dt><dd>{visibleSessions.length}</dd></div>
-        <div className="mission-kpi is-critical"><dt>Act now (visible)</dt><dd>{visibleAttentionCount}</dd></div>
-        <div className="mission-kpi"><dt>Degraded (visible)</dt><dd>{visibleDegradedCount}</dd></div>
-        <div className="mission-kpi"><dt>Fleet sessions</dt><dd>{totals.totalSessions}</dd></div>
-        <div className="mission-kpi"><dt>Fleet active</dt><dd>{totals.activeAgents}</dd></div>
-        <div className="mission-kpi is-critical"><dt>Fleet needs human</dt><dd>{totals.needsHuman}</dd></div>
-        <div className="mission-kpi is-critical"><dt>Fleet blocked</dt><dd>{totals.blocked}</dd></div>
-        <div className="mission-kpi is-warning"><dt>Fleet at risk</dt><dd>{totals.atRisk}</dd></div>
-        <div className="mission-kpi"><dt>Fleet awaiting review</dt><dd>{totals.awaitingReview}</dd></div>
-        <div className="mission-kpi"><dt>Fleet degraded</dt><dd>{fleetDegradedCount}</dd></div>
-        <div className="mission-kpi"><dt>Fleet interventions</dt><dd>{fleetInterventionCount}</dd></div>
         <div className="mission-kpi"><dt>Completed today</dt><dd>{totals.completedToday}</dd></div>
       </section>
+      {activeNowSessions.length > 0 && (
+        <section className="panel command-lane" aria-label="Active now">
+          <div className="section-head">
+            <p className="kicker">Active now</p>
+            <span className="muted">{activeNowSessions.length} session(s)</span>
+          </div>
+          <div className="lane-table" role="table">
+            <div className="lane-row lane-head" role="row">
+              <span>State</span>
+              <span>Agent / repo</span>
+              <span>Current objective</span>
+              <span>Freshness</span>
+              <span>Inspect</span>
+            </div>
+            {activeNowSessions.map((item) => (
+              <div key={item.id} className="lane-row lane-item" role="row">
+                <div className="lane-cell lane-state"><StatusLine status={item.status} /></div>
+                <div className="lane-cell lane-agent"><strong>{item.agentName}</strong><small>{item.repoName}</small></div>
+                <div className="lane-cell">{item.headline}</div>
+                <div className="lane-cell lane-freshness"><span>{item.freshnessLabel}</span><small>{timeAgo(item.lastEventAt)}</small></div>
+                <div className="lane-cell lane-actions"><a className="text-link" href={`/session/${item.id}`}>Inspect</a></div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
       <section className="mission-scan-bands" aria-label="Attention split">
         <article className="scan-band is-act">
           <p>Act now</p>
@@ -526,6 +561,7 @@ function MissionControlPage() {
             <label>
               <span>Status</span>
               <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as MissionStatusFilter)}>
+                <option value="operational">Operational (default)</option>
                 <option value="all">All</option>
                 {Object.keys(statusLabels).map((status) => (
                   <option key={status} value={status}>
@@ -596,7 +632,6 @@ function MissionControlPage() {
             )}
           </div>
         </article>
-
         <aside className="mission-side-stack">
           <article className="panel">
             <p className="kicker">Top risk reasons</p>

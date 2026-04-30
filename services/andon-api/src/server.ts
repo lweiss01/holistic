@@ -11,6 +11,7 @@ import { DEFAULT_API_PORT } from "./config.ts";
 import { getDatabase } from "./db.ts";
 import { createFileHolisticBridge } from "./holistic/file-bridge.ts";
 import { mockHolisticBridge } from "./holistic/mock-bridge.ts";
+import { buildAndonHealthPayload } from "./andon-health.ts";
 import {
   getFleet,
   getActiveSession,
@@ -165,6 +166,14 @@ export function createAndonHandler(
 
       if (request.method === "GET" && url.pathname === "/health") {
         const result = jsonResponse({ ok: true, service: "andon-api" });
+        response.writeHead(result.status, result.headers);
+        response.end(result.body);
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/health/andon") {
+        const payload = buildAndonHealthPayload(database);
+        const result = jsonResponse(payload);
         response.writeHead(result.status, result.headers);
         response.end(result.body);
         return;
