@@ -313,6 +313,7 @@ export function createAndonHandler(
       response.writeHead(result.status, result.headers);
       response.end(result.body);
     } catch (error) {
+      console.error(error);
       const result = jsonResponse(
         {
           error: error instanceof Error ? error.message : "Unknown error"

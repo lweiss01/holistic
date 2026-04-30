@@ -1246,11 +1246,6 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         assert.ok(item?.status.evidence.some((line) => /no runtime session signal/i.test(line)));
         assert.equal(fleetPayload.totals.activeAgents, 0);
       } finally {
-        if (prev === undefined) {
-          delete process.env.ANDON_DB_PATH;
-        } else {
-          process.env.ANDON_DB_PATH = prev;
-        }
         database.close();
         httpServer.close();
       }
@@ -1727,7 +1722,10 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         });
 
         const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
-        assert.equal(fleetResponse.status, 200);
+        if (fleetResponse.status !== 200) {
+          const body = await fleetResponse.text();
+          throw new Error(`Expected 200 from /fleet, got ${fleetResponse.status}: ${body}`);
+        }
         const payload = (await fleetResponse.json()) as {
           sessions: Array<{ session: { id: string; agentName: string; objective: string } }>;
           recentEvents: Array<{ sessionId: string; agentName: string }>;
@@ -1857,7 +1855,10 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         });
 
         const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
-        assert.equal(fleetResponse.status, 200);
+        if (fleetResponse.status !== 200) {
+          const body = await fleetResponse.text();
+          throw new Error(`Expected 200 from /fleet, got ${fleetResponse.status}: ${body}`);
+        }
         const payload = (await fleetResponse.json()) as {
           sessions: Array<{ session: { id: string }; status: { status: string }; category: string }>;
           totals: { needsHuman: number; totalSessions: number };
@@ -2054,7 +2055,10 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         });
 
         const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
-        assert.equal(fleetResponse.status, 200);
+        if (fleetResponse.status !== 200) {
+          const body = await fleetResponse.text();
+          throw new Error(`Expected 200 from /fleet, got ${fleetResponse.status}: ${body}`);
+        }
         const fleetPayload = (await fleetResponse.json()) as {
           sessions: Array<{ session: { id: string } }>;
           totals: { totalSessions: number; activeAgents: number };
