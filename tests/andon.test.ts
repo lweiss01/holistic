@@ -279,7 +279,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         now: new Date("2026-04-18T15:01:00.000Z")
       });
 
-      assert.equal(status.status, "running");
+      assert.equal(status.status, "parked");
       assert.equal(status.evidence[0], "Implementing M007: Event Forwarding (Daemon & Wrappers)");
       assert.match(status.evidence[1] ?? "", /Latest Holistic checkpoint:/i);
       assert.match(status.evidence[1] ?? "", /M010/i);
@@ -737,12 +737,12 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           supervision: { lastMeaningfulEventAt: string | null; supervisionSeverity: string } | null;
         };
 
-        assert.equal(runningPayload.session?.lastSummary, collectorEvent.summary);
+        assert.equal(runningPayload.session?.lastSummary, summaryEvent.summary);
         assert.equal(runningPayload.status?.status, "running");
         assert.match(runningPayload.status?.explanation ?? "", /healthy/i);
         assert.equal(runningPayload.recommendation?.title, "Monitor the session");
         assert.equal(runningPayload.supervision?.supervisionSeverity, "low");
-        assert.equal(runningPayload.supervision?.lastMeaningfulEventAt, collectorEvent.timestamp);
+        assert.equal(runningPayload.supervision?.lastMeaningfulEventAt, summaryEvent.timestamp);
       } finally {
         database.close();
         httpServer.close();

@@ -1161,6 +1161,8 @@ export function checkpointState(rootDir: string, state: HolisticState, input: Ch
     sessionId: session.id,
     summary: input.reason || "Manual checkpoint saved",
     payload: { 
+      reason: input.reason || "manual",
+      status: session.latestStatus,
       checkpointCount: session.checkpointCount,
       objective: session.currentGoal || session.title,
       agentName: session.agent,

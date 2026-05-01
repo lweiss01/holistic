@@ -24,13 +24,23 @@ function sortEvents(events: AgentEvent[]): AgentEvent[] {
  */
 const EVIDENCE_SUMMARY_SKIP_TYPES: ReadonlySet<EventType> = new Set([
   "session.checkpoint_created",
+  "session.heartbeat",
   "session.idle_detected",
+  "holistic.checkpoint",
+  "context.branch_changed",
+  "context.environment_changed",
+  "telemetry.noop",
   "user.resumed"
 ]);
 
 const NON_OPERATIONAL_ACTIVITY_TYPES: ReadonlySet<EventType> = new Set([
   "session.checkpoint_created",
+  "session.heartbeat",
   "session.idle_detected",
+  "holistic.checkpoint",
+  "context.branch_changed",
+  "context.environment_changed",
+  "telemetry.noop",
   "user.resumed"
 ]);
 
@@ -203,7 +213,7 @@ export function deriveStatus(input: StatusInput): StatusDecision {
   const { sorted, unresolvedQuestion, failureEvents, scopeExpansion, outOfScopeChange } = scan;
   const latestEvent = sorted.at(-1);
   const latestOperationalEvent = [...sorted].reverse().find((event) => !NON_OPERATIONAL_ACTIVITY_TYPES.has(event.type));
-  const latestActivityEvent = latestEvent ?? latestOperationalEvent;
+  const latestActivityEvent = latestOperationalEvent ?? latestEvent;
   const phase = input.session.currentPhase;
 
   if (unresolvedQuestion) {

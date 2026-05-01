@@ -60,6 +60,11 @@ Thumbs.db
 
 # Dogfooding audit files (local-only planning artifacts)
 holistic-audit-fixes.md
+
+# Vibedrift local analysis artifacts
+.vibedrift/
+vibedrift-report.html
+vibedrift-report-detailed.html
 .next/
 build/
 __pycache__/

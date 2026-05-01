@@ -14,6 +14,11 @@ import type {
 const EXCLUDED_FROM_MEANINGFUL: ReadonlySet<EventType> = new Set([
   "session.idle_detected",
   "session.checkpoint_created",
+  "session.heartbeat",
+  "holistic.checkpoint",
+  "context.branch_changed",
+  "context.environment_changed",
+  "telemetry.noop",
   "user.resumed"
 ]);
 

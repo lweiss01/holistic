@@ -31,6 +31,11 @@ import {
   upsertRuntimeSession
 } from "./runtime-repository.ts";
 import type { RuntimeId, RuntimeSession } from "../../../packages/runtime-core/src/index.ts";
+import {
+  classifyReplayEventType,
+  normalizeAgentEventForReplayIntegrity,
+  replayDeduplicationKey
+} from "./event-integrity.ts";
 
 function parseJson(text: string): Record<string, unknown> {
   return JSON.parse(text) as Record<string, unknown>;
@@ -126,6 +131,13 @@ function mapRuntimeIdToAgentRuntime(runtimeId: string): AgentRuntime {
   if (runtimeId === "codex") return "codex";
   if (runtimeId === "openharness") return "openharness";
   return "unknown";
+}
+
+function runtimeEventTypeToFleetRecentType(type: string): FleetRecentEvent["type"] {
+  if (type === "agent.summary") {
+    return "agent.summary" as FleetRecentEvent["type"];
+  }
+  return type as FleetRecentEvent["type"];
 }
 
 function runtimeActivityToPhase(activity: RuntimeSession["activity"]): SessionRecord["currentPhase"] {
@@ -766,8 +778,8 @@ export async function getFleet(
        const session = runtimeSessionToSessionRecord(runtimeSession);
        const runtimeEvents = getRuntimeEvents(database, runtimeSession.id);
        const isMirror = isAndonIngestMirrorSession(runtimeSession);
-       const hasNonHeartbeatRuntimeEvent = runtimeEvents.some((event) => event.type !== "session.heartbeat");
-       const missingRuntimeSignal = isMirror && !hasNonHeartbeatRuntimeEvent;
+       const hasRuntimeHeartbeat = runtimeEvents.some((event) => event.type === "session.heartbeat");
+       const missingRuntimeSignal = isMirror && !hasRuntimeHeartbeat;
        const referenceTimestamp = runtimeEvents
          .filter((event) => event.type !== "session.heartbeat")
          .at(-1)?.timestamp ?? runtimeSession.updatedAt;
@@ -897,7 +909,7 @@ export async function getFleet(
       return {
         id: String(row.id),
         sessionId: String(row.session_id),
-        type: "agent.summary_emitted",
+        type: runtimeEventTypeToFleetRecentType(String(row.type)),
         summary: row.summary ? String(row.summary) : String(row.type),
         createdAt: String(row.created_at),
         agentName: resolveFleetAgentName({
@@ -1024,7 +1036,7 @@ function ensureSession(database: DatabaseSync, event: AgentEvent): void {
   const startedAt = String(payload.startedAt ?? existing?.startedAt ?? event.timestamp);
   const endedAt = event.type === "session.ended" ? event.timestamp : (existing?.endedAt ?? null);
   const lastSummary =
-    event.type === "agent.summary_emitted"
+    event.type === "agent.summary_emitted" || event.type === "agent.summary"
       ? (event.summary ?? String(payload.summary ?? ""))
       : (existing?.lastSummary ?? null);
 
@@ -1091,17 +1103,91 @@ function coerceMirrorRuntimeId(session: SessionRecord): RuntimeId {
   return "local";
 }
 
-function legacyAgentEventToMirrorRuntimeStatus(event: AgentEvent): RuntimeSession["status"] {
-  if (event.type === "session.ended") {
+function legacyAgentEventToMirrorRuntimeStatus(
+  event: AgentEvent,
+  existingRuntime: RuntimeSession | null
+): RuntimeSession["status"] {
+  if (event.type === "session.ended" || event.type === "session.completed") {
     return "completed";
   }
-  if (event.type === "agent.question_asked") {
+  if (event.type === "agent.question_asked" || event.type === "agent.question" || event.type === "input.requested") {
     const payload = event.payload as Record<string, unknown>;
     if (payload.resolved === false) {
       return "waiting_for_input";
     }
   }
+  if (
+    event.type === "session.heartbeat"
+    || event.type === "telemetry.noop"
+    || event.type === "holistic.checkpoint"
+    || event.type === "context.branch_changed"
+    || event.type === "context.environment_changed"
+  ) {
+    return existingRuntime?.status ?? "unknown";
+  }
   return "running";
+}
+
+function legacyEventToRuntimeEventType(type: AgentEvent["type"]): HolisticRuntimeEvent["type"] {
+  switch (type) {
+    case "session.started":
+    case "session.heartbeat":
+    case "session.paused":
+    case "session.resumed":
+    case "session.completed":
+    case "session.failed":
+    case "session.cancelled":
+    case "session.terminated":
+    case "task.started":
+    case "task.updated":
+    case "task.completed":
+    case "phase.changed":
+    case "tool.started":
+    case "tool.completed":
+    case "tool.failed":
+    case "command.started":
+    case "command.completed":
+    case "command.failed":
+    case "file.changed":
+    case "test.started":
+    case "test.completed":
+    case "test.failed":
+    case "input.requested":
+    case "input.resolved":
+    case "git.branch_created":
+    case "context.branch_changed":
+    case "context.environment_changed":
+    case "git.commit_created":
+    case "git.conflict_detected":
+    case "agent.question":
+    case "agent.summary":
+    case "agent.warning":
+    case "agent.blocked":
+    case "holistic.checkpoint":
+    case "telemetry.noop":
+      return type;
+    case "session.ended":
+      return "session.completed";
+    case "session.checkpoint_created":
+      return "holistic.checkpoint";
+    case "session.idle_detected":
+      return "telemetry.noop";
+    case "command.finished":
+      return "command.completed";
+    case "test.finished":
+      return "test.completed";
+    case "agent.question_asked":
+      return "agent.question";
+    case "agent.summary_emitted":
+      return "agent.summary";
+    case "agent.retry_pattern_detected":
+    case "agent.scope_expansion_detected":
+      return "agent.warning";
+    case "user.resumed":
+      return "user.action";
+    default:
+      return "telemetry.noop";
+  }
 }
 
 /**
@@ -1120,7 +1206,7 @@ function maybeUpsertMirrorRuntimeFromLegacyEvent(database: DatabaseSync, event: 
     return;
   }
 
-  const status = legacyAgentEventToMirrorRuntimeStatus(event);
+  const status = legacyAgentEventToMirrorRuntimeStatus(event, existingRt);
   const activity = phaseToMirrorRuntimeActivity(sessionRow.currentPhase);
   const completedAt = status === "completed" ? event.timestamp : undefined;
 
@@ -1154,11 +1240,15 @@ function maybeUpsertMirrorRuntimeFromLegacyEvent(database: DatabaseSync, event: 
   const rtEvent: HolisticRuntimeEvent = {
     id: `mirror-evt-${event.id}`,
     sessionId: sessionRow.id,
-    type: "session.heartbeat",
+    type: legacyEventToRuntimeEventType(event.type),
     timestamp: event.timestamp,
     message: `Legacy ingest: ${event.type}${event.summary ? ` — ${event.summary}` : ""}`,
     activity,
-    payload: { legacyEventId: event.id, legacyEventType: event.type }
+    payload: {
+      legacyEventId: event.id,
+      legacyEventType: event.type,
+      replayKind: classifyReplayEventType(event.type)
+    }
   };
   insertRuntimeEvent(database, rtEvent);
 }
@@ -1199,6 +1289,33 @@ function upsertTask(database: DatabaseSync, event: AgentEvent): void {
     );
 }
 
+function hasDuplicateReplayContextEvent(database: DatabaseSync, event: AgentEvent): boolean {
+  const key = replayDeduplicationKey(event);
+  if (!key) {
+    return false;
+  }
+
+  const rows = database
+    .prepare("SELECT type, summary, payload_json FROM events WHERE session_id = ? AND type = ?")
+    .all(event.sessionId, event.type) as Array<{ type: string; summary: string | null; payload_json: string }>;
+
+  return rows.some((row) => {
+    const existing: AgentEvent = {
+      id: "existing",
+      sessionId: event.sessionId,
+      taskId: null,
+      runtime: null,
+      type: String(row.type) as AgentEvent["type"],
+      phase: null,
+      source: "system",
+      timestamp: "",
+      summary: row.summary,
+      payload: parseJson(row.payload_json)
+    };
+    return replayDeduplicationKey(existing) === key;
+  });
+}
+
 export function ingestEvents(database: DatabaseSync, events: AgentEvent[]): { inserted: number } {
   database.exec("BEGIN");
 
@@ -1220,31 +1337,39 @@ export function ingestEvents(database: DatabaseSync, events: AgentEvent[]): { in
       `
     );
 
+    let inserted = 0;
     for (const event of events) {
-      ensureSession(database, event);
+      const normalizedEvent = normalizeAgentEventForReplayIntegrity(event);
 
-      if (event.type === "task.started" || event.type === "task.completed") {
-        upsertTask(database, event);
+      if (hasDuplicateReplayContextEvent(database, normalizedEvent)) {
+        continue;
+      }
+
+      ensureSession(database, normalizedEvent);
+
+      if (normalizedEvent.type === "task.started" || normalizedEvent.type === "task.completed") {
+        upsertTask(database, normalizedEvent);
       }
 
       insertEvent.run(
-        event.id,
-        event.sessionId,
-        event.taskId ?? null,
-        event.runtime ?? null,
-        event.type,
-        event.phase ?? null,
-        event.source,
-        event.summary ?? null,
-        JSON.stringify(event.payload ?? {}),
-        event.timestamp
+        normalizedEvent.id,
+        normalizedEvent.sessionId,
+        normalizedEvent.taskId ?? null,
+        normalizedEvent.runtime ?? null,
+        normalizedEvent.type,
+        normalizedEvent.phase ?? null,
+        normalizedEvent.source,
+        normalizedEvent.summary ?? null,
+        JSON.stringify(normalizedEvent.payload ?? {}),
+        normalizedEvent.timestamp
       );
 
-      maybeUpsertMirrorRuntimeFromLegacyEvent(database, event);
+      maybeUpsertMirrorRuntimeFromLegacyEvent(database, normalizedEvent);
+      inserted += 1;
     }
 
     database.exec("COMMIT");
-    return { inserted: events.length };
+    return { inserted };
   } catch (error) {
     database.exec("ROLLBACK");
     throw error;
