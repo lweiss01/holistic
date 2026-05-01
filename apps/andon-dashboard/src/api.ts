@@ -106,6 +106,7 @@ export interface SessionReplayEvent {
   summary: string | null;
   source: string;
   meaningful: boolean;
+  raw?: unknown;
 }
 
 export interface SessionReplayResponse {

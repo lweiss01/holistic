@@ -3,11 +3,16 @@ import assert from "node:assert/strict";
 import type { OperationalCategory } from "../packages/andon-core/src/index.ts";
 import type { MissionControlResponse, MissionControlSession } from "../apps/andon-dashboard/src/api.ts";
 import {
+  buildDetailProjectionViewModel,
+  buildHistorySessionViewModels,
   buildMissionControlBoardViewModel,
+  buildReplayViewModel,
   buildMissionSessionViewModels,
   getCategoryPresentation,
+  replayEventDisplayKind,
   MISSION_LANES,
 } from "../apps/andon-dashboard/src/mission-control-view-model.ts";
+import type { SessionReplayResponse } from "../apps/andon-dashboard/src/api.ts";
 
 function makeMissionSession(
   category: OperationalCategory,
@@ -190,6 +195,125 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
       assert.equal(board.visibleSessions.length, 0);
       assert.equal(MISSION_LANES.some((lane) => lane.categories.includes("historical")), false);
+    },
+  },
+  {
+    name: "Andon History renders historical sessions only",
+    run: () => {
+      const historical = makeMissionSession("historical", {
+        session: { id: "history-1", startedAt: "2026-04-29T12:00:00.000Z", endedAt: "2026-04-29T12:45:00.000Z" },
+        belongsToMissionControl: false,
+        belongsToHistory: true,
+      });
+      const live = makeMissionSession("live", {
+        session: { id: "live-should-not-render" },
+        belongsToMissionControl: true,
+        belongsToHistory: false,
+      });
+
+      const rows = buildHistorySessionViewModels(makeResponse([live, historical]));
+
+      assert.deepEqual(rows.map((item) => item.id), ["history-1"]);
+      assert.equal(rows[0]?.category, "historical");
+      assert.equal(rows[0]?.durationLabel, "45m");
+      assert.equal(rows[0]?.detailHref, "/session/history-1");
+      assert.equal(rows[0]?.replayHref, "/session/history-1/replay");
+    },
+  },
+  {
+    name: "Andon Detail projection exposes category reason source freshness and confidence",
+    run: () => {
+      const projection = buildDetailProjectionViewModel(makeMissionSession("degraded_active", {
+        reason: "stale_runtime",
+        rawRuntimeStatus: "running",
+        derivedOperationalStatus: "degraded",
+        sourceOfTruth: "mixed",
+        freshness: "stale",
+        confidence: "medium",
+        nextRecommendedOperatorAction: "Investigate stale runtime telemetry.",
+        signalAgeMs: 600_000,
+      }));
+
+      assert.equal(projection.category, "degraded_active");
+      assert.equal(projection.reason, "stale runtime");
+      assert.equal(projection.rawRuntimeStatus, "running");
+      assert.equal(projection.derivedOperationalStatus, "degraded");
+      assert.equal(projection.sourceOfTruth, "mixed");
+      assert.equal(projection.freshness, "stale");
+      assert.equal(projection.confidence, "medium");
+      assert.equal(projection.lastSignalAge, "10m");
+      assert.match(projection.nextAction, /stale runtime/i);
+    },
+  },
+  {
+    name: "Andon Replay keeps heartbeat noop and context spam out of primary meaningful activity",
+    run: () => {
+      const replay: SessionReplayResponse = {
+        sessionId: "replay-1",
+        generatedAt: "2026-04-29T12:30:00.000Z",
+        hiddenTelemetryCount: 2,
+        events: [
+          {
+            id: "heartbeat-1",
+            sessionId: "replay-1",
+            type: "session.heartbeat",
+            kind: "heartbeat_liveness",
+            timestamp: "2026-04-29T12:00:00.000Z",
+            summary: "Runtime heartbeat",
+            source: "runtime",
+            meaningful: false,
+          },
+          {
+            id: "noop-1",
+            sessionId: "replay-1",
+            type: "telemetry.noop",
+            kind: "noop_telemetry",
+            timestamp: "2026-04-29T12:01:00.000Z",
+            summary: "No state change",
+            source: "collector",
+            meaningful: false,
+          },
+          {
+            id: "branch-1",
+            sessionId: "replay-1",
+            type: "context.branch_changed",
+            kind: "context_branch_change",
+            timestamp: "2026-04-29T12:02:00.000Z",
+            summary: "Detected branch switch; review the new branch context.",
+            source: "collector",
+            meaningful: true,
+          },
+          {
+            id: "summary-1",
+            sessionId: "replay-1",
+            type: "agent.summary",
+            kind: "agent_summary",
+            timestamp: "2026-04-29T12:03:00.000Z",
+            summary: "Implemented the detail page.",
+            source: "agent",
+            meaningful: true,
+          },
+        ],
+      };
+
+      const viewModel = buildReplayViewModel(replay);
+
+      assert.deepEqual(viewModel.primaryEvents.map((item) => item.id), ["summary-1"]);
+      assert.deepEqual(viewModel.groupedEvents.map((item) => item.id), ["heartbeat-1", "noop-1", "branch-1"]);
+      assert.equal(viewModel.hiddenTelemetryCount, 2);
+    },
+  },
+  {
+    name: "Andon Replay labels normalized event kinds for operator scanning",
+    run: () => {
+      assert.equal(replayEventDisplayKind({ kind: "heartbeat_liveness", type: "session.heartbeat" }), "heartbeat/liveness");
+      assert.equal(replayEventDisplayKind({ kind: "noop_telemetry", type: "telemetry.noop" }), "no-op telemetry");
+      assert.equal(replayEventDisplayKind({ kind: "checkpoint", type: "holistic.checkpoint" }), "checkpoint");
+      assert.equal(replayEventDisplayKind({ kind: "context_branch_change", type: "context.branch_changed" }), "context change");
+      assert.equal(replayEventDisplayKind({ kind: "agent_summary", type: "agent.summary" }), "agent summary");
+      assert.equal(replayEventDisplayKind({ kind: "meaningful_activity", type: "tool.completed" }), "meaningful activity");
+      assert.equal(replayEventDisplayKind({ kind: "meaningful_activity", type: "user.action" }), "user action");
+      assert.equal(replayEventDisplayKind({ kind: "meaningful_activity", type: "input.requested" }), "review/input state");
     },
   },
 ];

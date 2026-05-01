@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { OperationalCategory, SessionRecord } from "../../../packages/andon-core/src/index.ts";
+import type { OperationalCategory, SessionDetailResponse } from "../../../packages/andon-core/src/index.ts";
 import {
   getAndonHealth,
   getHistory,
@@ -10,11 +10,19 @@ import {
   type AndonHealthResponse,
   type MissionControlResponse,
   type SessionReplayResponse,
+  type MissionControlSession,
 } from "./api.ts";
 import {
+  buildDetailProjectionViewModel,
+  buildHistorySessionViewModels,
   buildMissionControlBoardViewModel,
+  buildReplayViewModel,
+  findProjectionSession,
   getCategoryPresentation,
+  type DetailProjectionViewModel,
+  type HistorySessionViewModel,
   type MissionLaneViewModel,
+  type ReplayEventViewModel,
   type MissionSessionViewModel,
 } from "./mission-control-view-model.ts";
 
@@ -59,6 +67,10 @@ function formatDateTime(value: string | null | undefined): string {
   });
 }
 
+function formatValue(value: string | null | undefined): string {
+  return value && value.trim().length > 0 ? value : "-";
+}
+
 function repoName(repoPath: string): string {
   return repoPath.split(/[\\/]/).filter(Boolean).at(-1) ?? repoPath;
 }
@@ -67,6 +79,10 @@ function trimLine(value: string | null | undefined, max = 110): string {
   if (!value) return "-";
   const normalized = value.replace(/\s+/g, " ").trim();
   return normalized.length > max ? `${normalized.slice(0, max - 1)}...` : normalized;
+}
+
+function normalizeLabel(value: string | null | undefined): string {
+  return formatValue(value).replace(/_/g, " ");
 }
 
 function Navigation({
@@ -332,32 +348,55 @@ function HistoryPage() {
   if (error) return <MessageState title="History is unreachable" description={error} onRetry={loadData} />;
   if (!data) return <MessageState title="Reading history" description="Loading historical sessions." />;
 
+  const rows = buildHistorySessionViewModels(data);
+
   return (
     <main className="secondary-page">
       <section className="page-heading">
         <p className="eyebrow">Historical sessions</p>
         <h1>History</h1>
-        <p>Historical rows stay out of Mission Control and collect here for audit and replay.</p>
+        <p>Ended, acknowledged, terminated, and cold inactive sessions live here so Mission Control stays operational.</p>
       </section>
       <section className="history-list">
-        {data.sessions.length === 0 ? (
+        {rows.length === 0 ? (
           <p className="muted">No historical sessions recorded.</p>
         ) : (
-          data.sessions.map((item) => <HistoryRow key={item.session.id} item={item.session} />)
+          <>
+            <div className="history-row history-head" aria-hidden="true">
+              <span>State</span>
+              <span>Agent / repo</span>
+              <span>Objective</span>
+              <span>Ended</span>
+              <span>Duration</span>
+              <span>Links</span>
+            </div>
+            {rows.map((item) => <HistoryRow key={item.id} item={item} />)}
+          </>
         )}
       </section>
     </main>
   );
 }
 
-function HistoryRow({ item }: { item: SessionRecord }) {
+function HistoryRow({ item }: { item: HistorySessionViewModel }) {
   return (
-    <a className="history-row" href={`/session/${encodeURIComponent(item.id)}`}>
-      <strong>{item.agentName}</strong>
-      <span>{repoName(item.repoPath)}</span>
-      <p>{trimLine(item.objective, 96)}</p>
-      <time>{formatDateTime(item.endedAt ?? item.lastEventAt)}</time>
-    </a>
+    <article className="history-row">
+      <div className="history-state">
+        <CategoryBadge category={item.category} />
+        <small>{item.reason}</small>
+      </div>
+      <div>
+        <strong>{item.agentName}</strong>
+        <span>{item.repoName}</span>
+      </div>
+      <p>{item.objective}</p>
+      <time>{item.endedAtLabel}</time>
+      <span>{item.durationLabel}</span>
+      <div className="row-actions">
+        <a href={item.detailHref}>Detail</a>
+        <a href={item.replayHref}>Replay</a>
+      </div>
+    </article>
   );
 }
 
@@ -400,13 +439,93 @@ function HealthPage() {
   );
 }
 
+interface DetailPageData {
+  detail: SessionDetailResponse | null;
+  projection: MissionControlSession | null;
+}
+
+function ProjectionFacts({ projection }: { projection: DetailProjectionViewModel }) {
+  return (
+    <section className="detail-panel">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Runtime truth</p>
+          <h2>Operational projection</h2>
+        </div>
+        <CategoryBadge category={projection.category} />
+      </div>
+      <div className="detail-grid detail-grid-tight">
+        <div><span>Category</span><strong>{projection.presentation.label}</strong></div>
+        <div><span>Reason</span><strong>{projection.reason}</strong></div>
+        <div><span>Source</span><strong>{projection.sourceOfTruth}</strong></div>
+        <div><span>Raw runtime</span><strong>{formatValue(projection.rawRuntimeStatus)}</strong></div>
+        <div><span>Derived status</span><strong>{normalizeLabel(projection.derivedOperationalStatus)}</strong></div>
+        <div><span>Freshness</span><strong>{projection.freshness}</strong></div>
+        <div><span>Signal age</span><strong>{projection.lastSignalAge}</strong></div>
+        <div><span>Confidence</span><strong>{projection.confidence}</strong></div>
+      </div>
+      <p className="next-action"><b>Next action</b>{projection.nextAction}</p>
+    </section>
+  );
+}
+
+function HolisticContextPanel({ data }: { data: SessionDetailResponse | null }) {
+  const context = data?.holisticContext;
+  return (
+    <section className="detail-panel">
+      <p className="eyebrow">Holistic context</p>
+      <h2>Durable project memory</h2>
+      {!context ? (
+        <p className="muted">No Holistic context is attached to this session.</p>
+      ) : (
+        <div className="context-columns">
+          <ContextList title="Expected scope" items={context.expectedScope} />
+          <ContextList title="Constraints" items={context.constraints} />
+          <ContextList title="Accepted" items={context.acceptedApproaches} />
+          <ContextList title="Rejected" items={context.rejectedApproaches} />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ContextList({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div className="context-list">
+      <h3>{title}</h3>
+      {items.length === 0 ? (
+        <p className="muted">None recorded.</p>
+      ) : (
+        <ul>
+          {items.slice(0, 5).map((item) => <li key={item}>{item}</li>)}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function DetailPage({ sessionId }: { sessionId: string }) {
-  const [data, setData] = useState<Awaited<ReturnType<typeof getSessionDetail>> | null>(null);
+  const [data, setData] = useState<DetailPageData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadData = useCallback(() => {
     setError(null);
-    getSessionDetail(sessionId).then(setData).catch((reason: Error) => setError(reason.message));
+    Promise.all([
+      getMissionControl(),
+      getHistory(),
+      getSessionDetail(sessionId).then(
+        (detail) => detail,
+        () => null,
+      ),
+    ])
+      .then(([missionControl, history, detail]) => {
+        const projection = findProjectionSession(sessionId, missionControl, history);
+        if (!projection && !detail) {
+          throw new Error("Session was not found in detail, Mission Control, or History.");
+        }
+        setData({ projection, detail });
+      })
+      .catch((reason: Error) => setError(reason.message));
   }, [sessionId]);
 
   useEffect(() => loadData(), [loadData]);
@@ -416,23 +535,54 @@ function DetailPage({ sessionId }: { sessionId: string }) {
   if (error) return <MessageState title="Session detail is unreachable" description={error} onRetry={loadData} />;
   if (!data) return <MessageState title="Opening session" description="Loading session detail." />;
 
+  const session = data.projection?.session ?? data.detail?.session;
+  const projection = data.projection ? buildDetailProjectionViewModel(data.projection) : null;
+  if (!session) {
+    return <MessageState title="Session detail is unavailable" description="No session payload was returned." onRetry={loadData} />;
+  }
+
   return (
     <main className="secondary-page detail-page">
       <section className="page-heading">
         <p className="eyebrow">Session detail</p>
-        <h1>{data.session.agentName}</h1>
-        <p>{data.session.objective}</p>
+        <h1>{session.agentName}</h1>
+        <p>{session.objective}</p>
       </section>
       <section className="detail-grid">
-        <div><span>Repo</span><strong>{repoName(data.session.repoPath)}</strong></div>
-        <div><span>Status</span><strong>{data.status.status.replace(/_/g, " ")}</strong></div>
-        <div><span>Phase</span><strong>{data.session.currentPhase}</strong></div>
-        <div><span>Last signal</span><strong>{formatDateTime(data.session.lastEventAt)}</strong></div>
+        <div><span>Repo</span><strong>{repoName(session.repoPath)}</strong></div>
+        <div><span>Runtime</span><strong>{session.runtime}</strong></div>
+        <div><span>Phase</span><strong>{session.currentPhase}</strong></div>
+        <div><span>Last signal</span><strong>{formatDateTime(session.lastEventAt)}</strong></div>
       </section>
-      <section className="detail-panel">
-        <h2>{data.recommendation.title}</h2>
-        <p>{data.recommendation.description}</p>
+
+      {projection ? (
+        <ProjectionFacts projection={projection} />
+      ) : (
+        <section className="detail-panel">
+          <p className="eyebrow">Runtime truth</p>
+          <h2>No projection row</h2>
+          <p className="muted">The server did not return this session from Mission Control or History.</p>
+        </section>
+      )}
+
+      <HolisticContextPanel data={data.detail} />
+
+      {data.detail && (
+        <section className="detail-panel">
+          <p className="eyebrow">Legacy status engine</p>
+          <h2>{data.detail.recommendation.title}</h2>
+          <p>{data.detail.recommendation.description}</p>
+          <div className="detail-grid detail-grid-tight">
+            <div><span>Status</span><strong>{normalizeLabel(data.detail.status.status)}</strong></div>
+            <div><span>Recommendation urgency</span><strong>{data.detail.recommendation.urgency}</strong></div>
+          </div>
+        </section>
+      )}
+
+      <section className="detail-panel action-panel">
         <a className="button secondary" href={`/session/${encodeURIComponent(sessionId)}/replay`}>Open replay</a>
+        <a className="button secondary" href="/">Mission Control</a>
+        <a className="button secondary" href="/history">History</a>
       </section>
       <p className="page-return"><a href="/">Back to Mission Control</a></p>
     </main>
@@ -442,6 +592,7 @@ function DetailPage({ sessionId }: { sessionId: string }) {
 function ReplayPage({ sessionId }: { sessionId: string }) {
   const [data, setData] = useState<SessionReplayResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showRaw, setShowRaw] = useState(false);
 
   const loadData = useCallback(() => {
     setError(null);
@@ -455,25 +606,69 @@ function ReplayPage({ sessionId }: { sessionId: string }) {
   if (error) return <MessageState title="Replay is unreachable" description={error} onRetry={loadData} />;
   if (!data) return <MessageState title="Opening replay" description="Loading meaningful replay events." />;
 
+  const replay = buildReplayViewModel(data);
+
   return (
     <main className="secondary-page">
       <section className="page-heading">
         <p className="eyebrow">Session replay</p>
-        <h1>{data.events.length} events</h1>
-        <p>{data.hiddenTelemetryCount} heartbeat/no-op telemetry event(s) hidden by the API.</p>
+        <h1>{replay.primaryEvents.length} meaningful events</h1>
+        <p>
+          Heartbeat, no-op telemetry, and context-only events are grouped below the primary replay.
+          {replay.hiddenTelemetryCount > 0 ? ` ${replay.hiddenTelemetryCount} telemetry event(s) are hidden from the main lane.` : ""}
+        </p>
+        <button className="button secondary raw-toggle" type="button" onClick={() => setShowRaw((value) => !value)}>
+          {showRaw ? "Hide raw" : "Show raw"}
+        </button>
       </section>
-      <ol className="replay-list">
-        {data.events.map((event) => (
-          <li key={event.id}>
-            <time>{formatDateTime(event.timestamp)}</time>
-            <strong>{event.kind}</strong>
-            <span>{event.type}</span>
-            <p>{event.summary ?? "No summary"}</p>
-          </li>
-        ))}
-      </ol>
+      <ReplayList title="Meaningful timeline" events={replay.primaryEvents} showRaw={showRaw} />
+      <details className="replay-secondary">
+        <summary>
+          Telemetry and context events
+          <span>{replay.groupedEvents.length}</span>
+        </summary>
+        <ReplayList title="Grouped telemetry" events={replay.groupedEvents} showRaw={showRaw} quiet />
+      </details>
       <p className="page-return"><a href={`/session/${encodeURIComponent(sessionId)}`}>Back to session</a></p>
     </main>
+  );
+}
+
+function ReplayList({
+  title,
+  events,
+  showRaw,
+  quiet = false,
+}: {
+  title: string;
+  events: ReplayEventViewModel[];
+  showRaw: boolean;
+  quiet?: boolean;
+}) {
+  return (
+    <section className={`replay-section ${quiet ? "is-quiet" : ""}`}>
+      <div className="section-heading">
+        <p className="eyebrow">{title}</p>
+        <span className="muted">{events.length}</span>
+      </div>
+      {events.length === 0 ? (
+        <p className="muted">No events in this group.</p>
+      ) : (
+        <ol className="replay-list">
+          {events.map((event) => (
+            <li key={event.id} className={event.isTelemetry || event.isContext ? "is-telemetry" : undefined}>
+              <time>{formatDateTime(event.timestamp)}</time>
+              <strong>{event.displayKind}</strong>
+              <span>{event.type}</span>
+              <p>{event.summary}</p>
+              {showRaw && (
+                <pre>{JSON.stringify(event.raw, null, 2)}</pre>
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
   );
 }
 

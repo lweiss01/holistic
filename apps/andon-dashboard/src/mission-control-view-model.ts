@@ -1,5 +1,5 @@
 import type { OperationalCategory } from "../../../packages/andon-core/src/index.ts";
-import type { MissionControlResponse, MissionControlSession } from "./api.ts";
+import type { MissionControlResponse, MissionControlSession, SessionReplayEvent, SessionReplayResponse } from "./api.ts";
 
 export type MissionLaneId = "needs_action" | "degraded_unknown" | "review" | "live";
 
@@ -128,6 +128,73 @@ export interface MissionControlBoardViewModel {
   visibleSessions: MissionSessionViewModel[];
 }
 
+export interface HistorySessionViewModel {
+  id: string;
+  category: OperationalCategory;
+  presentation: CategoryPresentation;
+  agentName: string;
+  repoName: string;
+  objective: string;
+  reason: string;
+  rawRuntimeStatus: string | null;
+  sourceOfTruth: string;
+  freshness: string;
+  confidence: string;
+  endedAtLabel: string;
+  durationLabel: string;
+  lastSignalAge: string;
+  detailHref: string;
+  replayHref: string;
+}
+
+export interface DetailProjectionViewModel {
+  id: string;
+  category: OperationalCategory;
+  presentation: CategoryPresentation;
+  reason: string;
+  rawRuntimeStatus: string | null;
+  derivedOperationalStatus: string;
+  sourceOfTruth: string;
+  freshness: string;
+  lastSignalAge: string;
+  confidence: string;
+  nextAction: string;
+  belongsToMissionControl: boolean;
+  belongsToHistory: boolean;
+}
+
+export type ReplayDisplayKind =
+  | "heartbeat/liveness"
+  | "no-op telemetry"
+  | "checkpoint"
+  | "context change"
+  | "agent summary"
+  | "meaningful activity"
+  | "user action"
+  | "review/input state";
+
+export interface ReplayEventViewModel {
+  id: string;
+  type: string;
+  source: string;
+  kind: string;
+  displayKind: ReplayDisplayKind;
+  timestamp: string;
+  summary: string;
+  isPrimary: boolean;
+  isTelemetry: boolean;
+  isContext: boolean;
+  raw: unknown;
+}
+
+export interface ReplayViewModel {
+  sessionId: string;
+  generatedAt: string;
+  primaryEvents: ReplayEventViewModel[];
+  groupedEvents: ReplayEventViewModel[];
+  hiddenTelemetryCount: number;
+}
+
 function repoName(repoPath: string): string {
   return repoPath.split(/[\\/]/).filter(Boolean).at(-1) ?? repoPath;
 }
@@ -136,6 +203,31 @@ function trimLine(value: string | null | undefined, max = 88): string {
   if (!value) return "-";
   const normalized = value.replace(/\s+/g, " ").trim();
   return normalized.length > max ? `${normalized.slice(0, max - 1)}...` : normalized;
+}
+
+function formatDateTime(value: string | null | undefined): string {
+  if (!value) return "-";
+  return new Date(value).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatDuration(startedAt: string | null | undefined, endedAt: string | null | undefined): string {
+  if (!startedAt || !endedAt) return "-";
+  const started = new Date(startedAt).getTime();
+  const ended = new Date(endedAt).getTime();
+  if (!Number.isFinite(started) || !Number.isFinite(ended) || ended < started) {
+    return "-";
+  }
+  const minutes = Math.floor((ended - started) / 60_000);
+  if (minutes < 1) return "<1m";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
 }
 
 export function formatSignalAge(signalAgeMs: number | null, fallbackTimestamp?: string | null): string {
@@ -239,5 +331,114 @@ export function buildMissionControlBoardViewModel(
     historyCount: response.totals.historical ?? response.sessions.filter((item) => item.category === "historical").length,
     lanes,
     visibleSessions: sessions,
+  };
+}
+
+export function buildHistorySessionViewModels(response: MissionControlResponse): HistorySessionViewModel[] {
+  return response.sessions
+    .filter((item) => item.belongsToHistory !== false)
+    .filter((item) => item.category === "historical")
+    .map((item) => ({
+      id: item.session.id,
+      category: item.category,
+      presentation: getCategoryPresentation(item.category),
+      agentName: item.session.agentName,
+      repoName: repoName(item.session.repoPath),
+      objective: trimLine(item.session.objective, 120),
+      reason: trimLine(item.reason.replace(/_/g, " "), 72),
+      rawRuntimeStatus: item.rawRuntimeStatus,
+      sourceOfTruth: item.sourceOfTruth,
+      freshness: item.freshness,
+      confidence: item.confidence,
+      endedAtLabel: formatDateTime(item.session.endedAt ?? item.lastSignalTimestamp ?? item.session.lastEventAt),
+      durationLabel: formatDuration(item.session.startedAt, item.session.endedAt),
+      lastSignalAge: formatSignalAge(item.signalAgeMs, item.lastSignalTimestamp ?? item.session.lastEventAt),
+      detailHref: `/session/${encodeURIComponent(item.session.id)}`,
+      replayHref: `/session/${encodeURIComponent(item.session.id)}/replay`,
+    }));
+}
+
+export function buildDetailProjectionViewModel(item: MissionControlSession): DetailProjectionViewModel {
+  return {
+    id: item.session.id,
+    category: item.category,
+    presentation: getCategoryPresentation(item.category),
+    reason: item.reason.replace(/_/g, " "),
+    rawRuntimeStatus: item.rawRuntimeStatus,
+    derivedOperationalStatus: item.derivedOperationalStatus,
+    sourceOfTruth: item.sourceOfTruth,
+    freshness: item.freshness,
+    lastSignalAge: formatSignalAge(item.signalAgeMs, item.lastSignalTimestamp ?? item.session.lastEventAt),
+    confidence: item.confidence,
+    nextAction: item.nextRecommendedOperatorAction,
+    belongsToMissionControl: item.belongsToMissionControl,
+    belongsToHistory: item.belongsToHistory,
+  };
+}
+
+export function findProjectionSession(
+  sessionId: string,
+  ...responses: Array<MissionControlResponse | null | undefined>
+): MissionControlSession | null {
+  for (const response of responses) {
+    const match = response?.sessions.find((item) => item.session.id === sessionId);
+    if (match) return match;
+  }
+  return null;
+}
+
+export function replayEventDisplayKind(event: Pick<SessionReplayEvent, "kind" | "type">): ReplayDisplayKind {
+  if (event.type.startsWith("input.") || event.type.includes("approval") || event.type.includes("review")) {
+    return "review/input state";
+  }
+  if (event.type.startsWith("user.")) {
+    return "user action";
+  }
+
+  if (event.kind === "heartbeat_liveness") return "heartbeat/liveness";
+  if (event.kind === "noop_telemetry") return "no-op telemetry";
+  if (event.kind === "checkpoint") return "checkpoint";
+  if (event.kind === "context_branch_change") return "context change";
+  if (event.kind === "agent_summary") return "agent summary";
+  return "meaningful activity";
+}
+
+function isReplayTelemetry(event: Pick<SessionReplayEvent, "kind">): boolean {
+  return event.kind === "heartbeat_liveness" || event.kind === "noop_telemetry";
+}
+
+function isReplayContext(event: Pick<SessionReplayEvent, "kind">): boolean {
+  return event.kind === "context_branch_change";
+}
+
+function isPrimaryReplayEvent(event: Pick<SessionReplayEvent, "kind" | "meaningful">): boolean {
+  return event.meaningful && !isReplayTelemetry(event) && !isReplayContext(event);
+}
+
+export function buildReplayViewModel(response: SessionReplayResponse): ReplayViewModel {
+  const events = response.events.map((event) => {
+    const isTelemetry = isReplayTelemetry(event);
+    const isContext = isReplayContext(event);
+    return {
+      id: event.id,
+      type: event.type,
+      source: event.source,
+      kind: event.kind,
+      displayKind: replayEventDisplayKind(event),
+      timestamp: event.timestamp,
+      summary: trimLine(event.summary ?? event.type, 150),
+      isPrimary: isPrimaryReplayEvent(event),
+      isTelemetry,
+      isContext,
+      raw: event.raw ?? event,
+    } satisfies ReplayEventViewModel;
+  });
+
+  return {
+    sessionId: response.sessionId,
+    generatedAt: response.generatedAt,
+    primaryEvents: events.filter((event) => event.isPrimary),
+    groupedEvents: events.filter((event) => !event.isPrimary),
+    hiddenTelemetryCount: response.hiddenTelemetryCount,
   };
 }
