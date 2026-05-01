@@ -33,9 +33,14 @@ import {
 import type { RuntimeId, RuntimeSession } from "../../../packages/runtime-core/src/index.ts";
 import {
   classifyReplayEventType,
+  type ReplayEventKind,
   normalizeAgentEventForReplayIntegrity,
   replayDeduplicationKey
 } from "./event-integrity.ts";
+import {
+  projectOperationalSession,
+  type OperationalProjection
+} from "./operational-projection.ts";
 
 function parseJson(text: string): Record<string, unknown> {
   return JSON.parse(text) as Record<string, unknown>;
@@ -288,7 +293,7 @@ function buildDisconnectedLegacyFleetItem(
   const supervision = buildSupervisionSignals(events, statusValue, recommendation.urgency);
   const referenceTimestamp = supervision.lastMeaningfulEventAt ?? session.lastEventAt;
   const freshness = heartbeatFreshness(referenceTimestamp, now);
-  const itemBase: Omit<FleetSessionItem, "attentionRank"> = {
+  const itemBase: Omit<FleetSessionItem, "attentionRank" | "attentionBreakdown"> = {
     session,
     activeTask: null,
     status: {
@@ -304,6 +309,12 @@ function buildDisconnectedLegacyFleetItem(
     },
     recommendation,
     supervision,
+    category: "historical",
+    categoryReason: "missing_runtime_signal",
+    rawRuntimeStatus: null,
+    lastSignalAt: referenceTimestamp,
+    signalAgeMs: signalAgeMs(referenceTimestamp, now),
+    freshness,
     heartbeatFreshness: freshness,
     blockedReason: null,
     recommendedAction: recommendation.actionLabel,
@@ -433,6 +444,48 @@ export const MAX_EVENTS_FOR_RULES = 8000;
 /** Parked sessions older than this are removed from Mission Control fleet view. */
 export const MISSION_CONTROL_STALE_PARKED_MS = 60 * 60 * 1000;
 
+export interface OperationalSessionApiItem {
+  session: SessionRecord;
+  category: OperationalProjection["category"];
+  reason: OperationalProjection["reason"];
+  rawRuntimeStatus: OperationalProjection["rawRuntimeStatus"];
+  derivedOperationalStatus: OperationalProjection["derivedOperationalStatus"];
+  sourceOfTruth: OperationalProjection["sourceOfTruth"];
+  freshness: OperationalProjection["freshness"];
+  lastSignalTimestamp: string | null;
+  signalAgeMs: number | null;
+  confidence: OperationalProjection["confidence"];
+  nextRecommendedOperatorAction: string;
+  belongsToMissionControl: boolean;
+  belongsToHistory: boolean;
+  projection: OperationalProjection;
+}
+
+export interface OperationalSessionsResponse {
+  generatedAt: string;
+  totals: Record<OperationalProjection["category"] | "total", number>;
+  sessions: OperationalSessionApiItem[];
+}
+
+export interface ReplayEventItem {
+  id: string;
+  sessionId: string;
+  type: string;
+  kind: ReplayEventKind;
+  timestamp: string;
+  summary: string | null;
+  source: string;
+  meaningful: boolean;
+  raw: AgentEvent | HolisticRuntimeEvent;
+}
+
+export interface SessionReplayResponse {
+  sessionId: string;
+  generatedAt: string;
+  events: ReplayEventItem[];
+  hiddenTelemetryCount: number;
+}
+
 function countEventsForSession(database: DatabaseSync, sessionId: string): number {
   const row = database
     .prepare("SELECT COUNT(*) AS c FROM events WHERE session_id = ?")
@@ -458,6 +511,122 @@ function getEventsTailForRules(database: DatabaseSync, sessionId: string, maxRow
     .all(sessionId, capped) as Record<string, unknown>[];
 
   return rows.map(mapEvent);
+}
+
+function listAllLegacySessions(database: DatabaseSync): SessionRecord[] {
+  const rows = database
+    .prepare("SELECT * FROM sessions ORDER BY last_event_at DESC")
+    .all() as Record<string, unknown>[];
+  return rows.map(mapSession);
+}
+
+function metadataBoolean(metadata: Record<string, unknown> | undefined, key: string): boolean {
+  return metadata?.[key] === true;
+}
+
+function runtimeProjection(
+  runtimeSession: RuntimeSession,
+  runtimeEvents: HolisticRuntimeEvent[],
+  now: number
+): OperationalProjection {
+  const hasHeartbeat = runtimeEvents.some((event) => event.type === "session.heartbeat");
+  const isMirror = isAndonIngestMirrorSession(runtimeSession);
+  return projectOperationalSession({
+    sessionId: runtimeSession.id,
+    runtimeSession,
+    runtimeEvents,
+    sourceOfTruth: isMirror ? "mixed" : "runtime",
+    runtimeProcessAlive: hasHeartbeat ? true : "unknown",
+    completedAcknowledged: metadataBoolean(runtimeSession.metadata, "completedAcknowledged")
+      || metadataBoolean(runtimeSession.metadata, "acknowledged"),
+    now
+  });
+}
+
+function legacyStatusHint(session: SessionRecord, events: AgentEvent[], now: number): string | null {
+  if (session.endedAt) {
+    return "ended";
+  }
+  if (
+    events.length > 0
+    && events.every((event) =>
+      ["checkpoint", "noop_telemetry", "heartbeat_liveness", "context_branch_change"].includes(classifyReplayEventType(event.type))
+    )
+  ) {
+    return "parked";
+  }
+  if (events.some((event) => event.type === "agent.question_asked" && (event.payload as { resolved?: boolean }).resolved === false)) {
+    return "waiting_for_input";
+  }
+  const lastEventTime = new Date(session.lastEventAt).getTime();
+  if (Number.isFinite(lastEventTime) && now - lastEventTime > MISSION_CONTROL_STALE_PARKED_MS) {
+    return "stale_legacy";
+  }
+  return null;
+}
+
+function legacyProjection(session: SessionRecord, events: AgentEvent[], now: number): OperationalProjection {
+  const status = legacyStatusHint(session, events, now);
+  return projectOperationalSession({
+    sessionId: session.id,
+    legacySession: {
+      id: session.id,
+      status,
+      endedAt: session.endedAt,
+      lastEventAt: session.lastEventAt,
+      appearsActive: !session.endedAt && status !== "stale_legacy"
+    },
+    humanInputNeeded: events.some((event) =>
+      event.type === "agent.question_asked" && (event.payload as { resolved?: boolean }).resolved === false
+    ),
+    now
+  });
+}
+
+function operationalItem(session: SessionRecord, projection: OperationalProjection): OperationalSessionApiItem {
+  return {
+    session,
+    category: projection.category,
+    reason: projection.reason,
+    rawRuntimeStatus: projection.rawRuntimeStatus,
+    derivedOperationalStatus: projection.derivedOperationalStatus,
+    sourceOfTruth: projection.sourceOfTruth,
+    freshness: projection.freshness,
+    lastSignalTimestamp: projection.lastSignalTimestamp,
+    signalAgeMs: projection.signalAgeMs,
+    confidence: projection.confidence,
+    nextRecommendedOperatorAction: projection.nextRecommendedOperatorAction,
+    belongsToMissionControl: projection.belongsOnMissionControl,
+    belongsToHistory: projection.belongsInHistory,
+    projection
+  };
+}
+
+function operationalCategoryTotals(sessions: OperationalSessionApiItem[]): OperationalSessionsResponse["totals"] {
+  return {
+    total: sessions.length,
+    live: sessions.filter((item) => item.category === "live").length,
+    needs_action: sessions.filter((item) => item.category === "needs_action").length,
+    degraded_active: sessions.filter((item) => item.category === "degraded_active").length,
+    review: sessions.filter((item) => item.category === "review").length,
+    historical: sessions.filter((item) => item.category === "historical").length,
+    unknown: sessions.filter((item) => item.category === "unknown").length
+  };
+}
+
+function buildOperationalSessions(database: DatabaseSync, now = Date.now()): OperationalSessionApiItem[] {
+  const runtimeSessions = listRuntimeSessions(database);
+  const runtimeIds = new Set(runtimeSessions.map((session) => session.id));
+  const runtimeItems = runtimeSessions.map((session) => {
+    const runtimeEvents = getRuntimeEvents(database, session.id);
+    return operationalItem(runtimeSessionToSessionRecord(session), runtimeProjection(session, runtimeEvents, now));
+  });
+
+  const legacyItems = listAllLegacySessions(database)
+    .filter((session) => !runtimeIds.has(session.id))
+    .map((session) => operationalItem(session, legacyProjection(session, getEventsTailForRules(database, session.id, 200), now)));
+
+  return [...runtimeItems, ...legacyItems];
 }
 
 async function buildSessionDetail(
@@ -561,6 +730,8 @@ function categoryRank(category: FleetSessionItem["category"]): number {
   const weights: Record<FleetSessionItem["category"], number> = {
     needs_action: 300,
     degraded_active: 200,
+    unknown: 175,
+    review: 150,
     live: 100,
     historical: 0
   };
@@ -692,6 +863,44 @@ export function mapRecentFleetEvents(rows: Record<string, unknown>[]): FleetRece
   }));
 }
 
+function getRuntimeRecentEvents(database: DatabaseSync): FleetRecentEvent[] {
+  const rows = database.prepare(
+    `
+      SELECT
+        e.id,
+        e.session_id,
+        e.type,
+        e.message AS summary,
+        e.timestamp AS created_at,
+        s.agent_name,
+        s.repo_path,
+        s.metadata_json
+      FROM runtime_events e
+      JOIN runtime_sessions s ON s.id = e.session_id
+      ORDER BY e.timestamp DESC
+      LIMIT 40
+    `
+  ).all() as Record<string, unknown>[];
+
+  return rows.map((row) => {
+    const metadata = row.metadata_json
+      ? parseJson(String(row.metadata_json))
+      : {};
+    return {
+      id: String(row.id),
+      sessionId: String(row.session_id),
+      type: runtimeEventTypeToFleetRecentType(String(row.type)),
+      summary: row.summary ? String(row.summary) : String(row.type),
+      createdAt: String(row.created_at),
+      agentName: resolveFleetAgentName({
+        runtimeAgentName: row.agent_name,
+        runtimeMetadata: metadata
+      }),
+      repoName: repoName(String(row.repo_path))
+    };
+  });
+}
+
 function getFleetHeatmap(database: DatabaseSync): FleetHeatmapCell[] {
   const rows = database.prepare(
     `
@@ -765,117 +974,137 @@ function summarizeRiskReasons(sessions: FleetSessionItem[]): Array<{ label: stri
     .slice(0, 3);
 }
 
+function statusFromProjection(projection: OperationalProjection): SessionStatus {
+  if (projection.category === "live") return "running";
+  if (projection.category === "needs_action") return "needs_input";
+  if (projection.category === "review") return "awaiting_review";
+  if (projection.category === "degraded_active") return "blocked";
+  if (projection.category === "unknown") return "at_risk";
+  return "parked";
+}
+
+function fleetItemFromOperational(item: OperationalSessionApiItem): FleetSessionItem {
+  const statusValue = statusFromProjection(item.projection);
+  const heartbeatFreshness = item.freshness === "unknown" ? "cold" : item.freshness;
+  const recommendation = buildRuntimeRecommendation(statusValue);
+  const supervision: SupervisionSignals = {
+    lastMeaningfulEventAt: item.projection.lastMeaningfulActivityAt,
+    supervisionSeverity: statusValue === "blocked" ? "critical" : statusValue === "needs_input" ? "high" : statusValue === "awaiting_review" ? "medium" : "low"
+  };
+
+  const itemBase: Omit<FleetSessionItem, "attentionRank" | "attentionBreakdown"> = {
+    session: {
+      ...item.session,
+      lastEventAt: item.lastSignalTimestamp ?? item.session.lastEventAt
+    },
+    activeTask: null,
+    status: {
+      status: statusValue,
+      phase: item.session.currentPhase,
+      explanation: item.projection.evidence[0] ?? `Operational category is ${item.category}.`,
+      evidence: item.projection.evidence
+    },
+    recommendation,
+    supervision,
+    category: item.category,
+    categoryReason: item.reason as FleetSessionItem["categoryReason"],
+    rawRuntimeStatus: item.rawRuntimeStatus === "missing" ? null : item.rawRuntimeStatus,
+    derivedOperationalStatus: item.derivedOperationalStatus,
+    sourceOfTruth: item.sourceOfTruth,
+    confidence: item.confidence,
+    nextRecommendedOperatorAction: item.nextRecommendedOperatorAction,
+    belongsToMissionControl: item.belongsToMissionControl,
+    belongsToHistory: item.belongsToHistory,
+    lastSignalAt: item.lastSignalTimestamp,
+    signalAgeMs: item.signalAgeMs,
+    freshness: item.freshness,
+    heartbeatFreshness,
+    blockedReason: statusValue === "blocked" ? (item.projection.evidence[0] ?? "Operational projection is degraded.") : null,
+    recommendedAction: item.nextRecommendedOperatorAction,
+    availableActions: availableFleetActions(statusValue),
+    repoName: repoName(item.session.repoPath),
+    worktreeName: item.session.worktreePath !== item.session.repoPath
+      ? repoName(item.session.worktreePath)
+      : null
+  };
+  const attentionBreakdown = attentionScoreParts(
+    itemBase.status.status,
+    itemBase.recommendation.urgency,
+    itemBase.heartbeatFreshness
+  );
+
+  return {
+    ...itemBase,
+    attentionBreakdown,
+    attentionRank: categoryRank(itemBase.category) + attentionBreakdown.status + attentionBreakdown.urgency + attentionBreakdown.freshness
+  };
+}
+
+function sortOperationalSessions(sessions: OperationalSessionApiItem[]): OperationalSessionApiItem[] {
+  return [...sessions].sort((a, b) => {
+    if (categoryRank(b.category) !== categoryRank(a.category)) {
+      return categoryRank(b.category) - categoryRank(a.category);
+    }
+    return new Date(b.lastSignalTimestamp ?? b.session.lastEventAt).getTime()
+      - new Date(a.lastSignalTimestamp ?? a.session.lastEventAt).getTime();
+  });
+}
+
+export function getMissionControl(database: DatabaseSync): OperationalSessionsResponse {
+  const now = Date.now();
+  const sessions = sortOperationalSessions(
+    buildOperationalSessions(database, now).filter((item) => item.belongsToMissionControl)
+  );
+  return {
+    generatedAt: new Date(now).toISOString(),
+    totals: operationalCategoryTotals(sessions),
+    sessions
+  };
+}
+
+export function getHistory(database: DatabaseSync): OperationalSessionsResponse {
+  const now = Date.now();
+  const sessions = sortOperationalSessions(
+    buildOperationalSessions(database, now).filter((item) => item.belongsToHistory)
+  );
+  return {
+    generatedAt: new Date(now).toISOString(),
+    totals: operationalCategoryTotals(sessions),
+    sessions
+  };
+}
+
 export async function getFleet(
   database: DatabaseSync,
   _holisticBridge: HolisticBridge
 ): Promise<FleetResponse> {
-  const runtimeSessions = listRuntimeSessions(database);
-  if (runtimeSessions.length > 0) {
-    const now = Date.now();
-    const runtimeItems = runtimeSessions
-      .filter((runtimeSession) => !isTerminalRuntimeStatus(runtimeSession.status))
-      .map((runtimeSession) => {
-       const session = runtimeSessionToSessionRecord(runtimeSession);
-       const runtimeEvents = getRuntimeEvents(database, runtimeSession.id);
-       const isMirror = isAndonIngestMirrorSession(runtimeSession);
-       const hasRuntimeHeartbeat = runtimeEvents.some((event) => event.type === "session.heartbeat");
-       const missingRuntimeSignal = isMirror && !hasRuntimeHeartbeat;
-       const referenceTimestamp = runtimeEvents
-         .filter((event) => event.type !== "session.heartbeat")
-         .at(-1)?.timestamp ?? runtimeSession.updatedAt;
-       const freshness = heartbeatFreshness(referenceTimestamp, now);
-       const ageMs = signalAgeMs(referenceTimestamp, now);
-       const baseStatus = runtimeStatusToFleetStatus(runtimeSession.status, freshness);
-       const statusValue = missingRuntimeSignal && baseStatus === "running"
-         ? "blocked"
-         : baseStatus;
-       const supervision = buildRuntimeSupervision(runtimeEvents, statusValue);
-       const recommendation = buildRuntimeRecommendation(statusValue);
-       const category = runtimeCategory(runtimeSession, freshness);
+  const now = Date.now();
+  const missionControl = getMissionControl(database);
+  const fleetSessionsCombined = missionControl.sessions.map(fleetItemFromOperational);
+  const completedToday = fleetSessionsCombined.filter((item) => {
+    if (!item.session.endedAt) {
+      return false;
+    }
+    return new Date(item.session.endedAt).toDateString() === new Date(now).toDateString();
+  }).length;
+  const heatmapRows = database.prepare(
+    `
+      SELECT
+        strftime('%Y-%m-%dT%H:00:00.000Z', timestamp) AS hour_start,
+        COUNT(*) AS c
+      FROM runtime_events
+      WHERE timestamp >= datetime('now', '-24 hours')
+      GROUP BY hour_start
+      ORDER BY hour_start DESC
+      LIMIT 24
+    `
+  ).all() as Array<{ hour_start: string; c: number | bigint }>;
 
-       const itemBase: Omit<FleetSessionItem, "attentionRank"> = {
-         session,
-         activeTask: null,
-         status: {
-           status: statusValue,
-           phase: session.currentPhase,
-           explanation: missingRuntimeSignal && statusValue === "blocked"
-             ? "No runtime heartbeat (mirrored from legacy ingest)."
-             : `Runtime session is ${runtimeSession.status}.`,
-           evidence: missingRuntimeSignal
-             ? ["No runtime session signal is active for this session."]
-             : runtimeEvents.length > 0
-               ? [runtimeEvents.at(-1)?.message ?? runtimeEvents.at(-1)?.type ?? "Runtime event received."]
-               : ["No runtime events recorded yet."]
-         },
-         recommendation,
-         supervision,
-         ...category,
-         rawRuntimeStatus: runtimeSession.status,
-        lastSignalAt: referenceTimestamp,
-        signalAgeMs: ageMs,
-        freshness,
-        heartbeatFreshness: freshness,
-        blockedReason: statusValue === "blocked"
-          ? (runtimeEvents.at(-1)?.message ?? "Runtime reported a blocking condition.")
-          : null,
-        recommendedAction: recommendation.actionLabel,
-        availableActions: availableFleetActions(statusValue),
-        repoName: session.repoPath.split(/[\\/]/).filter(Boolean).at(-1) ?? session.repoPath,
-        worktreeName: session.worktreePath !== session.repoPath
-          ? (session.worktreePath.split(/[\\/]/).filter(Boolean).at(-1) ?? session.worktreePath)
-          : null
-      };
-
-      const attentionBreakdown = attentionScoreParts(
-        itemBase.status.status,
-        itemBase.recommendation.urgency,
-        itemBase.heartbeatFreshness
-      );
-
-      return {
-        ...itemBase,
-        attentionBreakdown,
-        attentionRank: categoryRank(itemBase.category) + attentionBreakdown.status + attentionBreakdown.urgency + attentionBreakdown.freshness
-      };
-      });
-
-    const fleetSessions = [...runtimeItems]
-      .filter((item) => isPrimaryMissionControlItem(item, now))
-      .sort((a, b) => {
-        if (categoryRank(b.category) !== categoryRank(a.category)) {
-          return categoryRank(b.category) - categoryRank(a.category);
-        }
-        if (b.attentionRank !== a.attentionRank) {
-          return b.attentionRank - a.attentionRank;
-        }
-        return new Date(b.session.lastEventAt).getTime() - new Date(a.session.lastEventAt).getTime();
-      });
-
-    const legacySessions = listLegacySessionsWithoutRuntimeMirror(database);
-    const legacyFleetItems = legacySessions.map((session) =>
-      buildDisconnectedLegacyFleetItem(database, session, now)
-    );
-
-    const legacyFleetFiltered = legacyFleetItems.filter((item) => isPrimaryMissionControlItem(item, now));
-
-    const fleetSessionsCombined = [...fleetSessions, ...legacyFleetFiltered].sort((a, b) => {
-      if (b.attentionRank !== a.attentionRank) {
-        return b.attentionRank - a.attentionRank;
-      }
-      return new Date(b.session.lastEventAt).getTime() - new Date(a.session.lastEventAt).getTime();
-    });
-
-    const completedToday = fleetSessionsCombined.filter((item) => {
-      if (!item.session.endedAt) {
-        return false;
-      }
-      return new Date(item.session.endedAt).toDateString() === new Date(now).toDateString();
-    }).length;
-
-    const totals = {
+  return {
+    generatedAt: missionControl.generatedAt,
+    totals: {
       totalSessions: fleetSessionsCombined.length,
-      activeAgents: fleetSessionsCombined.filter((item) => item.status.status === "running").length,
+      activeAgents: fleetSessionsCombined.filter((item) => item.category === "live").length,
       needsHuman: fleetSessionsCombined.filter((item) =>
         ["needs_input", "blocked", "awaiting_review", "at_risk"].includes(item.status.status)
       ).length,
@@ -883,82 +1112,11 @@ export async function getFleet(
       atRisk: fleetSessionsCombined.filter((item) => item.status.status === "at_risk").length,
       awaitingReview: fleetSessionsCombined.filter((item) => item.status.status === "awaiting_review").length,
       completedToday
-    };
-
-    const runtimeRecentRows = database.prepare(
-      `
-        SELECT
-          e.id,
-          e.session_id,
-          e.type,
-          e.message AS summary,
-          e.timestamp AS created_at,
-          s.agent_name,
-          s.repo_path,
-          s.metadata_json
-        FROM runtime_events e
-        JOIN runtime_sessions s ON s.id = e.session_id
-        ORDER BY e.timestamp DESC
-        LIMIT 40
-      `
-    ).all() as Record<string, unknown>[];
-    const recentEvents: FleetRecentEvent[] = runtimeRecentRows.map((row) => {
-      const metadata = row.metadata_json
-        ? parseJson(String(row.metadata_json))
-        : {};
-      return {
-        id: String(row.id),
-        sessionId: String(row.session_id),
-        type: runtimeEventTypeToFleetRecentType(String(row.type)),
-        summary: row.summary ? String(row.summary) : String(row.type),
-        createdAt: String(row.created_at),
-        agentName: resolveFleetAgentName({
-          runtimeAgentName: row.agent_name,
-          runtimeMetadata: metadata
-        }),
-        repoName: repoName(String(row.repo_path))
-      };
-    });
-
-    const heatmapRows = database.prepare(
-      `
-        SELECT
-          strftime('%Y-%m-%dT%H:00:00.000Z', timestamp) AS hour_start,
-          COUNT(*) AS c
-        FROM runtime_events
-        WHERE timestamp >= datetime('now', '-24 hours')
-        GROUP BY hour_start
-        ORDER BY hour_start DESC
-        LIMIT 24
-      `
-    ).all() as Array<{ hour_start: string; c: number | bigint }>;
-
-    return {
-      generatedAt: new Date(now).toISOString(),
-      totals,
-      riskReasons: summarizeRiskReasons(fleetSessionsCombined),
-      sessions: fleetSessionsCombined,
-      recentEvents,
-      heatmap: mapFleetHeatmapRows(heatmapRows)
-    };
-  }
-
-  const now = Date.now();
-  return {
-    generatedAt: new Date(now).toISOString(),
-    totals: {
-      totalSessions: 0,
-      activeAgents: 0,
-      needsHuman: 0,
-      blocked: 0,
-      atRisk: 0,
-      awaitingReview: 0,
-      completedToday: 0
     },
-    riskReasons: [],
-    sessions: [],
-    recentEvents: getRecentFleetEvents(database),
-    heatmap: getFleetHeatmap(database)
+    riskReasons: summarizeRiskReasons(fleetSessionsCombined),
+    sessions: fleetSessionsCombined,
+    recentEvents: listRuntimeSessions(database).length > 0 ? getRuntimeRecentEvents(database) : getRecentFleetEvents(database),
+    heatmap: mapFleetHeatmapRows(heatmapRows)
   };
 }
 
@@ -1017,6 +1175,67 @@ export function getSessionTimeline(
     limit,
     offset,
     hasMore
+  };
+}
+
+function replayItemFromLegacyEvent(event: AgentEvent): ReplayEventItem {
+  const kind = classifyReplayEventType(event.type);
+  return {
+    id: event.id,
+    sessionId: event.sessionId,
+    type: event.type,
+    kind,
+    timestamp: event.timestamp,
+    summary: event.summary ?? null,
+    source: event.source,
+    meaningful: kind === "agent_summary" || kind === "meaningful_activity" || kind === "context_branch_change" || kind === "checkpoint",
+    raw: event
+  };
+}
+
+function replayItemFromRuntimeEvent(event: HolisticRuntimeEvent): ReplayEventItem {
+  const kind = classifyReplayEventType(event.type);
+  return {
+    id: event.id,
+    sessionId: event.sessionId,
+    type: event.type,
+    kind,
+    timestamp: event.timestamp,
+    summary: event.message ?? null,
+    source: "runtime",
+    meaningful: kind === "agent_summary" || kind === "meaningful_activity" || kind === "context_branch_change" || kind === "checkpoint",
+    raw: event
+  };
+}
+
+export function getSessionReplay(database: DatabaseSync, sessionId: string): SessionReplayResponse | null {
+  const session = getSessionRow(database, sessionId);
+  const runtimeSession = getRuntimeSession(database, sessionId);
+  if (!session && !runtimeSession) {
+    return null;
+  }
+
+  const legacyRows = database
+    .prepare("SELECT * FROM events WHERE session_id = ? ORDER BY created_at ASC")
+    .all(sessionId) as Record<string, unknown>[];
+  const legacyItems = legacyRows.map(mapEvent).map(replayItemFromLegacyEvent);
+  const runtimeItems = getRuntimeEvents(database, sessionId).map(replayItemFromRuntimeEvent);
+  const deduped = new Map<string, ReplayEventItem>();
+  for (const item of [...legacyItems, ...runtimeItems]) {
+    const key = `${item.type}:${item.timestamp}:${item.summary ?? ""}`;
+    if (!deduped.has(key)) {
+      deduped.set(key, item);
+    }
+  }
+  const events = [...deduped.values()].sort((left, right) =>
+    new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime()
+  );
+
+  return {
+    sessionId,
+    generatedAt: new Date().toISOString(),
+    events,
+    hiddenTelemetryCount: events.filter((event) => event.kind === "heartbeat_liveness" || event.kind === "noop_telemetry").length
   };
 }
 

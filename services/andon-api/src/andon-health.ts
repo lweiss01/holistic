@@ -2,6 +2,7 @@ import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 
 import { DATABASE_PATH } from "./config.ts";
+import { getHistory, getMissionControl } from "./repository.ts";
 import { listRuntimeSessions } from "./runtime-repository.ts";
 
 function resolveOpenDatabasePath(database: DatabaseSync): string {
@@ -24,10 +25,13 @@ export interface AndonHealthPayload {
     runtimeEvents: number;
     legacySessions: number;
     legacyEvents: number;
+    currentOperational: number;
+    historical: number;
   };
   activeSessionIds: string[];
   /** True when GET /fleet will include at least one session row (runtime-backed path). */
   fleetWillRenderCards: boolean;
+  runtimeDatabaseAligned: boolean | "unknown";
   warnings: string[];
 }
 
@@ -44,6 +48,8 @@ export function buildAndonHealthPayload(database: DatabaseSync): AndonHealthPayl
   const runtimeEvents = countScalar(database, "SELECT COUNT(*) AS c FROM runtime_events");
   const legacySessions = countScalar(database, "SELECT COUNT(*) AS c FROM sessions");
   const legacyEvents = countScalar(database, "SELECT COUNT(*) AS c FROM events");
+  const missionControl = getMissionControl(database);
+  const history = getHistory(database);
 
   const warnings: string[] = [];
   if (legacyEvents > 0 && runtimeSessions === 0) {
@@ -54,10 +60,12 @@ export function buildAndonHealthPayload(database: DatabaseSync): AndonHealthPayl
 
   const openPath = resolveOpenDatabasePath(database);
   const envPath = process.env.ANDON_DB_PATH?.trim();
+  let runtimeDatabaseAligned: boolean | "unknown" = envPath ? true : "unknown";
   if (envPath) {
     const resolvedEnv = path.resolve(envPath);
     const resolvedOpen = path.resolve(openPath);
     if (resolvedEnv !== resolvedOpen) {
+      runtimeDatabaseAligned = false;
       warnings.push(
         `ANDON_DB_PATH (${resolvedEnv}) does not match the SQLite file backing this API connection (${resolvedOpen}).`
       );
@@ -85,10 +93,13 @@ export function buildAndonHealthPayload(database: DatabaseSync): AndonHealthPayl
       runtimeSessions,
       runtimeEvents,
       legacySessions,
-      legacyEvents
+      legacyEvents,
+      currentOperational: missionControl.sessions.length,
+      historical: history.sessions.length
     },
     activeSessionIds,
     fleetWillRenderCards,
+    runtimeDatabaseAligned,
     warnings
   };
 }

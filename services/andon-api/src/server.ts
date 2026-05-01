@@ -14,8 +14,11 @@ import { mockHolisticBridge } from "./holistic/mock-bridge.ts";
 import { buildAndonHealthPayload } from "./andon-health.ts";
 import {
   getFleet,
+  getHistory,
+  getMissionControl,
   getActiveSession,
   getSessionDetail,
+  getSessionReplay,
   getSessionsList,
   getSessionTimeline,
   ingestEvents,
@@ -162,6 +165,7 @@ export function createAndonHandler(
       const url = new URL(request.url, `http://${request.headers.host ?? "localhost"}`);
       const sessionMatch = url.pathname.match(/^\/sessions\/([^/]+)$/);
       const timelineMatch = url.pathname.match(/^\/sessions\/([^/]+)\/timeline$/);
+      const replayMatch = url.pathname.match(/^\/sessions\/([^/]+)\/replay$/);
       const callbackMatch = url.pathname.match(/^\/sessions\/([^/]+)\/callbacks\/([^/]+)$/);
 
       if (request.method === "GET" && url.pathname === "/health") {
@@ -203,6 +207,22 @@ export function createAndonHandler(
         return;
       }
 
+      if (request.method === "GET" && url.pathname === "/mission-control") {
+        const payload = getMissionControl(database);
+        const result = jsonResponse(payload);
+        response.writeHead(result.status, result.headers);
+        response.end(result.body);
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/history") {
+        const payload = getHistory(database);
+        const result = jsonResponse(payload);
+        response.writeHead(result.status, result.headers);
+        response.end(result.body);
+        return;
+      }
+
       if (request.method === "GET" && url.pathname === "/sessions/stream") {
         response.writeHead(200, {
           "Content-Type": "text/event-stream",
@@ -226,6 +246,22 @@ export function createAndonHandler(
       if (request.method === "GET" && timelineMatch) {
         const sessionId = decodeURIComponent(timelineMatch[1]);
         const payload = getSessionTimeline(database, sessionId, parseTimelineQuery(url));
+        if (!payload) {
+          const result = jsonResponse({ error: "Session not found." }, 404);
+          response.writeHead(result.status, result.headers);
+          response.end(result.body);
+          return;
+        }
+
+        const result = jsonResponse(payload);
+        response.writeHead(result.status, result.headers);
+        response.end(result.body);
+        return;
+      }
+
+      if (request.method === "GET" && replayMatch) {
+        const sessionId = decodeURIComponent(replayMatch[1]);
+        const payload = getSessionReplay(database, sessionId);
         if (!payload) {
           const result = jsonResponse({ error: "Session not found." }, 404);
           response.writeHead(result.status, result.headers);

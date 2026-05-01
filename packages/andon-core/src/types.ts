@@ -68,7 +68,7 @@ export const RECOMMENDATION_URGENCY = ["low", "medium", "high"] as const;
 
 /** Dashboard attention tier (Build A); not the same axis as `SessionStatus`. */
 export const SUPERVISION_SEVERITIES = ["info", "low", "medium", "high", "critical"] as const;
-export const OPERATIONAL_CATEGORIES = ["live", "needs_action", "degraded_active", "historical"] as const;
+export const OPERATIONAL_CATEGORIES = ["live", "needs_action", "degraded_active", "review", "historical", "unknown"] as const;
 export const SIGNAL_FRESHNESS_STATES = ["fresh", "stale", "cold", "unknown"] as const;
 
 export type SessionStatus = (typeof SESSION_STATUSES)[number];
@@ -194,12 +194,24 @@ export interface FleetSessionItem {
     | "blocked_or_failed"
     | "missing_runtime_signal"
     | "terminated"
+    | "unacknowledged_completion"
     | "parked"
     | "stale_runtime"
     | "db_mismatch"
     | "legacy_active"
+    | "legacy_active_without_runtime"
+    | "stale_legacy_only"
+    | "runtime_db_mismatch"
+    | "contradictory_telemetry"
+    | "insufficient_evidence"
     | "unknown";
   rawRuntimeStatus: string | null;
+  derivedOperationalStatus?: string;
+  sourceOfTruth?: string;
+  confidence?: string;
+  nextRecommendedOperatorAction?: string;
+  belongsToMissionControl?: boolean;
+  belongsToHistory?: boolean;
   lastSignalAt: string | null;
   signalAgeMs: number | null;
   freshness: SignalFreshnessState;

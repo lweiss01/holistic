@@ -465,7 +465,11 @@ export function projectOperationalSession(input: OperationalProjectionInput): Op
 
   if (isRuntimeRunningStatus(rawRuntimeStatus)) {
     if (sourceOfTruth !== "runtime") {
-      const coldLegacyMirror = freshness === "cold";
+      const legacySignalAge = ageMs(lastSignalTimestamp, now);
+      const coldLegacyMirror = freshness === "cold"
+        || (lastHeartbeatAt === null
+          && legacySignalAge !== null
+          && legacySignalAge > (input.legacyHistoricalAfterMs ?? OPERATIONAL_PROJECTION_LEGACY_HISTORY_MS));
       return projection(input, {
         category: coldLegacyMirror ? "historical" : "degraded_active",
         reason: coldLegacyMirror ? "stale_legacy_only" : "missing_runtime_signal",

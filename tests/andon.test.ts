@@ -17,7 +17,7 @@ import {
   type FleetResponse,
   type SessionRecord
 } from "../packages/andon-core/src/index.ts";
-import type { RuntimeSession } from "../packages/runtime-core/src/index.ts";
+import type { HolisticRuntimeEvent, RuntimeSession } from "../packages/runtime-core/src/index.ts";
 import { getSessionTimeline, ingestEvents, mapFleetHeatmapRows, mapRecentFleetEvents } from "../services/andon-api/src/repository.ts";
 import { insertRuntimeEvent, upsertRuntimeSession } from "../services/andon-api/src/runtime-repository.ts";
 import { createAndonHandler } from "../services/andon-api/src/server.ts";
@@ -59,6 +59,17 @@ function makeEvent(overrides: Partial<AgentEvent> & Pick<AgentEvent, "id" | "typ
     summary: overrides.summary ?? null,
     payload: overrides.payload ?? {},
     ...overrides
+  };
+}
+
+function makeRuntimeHeartbeat(sessionId: string, timestamp: string): HolisticRuntimeEvent {
+  return {
+    id: `heartbeat-${sessionId}-${timestamp}`,
+    sessionId,
+    type: "session.heartbeat",
+    timestamp,
+    message: "Runtime heartbeat.",
+    payload: {}
   };
 }
 
@@ -934,6 +945,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         };
         upsertRuntimeSession(database, runtimeSessionUrgent);
         upsertRuntimeSession(database, runtimeSessionRunning);
+        insertRuntimeEvent(database, makeRuntimeHeartbeat("session-urgent", runtimeNow));
+        insertRuntimeEvent(database, makeRuntimeHeartbeat("session-running", runtimeNow));
 
         const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
         assert.equal(fleetResponse.status, 200);
@@ -1064,6 +1077,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           startedAt: olderTs,
           updatedAt: olderTs
         });
+        insertRuntimeEvent(database, makeRuntimeHeartbeat("session-a", olderTs));
         upsertRuntimeSession(database, {
           id: "session-b",
           runtimeId: "local",
@@ -1075,6 +1089,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           startedAt: newerTs,
           updatedAt: newerTs
         });
+        insertRuntimeEvent(database, makeRuntimeHeartbeat("session-b", newerTs));
 
         const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
         assert.equal(fleetResponse.status, 200);
@@ -1242,8 +1257,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         assert.equal(item?.category, "degraded_active");
         assert.equal(item?.categoryReason, "missing_runtime_signal");
         assert.equal(item?.status.status, "blocked");
-        assert.match(item?.status.explanation ?? "", /no runtime heartbeat/i);
-        assert.ok(item?.status.evidence.some((line) => /no runtime session signal/i.test(line)));
+        assert.match(item?.status.explanation ?? "", /Runtime status is running|runtime truth/i);
+        assert.ok(item?.status.evidence.some((line) => /runtime truth|Runtime status is running/i.test(line)));
         assert.equal(fleetPayload.totals.activeAgents, 0);
       } finally {
         database.close();
@@ -1283,6 +1298,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           updatedAt: activeTs,
           metadata: { objective: "Repair Mission Control truth engine" }
         });
+        insertRuntimeEvent(database, makeRuntimeHeartbeat("runtime-active-now", activeTs));
 
         for (let index = 0; index < 50; index += 1) {
           const endedAt = new Date(now - (index + 10) * 60 * 1000).toISOString();
@@ -1296,7 +1312,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
             activity: "idle",
             startedAt: endedAt,
             updatedAt: endedAt,
-            completedAt: endedAt
+            completedAt: endedAt,
+            metadata: { completedAcknowledged: true }
           });
         }
 
@@ -1359,6 +1376,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           startedAt: oldTimestamp,
           updatedAt: oldTimestamp
         });
+        insertRuntimeEvent(database, makeRuntimeHeartbeat("runtime-cold-running", oldTimestamp));
 
         const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
         assert.equal(fleetResponse.status, 200);
@@ -1460,6 +1478,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           startedAt: runtimeTs,
           updatedAt: runtimeTs
         });
+        insertRuntimeEvent(database, makeRuntimeHeartbeat("runtime-session", runtimeTs));
         ingestEvents(database, [
           {
             id: "legacy-visible-start",
@@ -1508,7 +1527,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         const legacyItem = payload.sessions.find((item) => item.session.id === "legacy-visible-session");
         assert.ok(legacyItem);
         assert.equal(legacyItem?.status.status, "needs_input");
-        assert.match(legacyItem?.status.explanation ?? "", /Runtime session is /i);
+        assert.match(legacyItem?.status.explanation ?? "", /Runtime status is /i);
         assert.equal(payload.sessions.some((item) => item.session.id === "runtime-session"), true);
         assert.equal(payload.totals.totalSessions, 2);
         assert.equal(payload.totals.activeAgents, 1);
@@ -1553,6 +1572,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           startedAt: runtimeTimestamp,
           updatedAt: runtimeTimestamp
         });
+        insertRuntimeEvent(database, makeRuntimeHeartbeat("runtime-live-session", runtimeTimestamp));
 
         database.prepare(
           `
@@ -1620,15 +1640,12 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         };
 
         assert.equal(payload.sessions.some((item) => item.session.id === "runtime-live-session"), true);
-        assert.equal(payload.sessions.some((item) => item.session.id === "legacy-checkpoint-noise"), true);
-        assert.equal(payload.totals.totalSessions, 2);
+        assert.equal(payload.sessions.some((item) => item.session.id === "legacy-checkpoint-noise"), false);
+        assert.equal(payload.totals.totalSessions, 1);
         const runtimeIdx = payload.sessions.findIndex((item) => item.session.id === "runtime-live-session");
         const legacyIdx = payload.sessions.findIndex((item) => item.session.id === "legacy-checkpoint-noise");
-        assert.ok(runtimeIdx >= 0 && legacyIdx >= 0);
-        assert.ok(runtimeIdx < legacyIdx);
-        const legacyRow = payload.sessions[legacyIdx];
-        assert.equal(legacyRow?.status.status, "parked");
-        assert.ok((legacyRow?.attentionRank ?? 0) <= (payload.sessions[runtimeIdx]?.attentionRank ?? 0));
+        assert.ok(runtimeIdx >= 0);
+        assert.equal(legacyIdx, -1);
       } finally {
         database.close();
         httpServer.close();
@@ -1831,6 +1848,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           startedAt: now,
           updatedAt: now
         });
+        insertRuntimeEvent(database, makeRuntimeHeartbeat("runtime-waiting-approval", now));
         upsertRuntimeSession(database, {
           id: "runtime-paused",
           runtimeId: "local",
@@ -1851,7 +1869,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           status: "completed",
           activity: "waiting",
           startedAt: now,
-          updatedAt: now
+          updatedAt: now,
+          metadata: { completedAcknowledged: true }
         });
 
         const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
@@ -1866,7 +1885,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
         const statusById = new Map(payload.sessions.map((item) => [item.session.id, item.status.status]));
         assert.equal(statusById.get("runtime-waiting-approval"), "awaiting_review");
-        assert.equal(statusById.get("runtime-paused"), "parked");
+        assert.equal(statusById.has("runtime-paused"), false);
         assert.equal(statusById.has("runtime-completed"), false);
         assert.equal(payload.totals.needsHuman, 1);
       } finally {
@@ -2053,6 +2072,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           startedAt: freshTimestamp,
           updatedAt: freshTimestamp
         });
+        insertRuntimeEvent(database, makeRuntimeHeartbeat("session-fresh", freshTimestamp));
 
         const fleetResponse = await fetch(`http://127.0.0.1:${port}/fleet`);
         if (fleetResponse.status !== 200) {

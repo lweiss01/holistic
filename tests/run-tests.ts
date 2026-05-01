@@ -52,6 +52,7 @@ import { tests as runtimeServiceTests } from "./runtime-service.test.ts";
 import { tests as missionControlViewModelTests } from "./mission-control-view-model.test.ts";
 import { tests as operationalProjectionTests } from "./operational-projection.test.ts";
 import { tests as andonEventIntegrityTests } from "./andon-event-integrity.test.ts";
+import { tests as andonApiContractTests } from "./andon-api-contract.test.ts";
 import type { HolisticState } from "../src/core/types.ts";
 
 const workspaceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -1867,7 +1868,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 ];
 
 // Merge in unit tests from test modules
-const allTests = [...tests, ...securityTests, ...mcpNotificationTests, ...redactTests, ...andonTests, ...daemonTests, ...runtimeCoreTests, ...runtimeLocalTests, ...runtimeStorageTests, ...runtimeServiceTests, ...missionControlViewModelTests, ...operationalProjectionTests, ...andonEventIntegrityTests];
+const allTests = [...tests, ...securityTests, ...mcpNotificationTests, ...redactTests, ...andonTests, ...daemonTests, ...runtimeCoreTests, ...runtimeLocalTests, ...runtimeStorageTests, ...runtimeServiceTests, ...missionControlViewModelTests, ...operationalProjectionTests, ...andonEventIntegrityTests, ...andonApiContractTests];
 
 const argv = process.argv.slice(2);
 const grepIndex = argv.indexOf("--grep");
