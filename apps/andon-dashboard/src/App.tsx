@@ -1,39 +1,28 @@
-import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type {
-  AgentEvent,
-  FleetResponse,
-  RecommendationUrgency,
-  SessionDetailResponse,
-  SessionRecord,
-  SessionStatus,
-  TimelineResponse,
-} from "../../../packages/andon-core/src/index.ts";
+import type { OperationalCategory, SessionRecord } from "../../../packages/andon-core/src/index.ts";
 import {
-  getFleet,
+  getAndonHealth,
+  getHistory,
+  getMissionControl,
   getSessionDetail,
-  getSessionsList,
-  getTimeline,
-  postCallback,
+  getSessionReplay,
   subscribeToStream,
+  type AndonHealthResponse,
+  type MissionControlResponse,
+  type SessionReplayResponse,
 } from "./api.ts";
 import {
-  buildAttentionQueue,
-  buildMissionSessionViewModels,
-  filterAndSortMissionSessionViewModels,
-  type MissionSort,
-  type MissionStatusFilter,
+  buildMissionControlBoardViewModel,
+  getCategoryPresentation,
+  type MissionLaneViewModel,
   type MissionSessionViewModel,
 } from "./mission-control-view-model.ts";
-import { shouldShowRuntimeTelemetryGap } from "./runtime-telemetry-gap.ts";
-
-/* ───────────────────────────── hooks ───────────────────────────── */
 
 function useLiveStream(onPing: () => void) {
   useEffect(() => subscribeToStream(onPing), [onPing]);
 }
 
-function useHeartbeat(onTick: () => void, intervalMs = 90_000) {
+function useHeartbeat(onTick: () => void, intervalMs = 30_000) {
   useEffect(() => {
     const id = setInterval(onTick, intervalMs);
     return () => clearInterval(id);
@@ -56,42 +45,12 @@ function useTheme() {
   };
 }
 
-/* ───────────────────────────── utilities ───────────────────────────── */
-
-const statusLabels: Record<SessionStatus, string> = {
-  running: "Flowing",
-  queued: "Queued",
-  needs_input: "Needs input",
-  at_risk: "At risk",
-  blocked: "Stopped",
-  awaiting_review: "Review",
-  parked: "Parked",
-};
-
-const phaseLabels: Record<string, string> = {
-  plan: "Plan",
-  research: "Research",
-  execute: "Execute",
-  test: "Test",
-};
-
-const phaseMarks: Record<string, string> = {
-  plan: "計画",
-  research: "調査",
-  execute: "実装",
-  test: "検証",
-};
-
-function formatTime(value: string | null | undefined): string {
-  if (!value) return "—";
-  return new Date(value).toLocaleTimeString(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+function formatClock(value = new Date()): string {
+  return value.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
 function formatDateTime(value: string | null | undefined): string {
-  if (!value) return "—";
+  if (!value) return "-";
   return new Date(value).toLocaleString(undefined, {
     month: "short",
     day: "numeric",
@@ -100,56 +59,15 @@ function formatDateTime(value: string | null | undefined): string {
   });
 }
 
-function timeAgo(value: string | null | undefined): string {
-  if (!value) return "—";
-  const ms = Date.now() - new Date(value).getTime();
-  const s = Math.max(0, Math.floor(ms / 1000));
-  if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  return `${Math.floor(m / 60)}h ago`;
-}
-
 function repoName(repoPath: string): string {
   return repoPath.split(/[\\/]/).filter(Boolean).at(-1) ?? repoPath;
 }
 
-function formatHourLabel(value: string): string {
-  return new Date(value).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+function trimLine(value: string | null | undefined, max = 110): string {
+  if (!value) return "-";
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > max ? `${normalized.slice(0, max - 1)}...` : normalized;
 }
-
-function statusTone(status: string | undefined | null): string {
-  return (status ?? "parked").replace(/_/g, "-");
-}
-
-function eventTone(type: string): string {
-  if (type.includes("failed") || type.includes("blocked")) return "critical";
-  if (type.includes("risk") || type.includes("scope") || type.includes("retry")) return "warning";
-  if (type.includes("checkpoint") || type.includes("session")) return "memory";
-  if (type.includes("test")) return "test";
-  return "neutral";
-}
-
-function urgencyTone(urgency: RecommendationUrgency | undefined): string {
-  if (urgency === "high") return "critical";
-  if (urgency === "medium") return "warning";
-  return "quiet";
-}
-
-function byAttention(a: SessionRecord, b: SessionRecord) {
-  return new Date(b.lastEventAt).getTime() - new Date(a.lastEventAt).getTime();
-}
-
-function riskReasonToStatus(reasonLabel: string): SessionStatus | "all" {
-  const label = reasonLabel.toLowerCase();
-  if (label.includes("human answer")) return "needs_input";
-  if (label.includes("blocked") || label.includes("failing")) return "blocked";
-  if (label.includes("review")) return "awaiting_review";
-  if (label.includes("risk") || label.includes("drift")) return "at_risk";
-  return "all";
-}
-
-/* ───────────────────────────── shared components ───────────────────────────── */
 
 function Navigation({
   theme,
@@ -159,18 +77,21 @@ function Navigation({
   onToggleTheme: () => void;
 }) {
   return (
-    <header className="nav">
-      <a className="brand" href="/" aria-label="Andon home">
-        <span className="brand-mark" aria-hidden="true">全</span>
+    <header className="top-shell">
+      <a className="brand" href="/" aria-label="HOLISTIC Andon Mission Control">
+        <span className="brand-mark" aria-hidden="true">H</span>
         <span>
           <strong>HOLISTIC</strong>
-          <em>Andon</em>
+          <em>Mission Control</em>
         </span>
       </a>
 
-      <nav className="nav-links" aria-label="Dashboard navigation">
-        <a href="/">Live</a>
+      <nav className="nav-links" aria-label="Primary navigation">
+        <a href="/">Mission Control</a>
+        <a href="/needs-action">Needs Action</a>
+        <a href="/review">Review</a>
         <a href="/history">History</a>
+        <a href="/health">Health</a>
       </nav>
 
       <button className="theme-button" type="button" onClick={onToggleTheme}>
@@ -192,8 +113,8 @@ function MessageState({
   onRetry?: () => void;
 }) {
   return (
-    <section className="empty-state">
-      <p className="kicker">Andon</p>
+    <main className="message-state">
+      <p className="eyebrow">Mission Control</p>
       <h1>{title}</h1>
       <p>{description}</p>
       {onRetry && (
@@ -201,200 +122,150 @@ function MessageState({
           {retryText ?? "Retry"}
         </button>
       )}
-    </section>
+    </main>
   );
 }
 
-function StatusLine({ status }: { status: string }) {
-  const tone = statusTone(status);
+function StatusMarker({ item, compact = false }: { item: MissionSessionViewModel; compact?: boolean }) {
   return (
-    <span className={`status-line status-${tone}`}>
-      <span />
-      {statusLabels[status as SessionStatus] ?? status.replace(/_/g, " ")}
+    <span
+      className={`status-marker marker-${item.presentation.marker} tone-${item.presentation.tone} ${compact ? "is-compact" : ""}`}
+      aria-hidden="true"
+    />
+  );
+}
+
+function CategoryBadge({ category }: { category: OperationalCategory }) {
+  const presentation = getCategoryPresentation(category);
+  return (
+    <span className={`category-badge tone-${presentation.tone}`}>
+      <span className={`badge-shape marker-${presentation.marker}`} aria-hidden="true" />
+      {presentation.label}
     </span>
   );
 }
 
-function PhaseRail({ activePhase }: { activePhase: string }) {
-  const phases = ["plan", "research", "execute", "test"];
+function SignalStrip({
+  data,
+  historyCount,
+}: {
+  data: MissionControlResponse;
+  historyCount: number;
+}) {
+  const ordered: OperationalCategory[] = ["needs_action", "degraded_active", "review", "live", "unknown"];
 
   return (
-    <ol className="phase-rail" aria-label="Session phase">
-      {phases.map((phase) => (
-        <li
-          key={phase}
-          className={phase === activePhase ? "is-active" : undefined}
-        >
-          <span className="phase-jp">{phaseMarks[phase]}</span>
-          <span>{phaseLabels[phase]}</span>
-        </li>
-      ))}
-    </ol>
+    <section className="signal-strip" aria-label="Operational status counts">
+      {ordered.map((category) => {
+        const presentation = getCategoryPresentation(category);
+        const href =
+          category === "needs_action" ? "/needs-action"
+            : category === "review" ? "/review"
+              : "/";
+        return (
+          <a key={category} className={`signal-cell tone-${presentation.tone}`} href={href}>
+            <span className={`signal-shape marker-${presentation.marker}`} aria-hidden="true" />
+            <span>{presentation.label}</span>
+            <strong>{data.totals[category] ?? 0}</strong>
+          </a>
+        );
+      })}
+      <a className="signal-cell tone-history is-secondary" href="/history">
+        <span className="signal-shape marker-outline" aria-hidden="true" />
+        <span>History</span>
+        <strong>{historyCount}</strong>
+      </a>
+    </section>
   );
 }
 
-function QuoteBlock() {
+function SessionRow({ item }: { item: MissionSessionViewModel }) {
   return (
-    <aside className="quote-card" aria-label="Andon principle">
-      <p>“Surface the problem early. Keep the work humane.”</p>
-      <span>改善</span>
-    </aside>
-  );
-}
-
-function EvidenceList({ evidence }: { evidence: string[] }) {
-  if (evidence.length === 0) {
-    return <p className="muted">No warning evidence recorded.</p>;
-  }
-
-  return (
-    <ul className="evidence-list">
-      {evidence.map((item, index) => (
-        <li key={`${item}-${index}`}>{item}</li>
-      ))}
-    </ul>
-  );
-}
-
-function EventList({ events }: { events: AgentEvent[] }) {
-  if (events.length === 0) {
-    return <p className="muted">No events recorded yet.</p>;
-  }
-
-  return (
-    <ol className="event-list">
-      {events.map((item) => (
-        <li key={item.id} className={`event-${eventTone(item.type)}`}>
-          <time>{formatTime(item.timestamp)}</time>
-          <div>
-            <span>{item.type}</span>
-            {item.summary && <p>{item.summary}</p>}
-          </div>
-        </li>
-      ))}
-    </ol>
-  );
-}
-
-function SessionMiniCard({ session }: { session: SessionRecord }) {
-  return (
-    <a className="session-card" href={`/session/${session.id}`}>
-      <div>
-        <StatusLine status={session.endedAt ? "parked" : "running"} />
-        <h3>{session.objective}</h3>
+    <article className={`session-row tone-${item.presentation.tone}`} data-category={item.category}>
+      <div className="session-row-state">
+        <StatusMarker item={item} />
+        <CategoryBadge category={item.category} />
       </div>
-      <dl>
-        <div>
-          <dt>Agent</dt>
-          <dd>{session.agentName}</dd>
-        </div>
-        <div>
-          <dt>Repo</dt>
-          <dd>{repoName(session.repoPath)}</dd>
-        </div>
-        <div>
-          <dt>Phase</dt>
-          <dd>{phaseLabels[session.currentPhase] ?? session.currentPhase}</dd>
-        </div>
-        <div>
-          <dt>Last signal</dt>
-          <dd>{timeAgo(session.lastEventAt)}</dd>
-        </div>
-      </dl>
-    </a>
+      <a className="session-row-main" href={`/session/${encodeURIComponent(item.id)}`}>
+        <strong>{item.agentName}</strong>
+        <span>{item.repoName}</span>
+        <p>{item.objective}</p>
+      </a>
+      <div className="session-row-meta">
+        <span>{item.lastSignalAge}</span>
+        <span>{item.freshness}</span>
+        {item.confidenceLabel && <span>{item.confidenceLabel}</span>}
+      </div>
+      <div className="session-row-action">
+        <b>{item.nextAction}</b>
+        <small>{item.reason}</small>
+      </div>
+      <a className="row-link" href={`/session/${encodeURIComponent(item.id)}/replay`}>
+        Replay
+      </a>
+    </article>
   );
 }
 
-/* ───────────────────────────── pages ───────────────────────────── */
+function MissionLane({ lane }: { lane: MissionLaneViewModel }) {
+  const primaryCategory = lane.categories[0];
+  const presentation = getCategoryPresentation(primaryCategory);
 
-function MissionControlPage() {
-  const [data, setData] = useState<FleetResponse | null>(null);
+  return (
+    <section className={`mission-lane lane-${lane.id} tone-${presentation.tone}`} aria-labelledby={`${lane.id}-title`}>
+      <div className="lane-status">
+        <span className={`lane-light marker-${presentation.marker}`} aria-hidden="true" />
+        <div>
+          <p className="eyebrow">{lane.description}</p>
+          <h2 id={`${lane.id}-title`}>{lane.label}</h2>
+        </div>
+        <strong>{lane.count}</strong>
+      </div>
+
+      <div className="lane-items">
+        {lane.visibleSessions.length === 0 ? (
+          <p className="lane-empty">Clear</p>
+        ) : (
+          lane.visibleSessions.map((item) => <SessionRow key={item.id} item={item} />)
+        )}
+        {lane.hiddenCount > 0 && (
+          <a className="more-link" href={`/${lane.id === "needs_action" ? "needs-action" : lane.id === "review" ? "review" : ""}`}>
+            +{lane.hiddenCount} more
+          </a>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function MissionControlPage({ focusCategory = null }: { focusCategory?: OperationalCategory | null }) {
+  const [data, setData] = useState<MissionControlResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const search = new URLSearchParams(window.location.search);
-  const [statusFilter, setStatusFilter] = useState<MissionStatusFilter>(() => {
-    const raw = search.get("status");
-    if (!raw) return "operational";
-    return ((raw === "all" || raw === "operational" || Object.keys(statusLabels).includes(raw))
-      ? raw
-      : "operational") as MissionStatusFilter;
-  });
-  const [repoFilter, setRepoFilter] = useState<string>(() => search.get("repo") ?? "all");
-  const [sortBy, setSortBy] = useState<MissionSort>(() => {
-    const raw = search.get("sort");
-    return raw === "freshness" || raw === "recent" ? raw : "attention";
-  });
+  const [now, setNow] = useState(() => new Date());
 
   const loadData = useCallback(() => {
     setError(null);
-    getFleet()
+    getMissionControl()
       .then(setData)
       .catch((reason: Error) => setError(reason.message));
   }, []);
 
   useEffect(() => loadData(), [loadData]);
   useLiveStream(loadData);
-  useHeartbeat(loadData);
-  const sessionViewModels = useMemo(() => buildMissionSessionViewModels(data?.sessions ?? []), [data]);
-  const totals = data?.totals ?? {
-    totalSessions: 0,
-    activeAgents: 0,
-    needsHuman: 0,
-    blocked: 0,
-    atRisk: 0,
-    awaitingReview: 0,
-    completedToday: 0
-  };
-  const riskReasons = data?.riskReasons ?? [];
-  const recentEvents = data?.recentEvents ?? [];
-  const heatmap = data?.heatmap ?? [];
-  const repoOptions = useMemo(
-    () => ["all", ...Array.from(new Set(sessionViewModels.map((item) => item.repoName))).sort()],
-    [sessionViewModels],
-  );
-  const visibleSessions = useMemo(
-    () => filterAndSortMissionSessionViewModels(sessionViewModels, { statusFilter, repoFilter, sortBy }),
-    [sessionViewModels, statusFilter, repoFilter, sortBy],
-  );
-  const operationalSessions = useMemo(
-    () => filterAndSortMissionSessionViewModels(sessionViewModels, { statusFilter: "operational", repoFilter, sortBy: "attention" }),
-    [sessionViewModels, repoFilter],
-  );
-  const activeNowSessions = useMemo(
-    () => operationalSessions.filter((item) => item.status === "running"),
-    [operationalSessions],
-  );
-  const visibleAttentionCount = useMemo(
-    () => visibleSessions.filter((item) => item.needsIntervention || item.isDegraded).length,
-    [visibleSessions],
-  );
-  const monitorSessions = useMemo(
-    () => visibleSessions.filter((item) => !item.needsIntervention && !item.isDegraded),
-    [visibleSessions],
-  );
-  const attentionQueue = useMemo(() => buildAttentionQueue(visibleSessions, visibleSessions.length), [visibleSessions]);
+  useHeartbeat(() => {
+    setNow(new Date());
+    loadData();
+  });
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (statusFilter === "operational") params.delete("status");
-    else params.set("status", statusFilter);
-    if (repoFilter === "all") params.delete("repo");
-    else params.set("repo", repoFilter);
-    if (sortBy === "attention") params.delete("sort");
-    else params.set("sort", sortBy);
-    const next = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`;
-    window.history.replaceState(null, "", next);
-  }, [statusFilter, repoFilter, sortBy]);
-
-  useEffect(() => {
-    if (repoFilter !== "all" && !repoOptions.includes(repoFilter)) {
-      setRepoFilter("all");
-    }
-  }, [repoFilter, repoOptions]);
+  const board = useMemo(
+    () => data ? buildMissionControlBoardViewModel(data, { focusCategory, laneLimit: focusCategory ? 8 : 3 }) : null,
+    [data, focusCategory],
+  );
 
   if (error) {
     return (
       <MessageState
-        title="The line is unreachable"
+        title="Mission Control is unreachable"
         description={error}
         retryText="Try again"
         onRetry={loadData}
@@ -402,604 +273,224 @@ function MissionControlPage() {
     );
   }
 
-  if (!data) {
-    return <MessageState title="Reading fleet state" description="Loading mission control…" />;
+  if (!data || !board) {
+    return <MessageState title="Reading operational truth" description="Loading the current runtime projection." />;
   }
 
-  const handleAction = async (sessionId: string, action: "approve" | "pause" | "resume") => {
-    await postCallback(sessionId, action);
-    await loadData();
-  };
-  const primaryActionLabel: Record<Exclude<MissionSessionViewModel["primaryAction"], null>, string> = {
-    approve: "Approve",
-    pause: "Pause",
-    resume: "Resume",
-  };
+  const lanes = focusCategory
+    ? board.lanes.filter((lane) => lane.categories.includes(focusCategory))
+    : board.lanes;
+  const headline =
+    focusCategory === "needs_action" ? "Needs Action"
+      : focusCategory === "review" ? "Review"
+        : "Mission Control";
 
   return (
-    <main className="mission-control mission-dense">
-      <section className="panel mission-topbar">
+    <main className="mission-control" aria-label="Andon Mission Control">
+      <section className="mission-header">
         <div>
-          <p className="kicker">Mission Control</p>
-          <p className="mission-title">Operator board</p>
-          <p className="mission-subtitle">Intervene fast: blockers and degraded runtime rows are always surfaced before narrative detail.</p>
+          <p className="eyebrow">Operational board</p>
+          <h1>{headline}</h1>
         </div>
-        <div className="mission-topbar-meta">
-          <span>Updated {timeAgo(data.generatedAt)}</span>
-          <a href="/history">History</a>
+        <div className="mission-clock" aria-label="Refresh status">
+          <strong>{formatClock(now)}</strong>
+          <span>API {board.generatedAge} ago</span>
         </div>
       </section>
 
-      {sessionViewModels.length === 0 && (
-        <section className="panel mission-empty-banner">
-          No sessions are currently visible on the board. Activity panels still show stored fleet signals.
-        </section>
-      )}
+      <SignalStrip data={data} historyCount={board.historyCount} />
 
-      {shouldShowRuntimeTelemetryGap(data) && (
-        <section className="panel mission-runtime-gap-banner" role="status" aria-live="polite">
-          <p className="kicker">Runtime telemetry gap</p>
-          <p>
-            <strong>Mission Control lists live rows from runtime data only.</strong> Recent activity shows legacy
-            Andon events in this database, but <code>runtime_sessions</code> is empty — usually because rows were
-            inserted outside <code>POST /events</code> (the ingest path that mirrors a runtime row) or the DB file
-            does not match <code>ANDON_DB_PATH</code> for your collector/API. Use one shared SQLite file and ingest via
-            the API, or run <code>npm run andon:dev</code> so services share the default DB.
-          </p>
-          <p className="muted">
-            Call <code>GET /health/andon</code> (or <code>npm run andon:health</code>) to inspect DB path and counts.
-          </p>
-        </section>
-      )}
-
-      <section className="mission-kpis" aria-label="Mission summary strip">
-        <div className="mission-kpi"><dt>Operational rows</dt><dd>{operationalSessions.length}</dd></div>
-        <div className="mission-kpi"><dt>Active now</dt><dd>{activeNowSessions.length}</dd></div>
-        <div className="mission-kpi is-critical"><dt>Needs action</dt><dd>{operationalSessions.filter((item) => item.needsIntervention).length}</dd></div>
-        <div className="mission-kpi"><dt>Degraded runtime</dt><dd>{operationalSessions.filter((item) => item.isDegraded).length}</dd></div>
-        <div className="mission-kpi"><dt>Visible rows</dt><dd>{visibleSessions.length}</dd></div>
-        <div className="mission-kpi"><dt>Completed today</dt><dd>{totals.completedToday}</dd></div>
-      </section>
-      {activeNowSessions.length > 0 && (
-        <section className="panel command-lane" aria-label="Active now">
-          <div className="section-head">
-            <p className="kicker">Active now</p>
-            <span className="muted">{activeNowSessions.length} session(s)</span>
-          </div>
-          <div className="lane-table" role="table">
-            <div className="lane-row lane-head" role="row">
-              <span>State</span>
-              <span>Agent / repo</span>
-              <span>Current objective</span>
-              <span>Freshness</span>
-              <span>Inspect</span>
-            </div>
-            {activeNowSessions.map((item) => (
-              <div key={item.id} className="lane-row lane-item" role="row">
-                <div className="lane-cell lane-state"><StatusLine status={item.status} /></div>
-                <div className="lane-cell lane-agent"><strong>{item.agentName}</strong><small>{item.repoName}</small></div>
-                <div className="lane-cell">{item.headline}</div>
-                <div className="lane-cell lane-freshness"><span>{item.freshnessLabel}</span><small>{timeAgo(item.lastEventAt)}</small></div>
-                <div className="lane-cell lane-actions"><a className="text-link" href={`/session/${item.id}`}>Inspect</a></div>
-              </div>
-            ))}
+      {board.operationalTotal === 0 ? (
+        <section className="all-clear" aria-label="Empty operational board">
+          <span className="all-clear-light" aria-hidden="true" />
+          <div>
+            <h2>No operational sessions</h2>
+            <p>Mission Control has no live, waiting, degraded, review, or unknown sessions from the server projection.</p>
           </div>
         </section>
+      ) : (
+        <section className={`board-grid ${focusCategory ? "is-focused" : ""}`} aria-label="Operational lanes">
+          {lanes.map((lane) => <MissionLane key={lane.id} lane={lane} />)}
+        </section>
       )}
-      <section className="mission-scan-bands" aria-label="Attention split">
-        <article className="scan-band is-act">
-          <p>Act now</p>
-          <strong>{visibleAttentionCount}</strong>
-          <span>visible rows requiring intervention or degraded runtime follow-up</span>
-        </article>
-        <article className="scan-band is-watch">
-          <p>Monitor</p>
-          <strong>{monitorSessions.length}</strong>
-          <span>visible rows stable enough for passive monitoring</span>
-        </article>
-      </section>
-
-      <section className="panel command-lane" aria-label="Intervention lane">
-        <div className="section-head">
-          <p className="kicker">Intervention lane</p>
-          <span className="muted">{visibleAttentionCount} row(s)</span>
-        </div>
-        {attentionQueue.length === 0 ? (
-          <p className="muted">No visible sessions currently require intervention or degraded runtime follow-up.</p>
-        ) : (
-          <div className="lane-table" role="table">
-            <div className="lane-row lane-head" role="row">
-              <span>State</span>
-              <span>Agent / repo</span>
-              <span>Why now</span>
-              <span>Next action</span>
-              <span>Freshness</span>
-              <span>Operate</span>
-            </div>
-            {attentionQueue.map((item) => (
-              <div
-                key={item.id}
-                className={`lane-row lane-item ${item.isDegraded ? "is-degraded" : ""} urgency-${urgencyTone(item.urgency)}`.trim()}
-                role="row"
-              >
-                <div className="lane-cell lane-state">
-                  <StatusLine status={item.status} />
-                  <span className={`urgency urgency-${urgencyTone(item.urgency)}`}>{item.urgency}</span>
-                  {item.degradedBadge && <span className="degraded-pill">{item.degradedBadge}</span>}
-                </div>
-                <div className="lane-cell lane-agent">
-                  <strong>{item.agentName}</strong>
-                  <small>{item.repoName}</small>
-                </div>
-                <div className="lane-cell">{item.whyNow}</div>
-                <div className="lane-cell">{item.nextAction}</div>
-                <div className="lane-cell lane-freshness">
-                  <span>{item.freshnessLabel}</span>
-                  <small>{timeAgo(item.lastEventAt)}</small>
-                </div>
-                <div className="lane-cell lane-actions">
-                  <a className="text-link" href={`/session/${item.id}`}>Inspect</a>
-                  {item.primaryAction && (
-                    <button className="button secondary" type="button" onClick={() => handleAction(item.id, item.primaryAction)}>
-                      {primaryActionLabel[item.primaryAction]}
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="mission-board-layout">
-        <article className="panel fleet-table-panel">
-          <div className="section-head">
-            <p className="kicker">Monitor board</p>
-            <span className="muted">{monitorSessions.length} row(s)</span>
-          </div>
-          <div className="fleet-controls">
-            <label>
-              <span>Status</span>
-              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as MissionStatusFilter)}>
-                <option value="operational">Operational (default)</option>
-                <option value="all">All</option>
-                {Object.keys(statusLabels).map((status) => (
-                  <option key={status} value={status}>
-                    {statusLabels[status as SessionStatus]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>Repo</span>
-              <select value={repoFilter} onChange={(event) => setRepoFilter(event.target.value)}>
-                {repoOptions.map((repo) => (
-                  <option key={repo} value={repo}>
-                    {repo === "all" ? "All repos" : repo}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>Sort</span>
-              <select value={sortBy} onChange={(event) => setSortBy(event.target.value as MissionSort)}>
-                <option value="attention">Intervention first</option>
-                <option value="freshness">Freshness</option>
-                <option value="recent">Recent activity</option>
-              </select>
-            </label>
-          </div>
-          <div className="fleet-table" role="table">
-            <div className="fleet-table-row fleet-table-head" role="row">
-              <span>State</span>
-              <span>Agent</span>
-              <span>Headline</span>
-              <span>Why now</span>
-              <span>Next</span>
-              <span>Meta</span>
-            </div>
-            {monitorSessions.map((item) => (
-              <a
-                key={item.id}
-                className={`fleet-table-row fleet-table-item is-monitor status-${statusTone(item.status)} ${item.isDegraded ? "is-degraded" : ""}`.trim()}
-                href={`/session/${item.id}`}
-              >
-                <div className="fleet-col fleet-col-state">
-                  <StatusLine status={item.status} />
-                  <span className={`urgency urgency-${urgencyTone(item.urgency)}`}>{item.urgency}</span>
-                  {item.degradedBadge && <span className="degraded-pill">{item.degradedBadge}</span>}
-                </div>
-                <div className="fleet-col fleet-col-agent">
-                  <strong>{item.agentName}</strong>
-                  <small>{item.repoName}</small>
-                </div>
-                <div className="fleet-col">{item.headline}</div>
-                <div className="fleet-col">{item.whyNow}</div>
-                <div className="fleet-col">{item.nextAction}</div>
-                <div className="fleet-col fleet-col-meta">
-                  <span>{phaseLabels[item.item.session.currentPhase] ?? item.item.session.currentPhase}</span>
-                  <span>{item.freshnessLabel}</span>
-                  <span>{timeAgo(item.lastEventAt)}</span>
-                </div>
-              </a>
-            ))}
-            {monitorSessions.length === 0 && (
-              <p className="muted">
-                {visibleSessions.length === 0
-                  ? "No sessions match the current filters."
-                  : "All visible sessions are already in the intervention lane."}
-              </p>
-            )}
-          </div>
-        </article>
-        <aside className="mission-side-stack">
-          <article className="panel">
-            <p className="kicker">Top risk reasons</p>
-            <div className="risk-chips">
-              {riskReasons.length === 0 ? (
-                <span className="risk-chip">No active risk clusters</span>
-              ) : (
-                riskReasons.map((reason) => (
-                  <button
-                    key={reason.label}
-                    type="button"
-                    className="risk-chip"
-                    onClick={() => {
-                      const target = riskReasonToStatus(reason.label);
-                      setStatusFilter(target);
-                      setSortBy("attention");
-                    }}
-                  >
-                    {reason.label} ({reason.count})
-                  </button>
-                ))
-              )}
-            </div>
-          </article>
-
-          <article className="panel">
-            <p className="kicker">Activity Heatmap (24h)</p>
-            <p className="muted heatmap-caption">Signal volume by hour (fleet-wide).</p>
-            <div className="heatmap">
-              {heatmap.length === 0 ? (
-                <p className="muted">No signals recorded in the last 24 hours.</p>
-              ) : (
-                heatmap.map((cell) => (
-                  <div key={cell.hourStart} className="heatmap-cell" title={`${formatHourLabel(cell.hourStart)}: ${cell.count} signal(s)`}>
-                    <span style={{ height: `${Math.max(8, Math.min(100, cell.count * 10))}%` }} />
-                    <small>{formatHourLabel(cell.hourStart)}</small>
-                  </div>
-                ))
-              )}
-            </div>
-          </article>
-
-          <article className="panel">
-            <div className="section-head">
-              <p className="kicker">Recent Signals</p>
-              <span className="muted">{recentEvents.length}</span>
-            </div>
-            <div className="recent-signals">
-              {recentEvents.slice(0, 10).map((item) => (
-                <a key={item.id} href={`/session/${item.sessionId}`}>
-                  <span className={`event-pill event-${eventTone(item.type)}`}>{item.type}</span>
-                  <p>{item.summary ?? "No summary provided."}</p>
-                  <small>{item.agentName} · {item.repoName} · {timeAgo(item.createdAt)}</small>
-                </a>
-              ))}
-              {recentEvents.length === 0 && <p className="muted">No fleet events yet.</p>}
-            </div>
-          </article>
-        </aside>
-      </section>
-    </main>
-  );
-}
-
-function ActiveSessionPage() {
-  const [data, setData] = useState<SessionDetailResponse | null>(null);
-  const [timeline, setTimeline] = useState<AgentEvent[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadData = useCallback(() => {
-    setError(null);
-    getSessionsList()
-      .then(async (sessionsResponse) => {
-        const first = [...sessionsResponse.sessions].sort(byAttention).find((item) => item.endedAt === null) ?? sessionsResponse.sessions[0];
-        if (!first) {
-          setData(null);
-          setTimeline([]);
-          return;
-        }
-        const detail = await getSessionDetail(first.id);
-        setData(detail);
-        const t = await getTimeline(first.id, { tail: 10 });
-        setTimeline([...t.items].reverse());
-      })
-      .catch((reason: Error) => setError(reason.message));
-  }, []);
-
-  useEffect(() => loadData(), [loadData]);
-  useLiveStream(loadData);
-  useHeartbeat(loadData);
-
-  if (error) {
-    return <MessageState title="The line is unreachable" description={error} retryText="Try again" onRetry={loadData} />;
-  }
-  if (!data) {
-    return <MessageState title="No active session" description="Use Mission Control to open a specific station." />;
-  }
-
-  const { session, status, recommendation, activeTask, holisticContext } = data;
-  const repo = repoName(session.repoPath);
-  const worktree = session.worktreePath !== session.repoPath ? repoName(session.worktreePath) : null;
-  const tone = statusTone(status.status);
-  const latestEvent = timeline[0];
-
-  return (
-    <main className={`dashboard tone-${tone}`}>
-      <section className="hero-grid">
-        <div className="hero-panel">
-          <p className="kicker">Live agent line</p>
-          <div className="hero-title-row">
-            <h1>{activeTask?.title ?? session.objective}</h1>
-            <StatusLine status={status.status} />
-          </div>
-          <p className="hero-copy">{status.explanation}</p>
-          <div className="context-strip">
-            <span><b>Repo</b>{repo}</span>
-            <span><b>Agent</b>{session.agentName}</span>
-            <span><b>Runtime</b>{session.runtime}</span>
-            <span><b>Last signal</b>{timeAgo(session.lastEventAt)}</span>
-            {worktree && <span><b>Worktree</b>{worktree}</span>}
-          </div>
-        </div>
-        <QuoteBlock />
-      </section>
-      <PhaseRail activePhase={session.currentPhase} />
-      <section className="work-grid">
-        <article className="panel attention-panel">
-          <div className="section-head">
-            <p className="kicker">Needs attention</p>
-            <span className={`urgency urgency-${urgencyTone(recommendation.urgency)}`}>{recommendation.urgency}</span>
-          </div>
-          <h2>{recommendation.title}</h2>
-          <p>{recommendation.description}</p>
-        </article>
-        <article className="panel"><p className="kicker">Evidence</p><EvidenceList evidence={status.evidence} /></article>
-        <article className="panel">
-          <p className="kicker">Holistic grounding</p>
-          {holisticContext ? (
-            <div className="grounding-grid">
-              <div><h3>Expected scope</h3><EvidenceList evidence={holisticContext.expectedScope ?? []} /></div>
-              <div><h3>Constraints</h3><EvidenceList evidence={holisticContext.constraints ?? []} /></div>
-              <div><h3>Rejected approaches</h3><EvidenceList evidence={holisticContext.rejectedApproaches ?? []} /></div>
-            </div>
-          ) : (
-            <p className="muted">No Holistic context loaded.</p>
-          )}
-        </article>
-        <article className="panel timeline-panel"><div className="section-head"><p className="kicker">Recent signals</p><a href={`/session/${session.id}/timeline`}>Full replay</a></div><EventList events={timeline} /></article>
-        <article className="panel quiet-panel">
-          <p className="kicker">Current task</p>
-          <dl className="metric-list">
-            <div><dt>Title</dt><dd>{activeTask?.title ?? "No active task"}</dd></div>
-            <div><dt>Phase</dt><dd>{phaseLabels[session.currentPhase]}</dd></div>
-            <div><dt>Started</dt><dd>{formatDateTime(session.startedAt)}</dd></div>
-            <div><dt>Latest event</dt><dd>{latestEvent?.summary ?? latestEvent?.type ?? "—"}</dd></div>
-          </dl>
-          <a className="text-link" href={`/session/${session.id}`}>Inspect station →</a>
-        </article>
-      </section>
-    </main>
-  );
-}
-
-function DetailPage({ sessionId }: { sessionId: string }) {
-  const [data, setData] = useState<SessionDetailResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadData = useCallback(() => {
-    setError(null);
-    getSessionDetail(sessionId).then(setData).catch((r: Error) => setError(r.message));
-  }, [sessionId]);
-
-  useEffect(() => loadData(), [loadData]);
-  useLiveStream(loadData);
-  useHeartbeat(loadData);
-
-  if (error) return <MessageState title="Station unavailable" description={error} onRetry={loadData} />;
-  if (!data) return <MessageState title="Opening station" description="Loading session detail…" />;
-
-  const { session, status, recommendation, holisticContext, activeTask } = data;
-  const repo = repoName(session.repoPath);
-
-  return (
-    <main className={`detail-page tone-${statusTone(status.status)}`}>
-      <section className="hero-panel compact">
-        <p className="kicker">Station detail</p>
-        <div className="hero-title-row">
-          <h1>{session.agentName}</h1>
-          <StatusLine status={status.status} />
-        </div>
-        <p className="hero-copy">{session.objective}</p>
-        <div className="context-strip">
-          <span><b>Repo</b>{repo}</span>
-          <span><b>Runtime</b>{session.runtime}</span>
-          <span><b>Phase</b>{phaseLabels[session.currentPhase]}</span>
-          <span><b>Last signal</b>{timeAgo(session.lastEventAt)}</span>
-        </div>
-      </section>
-
-      <PhaseRail activePhase={session.currentPhase} />
-
-      <section className="work-grid detail-grid">
-        <article className="panel attention-panel">
-          <p className="kicker">Recommendation</p>
-          <h2>{recommendation.title}</h2>
-          <p>{recommendation.description}</p>
-          <span className={`urgency urgency-${urgencyTone(recommendation.urgency)}`}>
-            {recommendation.urgency}
-          </span>
-        </article>
-
-        <article className="panel">
-          <p className="kicker">Assessment evidence</p>
-          <EvidenceList evidence={status.evidence} />
-        </article>
-
-        <article className="panel">
-          <p className="kicker">Task</p>
-          <dl className="metric-list">
-            <div><dt>Current</dt><dd>{activeTask?.title ?? "No active task"}</dd></div>
-            <div><dt>Started</dt><dd>{formatDateTime(session.startedAt)}</dd></div>
-            <div><dt>Last summary</dt><dd>{session.lastSummary ?? "—"}</dd></div>
-          </dl>
-        </article>
-
-        <article className="panel">
-          <p className="kicker">Holistic grounding</p>
-          {holisticContext ? (
-            <div className="grounding-grid">
-              <div>
-                <h3>Expected scope</h3>
-                <EvidenceList evidence={holisticContext.expectedScope ?? []} />
-              </div>
-              <div>
-                <h3>Constraints</h3>
-                <EvidenceList evidence={holisticContext.constraints ?? []} />
-              </div>
-              <div>
-                <h3>Rejected approaches</h3>
-                <EvidenceList evidence={holisticContext.rejectedApproaches ?? []} />
-              </div>
-            </div>
-          ) : (
-            <p className="muted">No Holistic context loaded for this session.</p>
-          )}
-        </article>
-      </section>
-
-      <p className="page-return"><a href="/">← Back to Mission Control</a> · <a href={`/session/${session.id}/timeline`}>View replay →</a></p>
-    </main>
-  );
-}
-
-const TIMELINE_FETCH_PAGE = 400;
-const MAX_TIMELINE_ROWS_RENDERED = 600;
-
-function TimelinePage({ sessionId }: { sessionId: string }) {
-  const [timeline, setTimeline] = useState<TimelineResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loadingMore, setLoadingMore] = useState(false);
-
-  const loadInitial = useCallback(() => {
-    setError(null);
-    getTimeline(sessionId, { limit: TIMELINE_FETCH_PAGE, offset: 0 })
-      .then(setTimeline)
-      .catch((r: Error) => setError(r.message));
-  }, [sessionId]);
-
-  useEffect(() => loadInitial(), [loadInitial]);
-  useLiveStream(loadInitial);
-  useHeartbeat(loadInitial);
-
-  const loadOlder = useCallback(() => {
-    if (!timeline?.hasMore || loadingMore) return;
-    setLoadingMore(true);
-    getTimeline(sessionId, { limit: TIMELINE_FETCH_PAGE, offset: timeline.items.length })
-      .then((next) =>
-        setTimeline({
-          ...next,
-          items: [...timeline.items, ...next.items],
-        })
-      )
-      .catch((r: Error) => setError(r.message))
-      .finally(() => setLoadingMore(false));
-  }, [loadingMore, sessionId, timeline]);
-
-  if (error) return <MessageState title="Replay unavailable" description={error} onRetry={loadInitial} />;
-  if (!timeline) return <MessageState title="Loading replay" description="Reading session events…" />;
-
-  const itemsNewestFirst = [...timeline.items].reverse();
-  const rendered = itemsNewestFirst.slice(0, MAX_TIMELINE_ROWS_RENDERED);
-  const omitted = itemsNewestFirst.length - rendered.length;
-
-  return (
-    <main className="timeline-page">
-      <section className="hero-panel compact">
-        <p className="kicker">Session replay</p>
-        <h1>{timeline.total} recorded signals</h1>
-        <p className="hero-copy">
-          Showing {timeline.items.length} of {timeline.total}. Newest signals appear first.
-        </p>
-        {timeline.hasMore && (
-          <button className="button secondary" type="button" onClick={loadOlder}>
-            {loadingMore ? "Loading…" : "Load older signals"}
-          </button>
-        )}
-      </section>
-
-      <article className="panel timeline-panel">
-        <EventList events={rendered} />
-        {omitted > 0 && (
-          <p className="muted">{omitted} events hidden for UI performance.</p>
-        )}
-      </article>
-
-      <p className="page-return"><a href={`/session/${sessionId}`}>← Back to station</a></p>
     </main>
   );
 }
 
 function HistoryPage() {
-  const [data, setData] = useState<{ sessions: SessionRecord[] } | null>(null);
+  const [data, setData] = useState<MissionControlResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-
   const loadData = useCallback(() => {
     setError(null);
-    getSessionsList().then(setData).catch((r: Error) => setError(r.message));
+    getHistory().then(setData).catch((reason: Error) => setError(reason.message));
   }, []);
 
   useEffect(() => loadData(), [loadData]);
   useLiveStream(loadData);
   useHeartbeat(loadData);
 
-  const sessions = useMemo(() => [...(data?.sessions ?? [])].sort(byAttention), [data]);
-
-  if (error) return <MessageState title="History unavailable" description={error} onRetry={loadData} />;
-  if (!data) return <MessageState title="Reading history" description="Loading previous agent sessions…" />;
-  if (sessions.length === 0) {
-    return <MessageState title="No recorded sessions" description="Past agent work will collect here." />;
-  }
+  if (error) return <MessageState title="History is unreachable" description={error} onRetry={loadData} />;
+  if (!data) return <MessageState title="Reading history" description="Loading historical sessions." />;
 
   return (
-    <main className="history-page">
-      <section className="hero-panel compact">
-        <p className="kicker">Session wall</p>
-        <h1>{sessions.length} agent session{sessions.length === 1 ? "" : "s"}</h1>
-        <p className="hero-copy">A quieter ledger of what agents have touched, when they last signaled, and where the work stood.</p>
+    <main className="secondary-page">
+      <section className="page-heading">
+        <p className="eyebrow">Historical sessions</p>
+        <h1>History</h1>
+        <p>Historical rows stay out of Mission Control and collect here for audit and replay.</p>
       </section>
-
-      <section className="session-wall">
-        {sessions.map((session) => (
-          <SessionMiniCard key={session.id} session={session} />
-        ))}
+      <section className="history-list">
+        {data.sessions.length === 0 ? (
+          <p className="muted">No historical sessions recorded.</p>
+        ) : (
+          data.sessions.map((item) => <HistoryRow key={item.session.id} item={item.session} />)
+        )}
       </section>
     </main>
   );
 }
 
-/* ───────────────────────────── router ───────────────────────────── */
+function HistoryRow({ item }: { item: SessionRecord }) {
+  return (
+    <a className="history-row" href={`/session/${encodeURIComponent(item.id)}`}>
+      <strong>{item.agentName}</strong>
+      <span>{repoName(item.repoPath)}</span>
+      <p>{trimLine(item.objective, 96)}</p>
+      <time>{formatDateTime(item.endedAt ?? item.lastEventAt)}</time>
+    </a>
+  );
+}
 
-function pickRoute(pathname: string): ReactNode {
-  const timelineMatch = pathname.match(/^\/session\/([^/]+)\/timeline$/);
-  if (timelineMatch) return <TimelinePage sessionId={decodeURIComponent(timelineMatch[1])} />;
+function HealthPage() {
+  const [data, setData] = useState<AndonHealthResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadData = useCallback(() => {
+    setError(null);
+    getAndonHealth().then(setData).catch((reason: Error) => setError(reason.message));
+  }, []);
+
+  useEffect(() => loadData(), [loadData]);
+  useHeartbeat(loadData);
+
+  if (error) return <MessageState title="Health is unreachable" description={error} onRetry={loadData} />;
+  if (!data) return <MessageState title="Reading Andon health" description="Loading service diagnostics." />;
+
+  return (
+    <main className="secondary-page">
+      <section className="page-heading">
+        <p className="eyebrow">Debug</p>
+        <h1>Andon Health</h1>
+        <p>{data.databasePath}</p>
+      </section>
+      <section className="health-grid">
+        {Object.entries(data.counts).map(([label, value]) => (
+          <div key={label} className="health-cell">
+            <span>{label.replace(/([A-Z])/g, " $1")}</span>
+            <strong>{value}</strong>
+          </div>
+        ))}
+      </section>
+      {data.warnings.length > 0 && (
+        <section className="health-warnings">
+          {data.warnings.map((warning) => <p key={warning}>{warning}</p>)}
+        </section>
+      )}
+    </main>
+  );
+}
+
+function DetailPage({ sessionId }: { sessionId: string }) {
+  const [data, setData] = useState<Awaited<ReturnType<typeof getSessionDetail>> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadData = useCallback(() => {
+    setError(null);
+    getSessionDetail(sessionId).then(setData).catch((reason: Error) => setError(reason.message));
+  }, [sessionId]);
+
+  useEffect(() => loadData(), [loadData]);
+  useLiveStream(loadData);
+  useHeartbeat(loadData);
+
+  if (error) return <MessageState title="Session detail is unreachable" description={error} onRetry={loadData} />;
+  if (!data) return <MessageState title="Opening session" description="Loading session detail." />;
+
+  return (
+    <main className="secondary-page detail-page">
+      <section className="page-heading">
+        <p className="eyebrow">Session detail</p>
+        <h1>{data.session.agentName}</h1>
+        <p>{data.session.objective}</p>
+      </section>
+      <section className="detail-grid">
+        <div><span>Repo</span><strong>{repoName(data.session.repoPath)}</strong></div>
+        <div><span>Status</span><strong>{data.status.status.replace(/_/g, " ")}</strong></div>
+        <div><span>Phase</span><strong>{data.session.currentPhase}</strong></div>
+        <div><span>Last signal</span><strong>{formatDateTime(data.session.lastEventAt)}</strong></div>
+      </section>
+      <section className="detail-panel">
+        <h2>{data.recommendation.title}</h2>
+        <p>{data.recommendation.description}</p>
+        <a className="button secondary" href={`/session/${encodeURIComponent(sessionId)}/replay`}>Open replay</a>
+      </section>
+      <p className="page-return"><a href="/">Back to Mission Control</a></p>
+    </main>
+  );
+}
+
+function ReplayPage({ sessionId }: { sessionId: string }) {
+  const [data, setData] = useState<SessionReplayResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadData = useCallback(() => {
+    setError(null);
+    getSessionReplay(sessionId).then(setData).catch((reason: Error) => setError(reason.message));
+  }, [sessionId]);
+
+  useEffect(() => loadData(), [loadData]);
+  useLiveStream(loadData);
+  useHeartbeat(loadData);
+
+  if (error) return <MessageState title="Replay is unreachable" description={error} onRetry={loadData} />;
+  if (!data) return <MessageState title="Opening replay" description="Loading meaningful replay events." />;
+
+  return (
+    <main className="secondary-page">
+      <section className="page-heading">
+        <p className="eyebrow">Session replay</p>
+        <h1>{data.events.length} events</h1>
+        <p>{data.hiddenTelemetryCount} heartbeat/no-op telemetry event(s) hidden by the API.</p>
+      </section>
+      <ol className="replay-list">
+        {data.events.map((event) => (
+          <li key={event.id}>
+            <time>{formatDateTime(event.timestamp)}</time>
+            <strong>{event.kind}</strong>
+            <span>{event.type}</span>
+            <p>{event.summary ?? "No summary"}</p>
+          </li>
+        ))}
+      </ol>
+      <p className="page-return"><a href={`/session/${encodeURIComponent(sessionId)}`}>Back to session</a></p>
+    </main>
+  );
+}
+
+function pickRoute(pathname: string) {
+  const replayMatch = pathname.match(/^\/session\/([^/]+)\/replay$/);
+  if (replayMatch) return <ReplayPage sessionId={decodeURIComponent(replayMatch[1])} />;
+
+  const legacyTimelineMatch = pathname.match(/^\/session\/([^/]+)\/timeline$/);
+  if (legacyTimelineMatch) return <ReplayPage sessionId={decodeURIComponent(legacyTimelineMatch[1])} />;
 
   const detailMatch = pathname.match(/^\/session\/([^/]+)$/);
   if (detailMatch) return <DetailPage sessionId={decodeURIComponent(detailMatch[1])} />;
 
+  if (pathname === "/needs-action") return <MissionControlPage focusCategory="needs_action" />;
+  if (pathname === "/review") return <MissionControlPage focusCategory="review" />;
   if (pathname === "/history") return <HistoryPage />;
+  if (pathname === "/health") return <HealthPage />;
 
   return <MissionControlPage />;
 }

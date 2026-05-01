@@ -1,56 +1,44 @@
 import assert from "node:assert/strict";
 
-import type { FleetSessionItem } from "../packages/andon-core/src/index.ts";
+import type { OperationalCategory } from "../packages/andon-core/src/index.ts";
+import type { MissionControlResponse, MissionControlSession } from "../apps/andon-dashboard/src/api.ts";
 import {
-  buildAttentionQueue,
+  buildMissionControlBoardViewModel,
   buildMissionSessionViewModels,
-  filterAndSortMissionSessionViewModels,
+  getCategoryPresentation,
+  MISSION_LANES,
 } from "../apps/andon-dashboard/src/mission-control-view-model.ts";
 
-function makeFleetItem(overrides: Partial<FleetSessionItem> = {}): FleetSessionItem {
-  const base: FleetSessionItem = {
+function makeMissionSession(
+  category: OperationalCategory,
+  overrides: Partial<MissionControlSession> = {},
+): MissionControlSession {
+  const base: MissionControlSession = {
     session: {
-      id: "session-base",
+      id: `${category}-session`,
       agentName: "codex",
       runtime: "codex",
       repoPath: "D:/Projects/active/holistic",
       worktreePath: "D:/Projects/active/holistic",
-      objective: "Ship glance-first mission control",
+      objective: "Recover Andon Mission Control",
       currentPhase: "execute",
       startedAt: "2026-04-29T12:00:00.000Z",
-      endedAt: null,
+      endedAt: category === "historical" ? "2026-04-29T12:30:00.000Z" : null,
       lastEventAt: "2026-04-29T12:10:00.000Z",
-      lastSummary: "Working through card hierarchy updates.",
+      lastSummary: "Server projection emitted an operational category.",
     },
-    activeTask: null,
-    status: {
-      status: "running",
-      phase: "execute",
-      explanation: "Runtime heartbeat and status indicate healthy execution.",
-      evidence: ["Active runtime heartbeat is flowing."],
-    },
-    recommendation: {
-      urgency: "low",
-      title: "Monitor active runtime",
-      actionLabel: "Keep watching",
-      description: "Runtime heartbeat and status indicate healthy execution.",
-    },
-    supervision: {
-      lastMeaningfulEventAt: "2026-04-29T12:09:30.000Z",
-      supervisionSeverity: "low",
-    },
-    attentionRank: 9,
-    attentionBreakdown: {
-      status: 3,
-      urgency: 2,
-      freshness: 4,
-    },
-    heartbeatFreshness: "fresh",
-    blockedReason: null,
-    recommendedAction: "Keep watching",
-    availableActions: ["inspect", "pause"],
-    repoName: "holistic",
-    worktreeName: null,
+    category,
+    reason: category === "needs_action" ? "waiting_for_input" : category,
+    rawRuntimeStatus: category === "historical" ? "terminated" : "running",
+    derivedOperationalStatus: category,
+    sourceOfTruth: "runtime",
+    freshness: category === "unknown" ? "unknown" : "fresh",
+    lastSignalTimestamp: "2026-04-29T12:10:00.000Z",
+    signalAgeMs: 30_000,
+    confidence: category === "unknown" ? "low" : "high",
+    nextRecommendedOperatorAction: category === "needs_action" ? "Answer the agent prompt." : "Inspect when ready.",
+    belongsToMissionControl: category !== "historical",
+    belongsToHistory: category === "historical",
   };
 
   return {
@@ -60,192 +48,148 @@ function makeFleetItem(overrides: Partial<FleetSessionItem> = {}): FleetSessionI
       ...base.session,
       ...(overrides.session ?? {}),
     },
-    activeTask: overrides.activeTask === undefined ? base.activeTask : overrides.activeTask,
-    status: {
-      ...base.status,
-      ...(overrides.status ?? {}),
-    },
-    recommendation: {
-      ...base.recommendation,
-      ...(overrides.recommendation ?? {}),
-    },
-    supervision: {
-      ...base.supervision,
-      ...(overrides.supervision ?? {}),
-    },
-    attentionBreakdown: {
-      ...base.attentionBreakdown,
-      ...(overrides.attentionBreakdown ?? {}),
-    },
-    availableActions: overrides.availableActions ?? base.availableActions,
+  };
+}
+
+function makeResponse(sessions: MissionControlSession[]): MissionControlResponse {
+  const categories: Array<OperationalCategory | "total"> = [
+    "total",
+    "live",
+    "needs_action",
+    "degraded_active",
+    "review",
+    "historical",
+    "unknown",
+  ];
+  const totals = Object.fromEntries(categories.map((category) => [category, 0])) as MissionControlResponse["totals"];
+  totals.total = sessions.length;
+  for (const session of sessions) {
+    totals[session.category] += 1;
+  }
+
+  return {
+    generatedAt: "2026-04-29T12:11:00.000Z",
+    totals,
+    sessions,
   };
 }
 
 const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
   {
-    name: "Andon Mission Control does not degrade parked runtime-missing history rows",
+    name: "Andon Mission Control renders one live operational row and excludes 50 historical rows",
     run: () => {
-      const item = makeFleetItem({
-        session: { id: "runtime-missing-1", lastEventAt: "2026-04-29T12:11:00.000Z" },
-        status: {
-          status: "parked",
-          explanation: "Session has no runtime heartbeat and is treated as non-flowing.",
-          evidence: ["No runtime session signal is active for this session."],
-        },
-        heartbeatFreshness: "stale",
-        availableActions: ["inspect", "resume"],
-        recommendedAction: "Decide next action",
-      });
+      const live = makeMissionSession("live", { session: { id: "live-1" } });
+      const historical = Array.from({ length: 50 }, (_, index) =>
+        makeMissionSession("historical", {
+          session: { id: `historical-${index + 1}` },
+          belongsToMissionControl: false,
+          belongsToHistory: true,
+        })
+      );
 
-      const [viewModel] = buildMissionSessionViewModels([item]);
-      assert.ok(viewModel);
-      assert.equal(viewModel.isDegraded, false);
-      assert.equal(viewModel.degradedBadge, null);
+      const board = buildMissionControlBoardViewModel(makeResponse([live, ...historical]));
+
+      assert.deepEqual(board.visibleSessions.map((item) => item.id), ["live-1"]);
+      assert.equal(board.lanes.find((lane) => lane.id === "live")?.count, 1);
+      assert.equal(board.lanes.flatMap((lane) => lane.visibleSessions).some((item) => item.category === "historical"), false);
+      assert.equal(board.historyCount, 50);
     },
   },
   {
-    name: "Andon Mission Control treats parked runtime-mirror-missing copy as history",
+    name: "Andon Mission Control orders needs_action before degraded, review, and live",
     run: () => {
-      const item = makeFleetItem({
-        session: { id: "legacy-mirror-1", lastEventAt: "2026-04-29T12:11:00.000Z" },
-        status: {
-          status: "parked",
-          explanation: "No linked runtime session; this row is legacy Andon telemetry only.",
-          evidence: ["Runtime mirror missing for this session id.", "Last legacy signal: agent.summary_emitted."],
-        },
-        heartbeatFreshness: "stale",
-        availableActions: ["inspect", "resume"],
-      });
-
-      const [viewModel] = buildMissionSessionViewModels([item]);
-      assert.ok(viewModel);
-      assert.equal(viewModel.isDegraded, false);
-      assert.equal(viewModel.degradedBadge, null);
-    },
-  },
-  {
-    name: "Andon Mission Control only labels cold running sessions as heartbeat-degraded",
-    run: () => {
-      const item = makeFleetItem({
-        session: { id: "cold-running-1" },
-        status: {
-          status: "running",
-          explanation: "Runtime session is running.",
-          evidence: ["No runtime events recorded yet."],
-        },
-        heartbeatFreshness: "cold",
-      });
-
-      const [viewModel] = buildMissionSessionViewModels([item]);
-      assert.ok(viewModel);
-      assert.equal(viewModel.isDegraded, true);
-      assert.equal(viewModel.degradedBadge, "Heartbeat degraded");
-      assert.match(viewModel.freshnessLabel, /degraded/i);
-      assert.match(viewModel.whyNow, /no recent runtime heartbeat/i);
-    },
-  },
-  {
-    name: "Andon Mission Control prioritizes approve over resume and pause actions",
-    run: () => {
-      const item = makeFleetItem({
-        session: { id: "action-precedence-1" },
-        availableActions: ["inspect", "pause", "resume", "approve"],
-      });
-
-      const [viewModel] = buildMissionSessionViewModels([item]);
-      assert.ok(viewModel);
-      assert.equal(viewModel.primaryAction, "approve");
-    },
-  },
-  {
-    name: "Andon Mission Control attention sorting keeps active sessions ahead of intervention ties",
-    run: () => {
-      const running = makeFleetItem({
-        session: { id: "running-tie", lastEventAt: "2026-04-29T12:10:00.000Z" },
-        status: { status: "running" },
-        attentionRank: 14,
-      });
-      const needsInput = makeFleetItem({
-        session: { id: "needs-input-tie", lastEventAt: "2026-04-29T12:09:00.000Z" },
-        status: {
-          status: "needs_input",
-          explanation: "Runtime is waiting for operator input.",
-          evidence: ["Needs a human answer before continuing."],
-        },
-        recommendation: {
-          urgency: "high",
-          title: "Provide required input",
-          actionLabel: "Answer agent prompt",
-          description: "Runtime is waiting for operator input before work can continue.",
-        },
-        attentionRank: 14,
-      });
-
-      const viewModels = buildMissionSessionViewModels([running, needsInput]);
-      const ordered = filterAndSortMissionSessionViewModels(viewModels, {
-        statusFilter: "all",
-        repoFilter: "all",
-        sortBy: "attention",
-      });
-      assert.equal(ordered[0]?.id, "running-tie");
-
-      const queue = buildAttentionQueue(ordered, 4);
-      assert.equal(queue[0]?.id, "needs-input-tie");
-    },
-  },
-  {
-    name: "Andon Mission Control keeps active sessions first in attention sorting",
-    run: () => {
-      const active = makeFleetItem({
-        session: { id: "active-first", lastEventAt: "2026-04-29T12:11:00.000Z" },
-        status: { status: "running" },
-        attentionRank: 5,
-      });
-      const needsInput = makeFleetItem({
-        session: { id: "needs-input-second", lastEventAt: "2026-04-29T12:12:00.000Z" },
-        status: { status: "needs_input" },
-        attentionRank: 15,
-      });
-
-      const ordered = filterAndSortMissionSessionViewModels(buildMissionSessionViewModels([needsInput, active]), {
-        statusFilter: "all",
-        repoFilter: "all",
-        sortBy: "attention",
-      });
-      assert.equal(ordered[0]?.id, "active-first");
-      assert.equal(ordered[1]?.id, "needs-input-second");
-    },
-  },
-  {
-    name: "Andon Mission Control operational filter hides old non-operational rows",
-    run: () => {
-      const active = makeFleetItem({ session: { id: "active-operational" }, status: { status: "running" } });
-      const blocked = makeFleetItem({ session: { id: "blocked-operational" }, status: { status: "blocked" } });
-      const oldParked = makeFleetItem({
-        session: { id: "old-parked-non-operational" },
-        status: { status: "parked", explanation: "Session parked by operator", evidence: ["Completed last week"] },
-        heartbeatFreshness: "stale",
-      });
-      const runtimeMissingParked = makeFleetItem({
-        session: { id: "runtime-missing-history" },
-        status: {
-          status: "parked",
-          explanation: "No linked runtime session; this row is legacy Andon telemetry only.",
-          evidence: ["Runtime mirror missing for this session id."],
-        },
-        heartbeatFreshness: "cold",
-      });
-
-      const ordered = filterAndSortMissionSessionViewModels(buildMissionSessionViewModels([oldParked, runtimeMissingParked, blocked, active]), {
-        statusFilter: "operational",
-        repoFilter: "all",
-        sortBy: "attention",
-      });
+      const board = buildMissionControlBoardViewModel(makeResponse([
+        makeMissionSession("live", { session: { id: "live" } }),
+        makeMissionSession("review", { session: { id: "review" } }),
+        makeMissionSession("degraded_active", { session: { id: "degraded" } }),
+        makeMissionSession("needs_action", { session: { id: "needs" } }),
+      ]));
 
       assert.deepEqual(
-        ordered.map((item) => item.id),
-        ["active-operational", "blocked-operational"]
+        board.visibleSessions.map((item) => item.id),
+        ["needs", "degraded", "review", "live"],
       );
+      assert.deepEqual(
+        board.lanes.map((lane) => lane.id),
+        ["needs_action", "degraded_unknown", "review", "live"],
+      );
+    },
+  },
+  {
+    name: "Andon Mission Control renders review as Review, not Flowing or Running",
+    run: () => {
+      const [viewModel] = buildMissionSessionViewModels([
+        makeMissionSession("review", {
+          rawRuntimeStatus: "running",
+          derivedOperationalStatus: "awaiting_review",
+          reason: "awaiting_review",
+        }),
+      ]);
+
+      assert.ok(viewModel);
+      assert.equal(viewModel.category, "review");
+      assert.equal(viewModel.presentation.label, "Review");
+      assert.doesNotMatch(viewModel.presentation.label, /flowing|running/i);
+    },
+  },
+  {
+    name: "Andon Mission Control presents degraded and unknown as non-healthy states",
+    run: () => {
+      assert.equal(getCategoryPresentation("degraded_active").tone, "warning");
+      assert.equal(getCategoryPresentation("unknown").tone, "unknown");
+      assert.notEqual(getCategoryPresentation("degraded_active").tone, "healthy");
+      assert.notEqual(getCategoryPresentation("unknown").tone, "healthy");
+    },
+  },
+  {
+    name: "Andon Mission Control empty operational response has calm empty lanes",
+    run: () => {
+      const board = buildMissionControlBoardViewModel(makeResponse([]));
+
+      assert.equal(board.operationalTotal, 0);
+      assert.equal(board.visibleSessions.length, 0);
+      assert.deepEqual(board.lanes.map((lane) => lane.count), [0, 0, 0, 0]);
+    },
+  },
+  {
+    name: "Andon Mission Control consumes category and reason without reclassifying raw runtime status",
+    run: () => {
+      const [viewModel] = buildMissionSessionViewModels([
+        makeMissionSession("needs_action", {
+          rawRuntimeStatus: "running",
+          reason: "waiting_for_input",
+          derivedOperationalStatus: "needs_input",
+        }),
+      ]);
+
+      assert.ok(viewModel);
+      assert.equal(viewModel.category, "needs_action");
+      assert.equal(viewModel.rawRuntimeStatus, "running");
+      assert.equal(viewModel.reason, "waiting for input");
+    },
+  },
+  {
+    name: "Andon Mission Control status presentation exists for all operational categories",
+    run: () => {
+      for (const category of ["needs_action", "degraded_active", "review", "live", "unknown"] as const) {
+        const presentation = getCategoryPresentation(category);
+        assert.ok(presentation.label);
+        assert.ok(presentation.marker);
+        assert.ok(presentation.tone);
+      }
+    },
+  },
+  {
+    name: "Andon Mission Control never assigns historical to a live board lane",
+    run: () => {
+      const historical = makeMissionSession("historical", {
+        belongsToMissionControl: true,
+        belongsToHistory: true,
+      });
+      const board = buildMissionControlBoardViewModel(makeResponse([historical]));
+
+      assert.equal(board.visibleSessions.length, 0);
+      assert.equal(MISSION_LANES.some((lane) => lane.categories.includes("historical")), false);
     },
   },
 ];

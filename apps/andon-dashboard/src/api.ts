@@ -1,9 +1,11 @@
 import type {
   ActiveSessionResponse,
   FleetResponse,
+  OperationalCategory,
   SessionDetailResponse,
-  TimelineResponse,
-  SessionRecord
+  SignalFreshnessState,
+  SessionRecord,
+  TimelineResponse
 } from "../../../packages/andon-core/src/index.ts";
 
 const apiBaseUrl = import.meta.env.VITE_ANDON_API_BASE_URL ?? "http://127.0.0.1:4318";
@@ -40,6 +42,36 @@ export function getFleet(): Promise<FleetResponse> {
   return fetchJson<FleetResponse>("/fleet");
 }
 
+export interface MissionControlSession {
+  session: SessionRecord;
+  category: OperationalCategory;
+  reason: string;
+  rawRuntimeStatus: string | null;
+  derivedOperationalStatus: string;
+  sourceOfTruth: string;
+  freshness: SignalFreshnessState;
+  lastSignalTimestamp: string | null;
+  signalAgeMs: number | null;
+  confidence: "high" | "medium" | "low";
+  nextRecommendedOperatorAction: string;
+  belongsToMissionControl: boolean;
+  belongsToHistory: boolean;
+}
+
+export interface MissionControlResponse {
+  generatedAt: string;
+  totals: Record<OperationalCategory | "total", number>;
+  sessions: MissionControlSession[];
+}
+
+export function getMissionControl(): Promise<MissionControlResponse> {
+  return fetchJson<MissionControlResponse>("/mission-control");
+}
+
+export function getHistory(): Promise<MissionControlResponse> {
+  return fetchJson<MissionControlResponse>("/history");
+}
+
 export function getSessionsList(): Promise<{ sessions: SessionRecord[] }> {
   return fetchJson<{ sessions: SessionRecord[] }>("/sessions");
 }
@@ -65,6 +97,28 @@ export interface TimelineQuery {
   tail?: number;
 }
 
+export interface SessionReplayEvent {
+  id: string;
+  sessionId: string;
+  type: string;
+  kind: string;
+  timestamp: string;
+  summary: string | null;
+  source: string;
+  meaningful: boolean;
+}
+
+export interface SessionReplayResponse {
+  sessionId: string;
+  generatedAt: string;
+  events: SessionReplayEvent[];
+  hiddenTelemetryCount: number;
+}
+
+export function getSessionReplay(sessionId: string): Promise<SessionReplayResponse> {
+  return fetchJson<SessionReplayResponse>(`/sessions/${encodeURIComponent(sessionId)}/replay`);
+}
+
 export function getTimeline(sessionId: string, query?: TimelineQuery): Promise<TimelineResponse> {
   const params = new URLSearchParams();
   if (query?.tail != null) {
@@ -81,6 +135,29 @@ export function getTimeline(sessionId: string, query?: TimelineQuery): Promise<T
   const qs = params.toString();
   const path = `/sessions/${encodeURIComponent(sessionId)}/timeline${qs ? `?${qs}` : ""}`;
   return fetchJson<TimelineResponse>(path);
+}
+
+export interface AndonHealthResponse {
+  ok: boolean;
+  service: string;
+  databasePath: string;
+  envAndonDbPath: string | null;
+  counts: {
+    runtimeSessions: number;
+    runtimeEvents: number;
+    legacySessions: number;
+    legacyEvents: number;
+    currentOperational: number;
+    historical: number;
+  };
+  activeSessionIds: string[];
+  fleetWillRenderCards: boolean;
+  runtimeDatabaseAligned: boolean | "unknown";
+  warnings: string[];
+}
+
+export function getAndonHealth(): Promise<AndonHealthResponse> {
+  return fetchJson<AndonHealthResponse>("/health/andon");
 }
 
 export function subscribeToStream(onMessage: () => void): () => void {

@@ -1,212 +1,243 @@
-import type {
-  FleetSessionItem,
-  SessionStatus,
-} from "../../../packages/andon-core/src/index.ts";
+import type { OperationalCategory } from "../../../packages/andon-core/src/index.ts";
+import type { MissionControlResponse, MissionControlSession } from "./api.ts";
 
-export type MissionStatusFilter = "all" | "operational" | SessionStatus;
-export type MissionSort = "attention" | "freshness" | "recent";
+export type MissionLaneId = "needs_action" | "degraded_unknown" | "review" | "live";
+
+export interface CategoryPresentation {
+  label: string;
+  shortLabel: string;
+  tone: "critical" | "warning" | "review" | "healthy" | "unknown" | "history";
+  marker: "octagon" | "triangle" | "diamond" | "circle" | "outline";
+}
+
+export const CATEGORY_PRESENTATION: Record<OperationalCategory, CategoryPresentation> = {
+  needs_action: {
+    label: "Needs Action",
+    shortLabel: "Action",
+    tone: "critical",
+    marker: "octagon",
+  },
+  degraded_active: {
+    label: "Degraded",
+    shortLabel: "Degraded",
+    tone: "warning",
+    marker: "triangle",
+  },
+  review: {
+    label: "Review",
+    shortLabel: "Review",
+    tone: "review",
+    marker: "diamond",
+  },
+  live: {
+    label: "Live",
+    shortLabel: "Live",
+    tone: "healthy",
+    marker: "circle",
+  },
+  unknown: {
+    label: "Unknown",
+    shortLabel: "Unknown",
+    tone: "unknown",
+    marker: "outline",
+  },
+  historical: {
+    label: "Historical",
+    shortLabel: "History",
+    tone: "history",
+    marker: "outline",
+  },
+};
+
+export const MISSION_CATEGORY_ORDER: OperationalCategory[] = [
+  "needs_action",
+  "degraded_active",
+  "unknown",
+  "review",
+  "live",
+  "historical",
+];
+
+export const MISSION_LANES: Array<{
+  id: MissionLaneId;
+  label: string;
+  description: string;
+  categories: OperationalCategory[];
+}> = [
+  {
+    id: "needs_action",
+    label: "Needs Action",
+    description: "Human intervention required now",
+    categories: ["needs_action"],
+  },
+  {
+    id: "degraded_unknown",
+    label: "Degraded / Unknown",
+    description: "Telemetry, blocker, or confidence problem",
+    categories: ["degraded_active", "unknown"],
+  },
+  {
+    id: "review",
+    label: "Review",
+    description: "Ready for inspection or approval",
+    categories: ["review"],
+  },
+  {
+    id: "live",
+    label: "Live",
+    description: "Fresh runtime truth confirms active work",
+    categories: ["live"],
+  },
+];
 
 export interface MissionSessionViewModel {
   id: string;
-  item: FleetSessionItem;
-  status: SessionStatus;
-  urgency: FleetSessionItem["recommendation"]["urgency"];
-  repoName: string;
+  source: MissionControlSession;
+  category: OperationalCategory;
+  presentation: CategoryPresentation;
+  laneId: MissionLaneId;
   agentName: string;
-  headline: string;
-  whyNow: string;
+  repoName: string;
+  objective: string;
+  reason: string;
+  freshness: string;
+  lastSignalAge: string;
+  confidenceLabel: string | null;
   nextAction: string;
-  latestSummary: string;
-  freshnessLabel: string;
-  isDegraded: boolean;
-  degradedBadge: string | null;
-  needsIntervention: boolean;
-  attentionRank: number;
-  attentionBreakdown: FleetSessionItem["attentionBreakdown"];
-  lastEventAt: string;
-  primaryAction: "approve" | "resume" | "pause" | null;
+  rawRuntimeStatus: string | null;
+  sourceOfTruth: string;
 }
 
-const RUNTIME_MISSING_MARKERS = [
-  "no runtime session signal",
-  "no runtime waiting_for_input signal",
-  "runtime feed is unavailable",
-  "no runtime heartbeat",
-  "non-flowing",
-  "runtime mirror missing",
-  "no linked runtime session",
-];
-
-function trimLine(value: string | null | undefined, max = 110): string {
-  if (!value) return "—";
-  return value.length > max ? `${value.slice(0, max - 1)}...` : value;
+export interface MissionLaneViewModel {
+  id: MissionLaneId;
+  label: string;
+  description: string;
+  categories: OperationalCategory[];
+  count: number;
+  visibleSessions: MissionSessionViewModel[];
+  hiddenCount: number;
 }
 
-function normalizeFleetItem(item: FleetSessionItem): FleetSessionItem {
-  return {
-    ...item,
-    availableActions: item.availableActions.length > 0 ? item.availableActions : ["inspect"],
-    attentionBreakdown: item.attentionBreakdown ?? { status: 0, urgency: 0, freshness: 0 },
-  };
+export interface MissionControlBoardViewModel {
+  generatedAt: string;
+  generatedAge: string;
+  totals: Record<OperationalCategory | "total", number>;
+  operationalTotal: number;
+  historyCount: number;
+  lanes: MissionLaneViewModel[];
+  visibleSessions: MissionSessionViewModel[];
 }
 
-export function isInterventionStatus(status: SessionStatus): boolean {
-  return status === "blocked" || status === "needs_input" || status === "awaiting_review" || status === "at_risk";
+function repoName(repoPath: string): string {
+  return repoPath.split(/[\\/]/).filter(Boolean).at(-1) ?? repoPath;
 }
 
-export function isOperationalMissionSession(item: Pick<MissionSessionViewModel, "status" | "isDegraded">): boolean {
-  return item.status === "running" || isInterventionStatus(item.status) || item.isDegraded;
+function trimLine(value: string | null | undefined, max = 88): string {
+  if (!value) return "-";
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > max ? `${normalized.slice(0, max - 1)}...` : normalized;
 }
 
-function freshnessSortValue(value: FleetSessionItem["heartbeatFreshness"]): number {
-  if (value === "fresh") return 3;
-  if (value === "stale") return 2;
-  return 1;
-}
-
-function hasRuntimeMissingSignal(item: FleetSessionItem): boolean {
-  const source = `${item.status.explanation}\n${item.status.evidence.join("\n")}`.toLowerCase();
-  return RUNTIME_MISSING_MARKERS.some((marker) => source.includes(marker));
-}
-
-export function isMissionSessionDegraded(item: FleetSessionItem): boolean {
-  if (hasRuntimeMissingSignal(item) && item.status.status !== "parked") {
-    return true;
+export function formatSignalAge(signalAgeMs: number | null, fallbackTimestamp?: string | null): string {
+  const ageMs = signalAgeMs ?? (
+    fallbackTimestamp ? Math.max(0, Date.now() - new Date(fallbackTimestamp).getTime()) : null
+  );
+  if (ageMs == null || !Number.isFinite(ageMs)) {
+    return "no signal";
   }
-  return item.status.status === "running" && item.heartbeatFreshness === "cold";
+  const seconds = Math.floor(ageMs / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
 }
 
-function degradedBadge(item: FleetSessionItem): string | null {
-  if (!isMissionSessionDegraded(item)) {
-    return null;
-  }
-  if (hasRuntimeMissingSignal(item) && item.status.status !== "parked") {
-    return "Runtime signal missing";
-  }
-  return "Heartbeat degraded";
+export function getCategoryPresentation(category: OperationalCategory): CategoryPresentation {
+  return CATEGORY_PRESENTATION[category];
 }
 
-function freshnessLabel(item: FleetSessionItem): string {
-  const degraded = isMissionSessionDegraded(item);
-  if (item.heartbeatFreshness === "fresh") return "Live (<5 min)";
-  if (item.heartbeatFreshness === "stale") return "Quiet (5–20 min)";
-  return degraded ? "Cold (>20 min) — degraded" : "Cold (>20 min)";
+function laneForCategory(category: OperationalCategory): MissionLaneId | null {
+  if (category === "historical") return null;
+  if (category === "degraded_active" || category === "unknown") return "degraded_unknown";
+  return category;
 }
 
-function missionWhyNow(item: FleetSessionItem): string {
-  const reason = trimLine(item.blockedReason ?? item.status.evidence[0] ?? item.status.explanation, 120);
-  if (hasRuntimeMissingSignal(item) && item.status.status !== "parked") {
-    return "Runtime signal missing; session is treated as non-flowing.";
-  }
-  const coldRuntimeWithoutRecentHeartbeat =
-    item.status.status === "running"
-    && item.heartbeatFreshness === "cold"
-    && (
-      /runtime session is running/i.test(item.status.explanation)
-      || /no runtime events recorded yet/i.test(reason)
-    );
-  if (coldRuntimeWithoutRecentHeartbeat) {
-    return "No recent runtime heartbeat confirms active flow.";
-  }
-  return reason;
+function compareMissionSessions(a: MissionSessionViewModel, b: MissionSessionViewModel): number {
+  const categoryDelta = MISSION_CATEGORY_ORDER.indexOf(a.category) - MISSION_CATEGORY_ORDER.indexOf(b.category);
+  if (categoryDelta !== 0) return categoryDelta;
+
+  const confidenceWeight: Record<string, number> = { low: 0, medium: 1, high: 2 };
+  const confidenceDelta =
+    (confidenceWeight[a.source.confidence] ?? 1) - (confidenceWeight[b.source.confidence] ?? 1);
+  if (confidenceDelta !== 0) return confidenceDelta;
+
+  return (a.source.signalAgeMs ?? Number.MAX_SAFE_INTEGER) - (b.source.signalAgeMs ?? Number.MAX_SAFE_INTEGER);
 }
 
-function primaryAction(actions: FleetSessionItem["availableActions"]): "approve" | "resume" | "pause" | null {
-  if (actions.includes("approve")) return "approve";
-  if (actions.includes("resume")) return "resume";
-  if (actions.includes("pause")) return "pause";
-  return null;
+export function buildMissionSessionViewModels(
+  sessions: MissionControlSession[],
+): MissionSessionViewModel[] {
+  return sessions
+    .filter((item) => item.belongsToMissionControl !== false)
+    .filter((item) => item.category !== "historical")
+    .map((item) => {
+      const laneId = laneForCategory(item.category);
+      if (!laneId) {
+        return null;
+      }
+
+      return {
+        id: item.session.id,
+        source: item,
+        category: item.category,
+        presentation: getCategoryPresentation(item.category),
+        laneId,
+        agentName: item.session.agentName,
+        repoName: repoName(item.session.repoPath),
+        objective: trimLine(item.session.objective, 76),
+        reason: trimLine(item.reason.replace(/_/g, " "), 64),
+        freshness: item.freshness,
+        lastSignalAge: formatSignalAge(item.signalAgeMs, item.lastSignalTimestamp ?? item.session.lastEventAt),
+        confidenceLabel: item.confidence === "high" ? null : `${item.confidence} confidence`,
+        nextAction: trimLine(item.nextRecommendedOperatorAction, 78),
+        rawRuntimeStatus: item.rawRuntimeStatus,
+        sourceOfTruth: item.sourceOfTruth,
+      } satisfies MissionSessionViewModel;
+    })
+    .filter((item): item is MissionSessionViewModel => Boolean(item))
+    .sort(compareMissionSessions);
 }
 
-function compareByRecent(a: MissionSessionViewModel, b: MissionSessionViewModel): number {
-  return new Date(b.lastEventAt).getTime() - new Date(a.lastEventAt).getTime();
-}
+export function buildMissionControlBoardViewModel(
+  response: MissionControlResponse,
+  options: { laneLimit?: number; focusCategory?: OperationalCategory | null } = {},
+): MissionControlBoardViewModel {
+  const laneLimit = options.laneLimit ?? 3;
+  const sessions = buildMissionSessionViewModels(response.sessions);
+  const focusedSessions = options.focusCategory
+    ? sessions.filter((item) => item.category === options.focusCategory)
+    : sessions;
+  const generatedAge = formatSignalAge(null, response.generatedAt);
 
-function compareMissionViewModels(
-  a: MissionSessionViewModel,
-  b: MissionSessionViewModel,
-  sortBy: MissionSort,
-): number {
-  const activeFirst = Number(b.status === "running") - Number(a.status === "running");
-  if (activeFirst !== 0) return activeFirst;
-
-  if (sortBy === "freshness") {
-    const byFreshness = freshnessSortValue(b.item.heartbeatFreshness) - freshnessSortValue(a.item.heartbeatFreshness);
-    if (byFreshness !== 0) return byFreshness;
-  } else if (sortBy === "recent") {
-    const byRecent = compareByRecent(a, b);
-    if (byRecent !== 0) return byRecent;
-  } else {
-    const byIntervention = Number(b.needsIntervention) - Number(a.needsIntervention);
-    if (byIntervention !== 0) return byIntervention;
-    const byAttention = b.attentionRank - a.attentionRank;
-    if (byAttention !== 0) return byAttention;
-  }
-
-  const byDegraded = Number(b.isDegraded) - Number(a.isDegraded);
-  if (byDegraded !== 0) return byDegraded;
-
-  const byAttention = b.attentionRank - a.attentionRank;
-  if (byAttention !== 0) return byAttention;
-
-  return compareByRecent(a, b);
-}
-
-export function buildMissionSessionViewModels(items: FleetSessionItem[]): MissionSessionViewModel[] {
-  return items.map((entry) => {
-    const item = normalizeFleetItem(entry);
-    const degraded = isMissionSessionDegraded(item);
-    const status = item.status.status;
+  const lanes = MISSION_LANES.map((lane) => {
+    const laneSessions = focusedSessions.filter((item) => item.laneId === lane.id);
     return {
-      id: item.session.id,
-      item,
-      status,
-      urgency: item.recommendation.urgency,
-      repoName: item.repoName,
-      agentName: item.session.agentName,
-      headline: trimLine(item.activeTask?.title ?? item.session.objective, 96),
-      whyNow: missionWhyNow(item),
-      nextAction: trimLine(item.recommendedAction || item.recommendation.actionLabel, 95),
-      latestSummary: trimLine(item.session.lastSummary ?? item.status.explanation, 95),
-      freshnessLabel: freshnessLabel(item),
-      isDegraded: degraded,
-      degradedBadge: degradedBadge(item),
-      needsIntervention: isInterventionStatus(status),
-      attentionRank: item.attentionRank,
-      attentionBreakdown: item.attentionBreakdown,
-      lastEventAt: item.session.lastEventAt,
-      primaryAction: primaryAction(item.availableActions),
+      ...lane,
+      count: laneSessions.length,
+      visibleSessions: laneSessions.slice(0, laneLimit),
+      hiddenCount: Math.max(0, laneSessions.length - laneLimit),
     };
   });
-}
 
-export function filterAndSortMissionSessionViewModels(
-  items: MissionSessionViewModel[],
-  options: {
-    statusFilter: MissionStatusFilter;
-    repoFilter: string;
-    sortBy: MissionSort;
-  },
-): MissionSessionViewModel[] {
-  const { statusFilter, repoFilter, sortBy } = options;
-  const filtered = items.filter((item) => {
-    if (statusFilter === "operational" && !isOperationalMissionSession(item)) {
-      return false;
-    }
-    if (statusFilter !== "all" && statusFilter !== "operational" && item.status !== statusFilter) {
-      return false;
-    }
-    if (repoFilter !== "all" && item.repoName !== repoFilter) {
-      return false;
-    }
-    return true;
-  });
-  return [...filtered].sort((a, b) => compareMissionViewModels(a, b, sortBy));
-}
-
-export function buildAttentionQueue(items: MissionSessionViewModel[], limit = 6): MissionSessionViewModel[] {
-  return [...items]
-    .filter((item) => item.needsIntervention || item.isDegraded)
-    .sort((a, b) => compareMissionViewModels(a, b, "attention"))
-    .slice(0, limit);
+  return {
+    generatedAt: response.generatedAt,
+    generatedAge,
+    totals: response.totals,
+    operationalTotal: sessions.length,
+    historyCount: response.totals.historical ?? response.sessions.filter((item) => item.category === "historical").length,
+    lanes,
+    visibleSessions: sessions,
+  };
 }
