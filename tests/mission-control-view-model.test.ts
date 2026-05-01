@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 
 import type { OperationalCategory } from "../packages/andon-core/src/index.ts";
 import type { MissionControlResponse, MissionControlSession } from "../apps/andon-dashboard/src/api.ts";
@@ -154,6 +155,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(board.operationalTotal, 0);
       assert.equal(board.visibleSessions.length, 0);
       assert.deepEqual(board.lanes.map((lane) => lane.count), [0, 0, 0, 0]);
+      assert.deepEqual(board.lanes.map((lane) => lane.isEmpty), [true, true, true, true]);
+      assert.deepEqual(board.lanes.map((lane) => lane.hasPriority), [false, false, false, false]);
     },
   },
   {
@@ -171,6 +174,29 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(viewModel.category, "needs_action");
       assert.equal(viewModel.rawRuntimeStatus, "running");
       assert.equal(viewModel.reason, "waiting for input");
+    },
+  },
+  {
+    name: "Andon Mission Control gives non-empty exception lanes priority over empty lanes",
+    run: () => {
+      const board = buildMissionControlBoardViewModel(makeResponse([
+        makeMissionSession("review", {
+          session: { id: "review-ready" },
+          rawRuntimeStatus: "completed",
+          freshness: "cold",
+        }),
+      ]));
+
+      const reviewLane = board.lanes.find((lane) => lane.id === "review");
+      const needsActionLane = board.lanes.find((lane) => lane.id === "needs_action");
+
+      assert.equal(reviewLane?.count, 1);
+      assert.equal(reviewLane?.isEmpty, false);
+      assert.equal(reviewLane?.hasPriority, true);
+      assert.equal(needsActionLane?.isEmpty, true);
+      assert.equal(needsActionLane?.hasPriority, false);
+      assert.match(reviewLane?.visibleSessions[0]?.freshness ?? "", /review-ready/i);
+      assert.doesNotMatch(reviewLane?.visibleSessions[0]?.freshness ?? "", /active/i);
     },
   },
   {
@@ -195,6 +221,18 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
       assert.equal(board.visibleSessions.length, 0);
       assert.equal(MISSION_LANES.some((lane) => lane.categories.includes("historical")), false);
+    },
+  },
+  {
+    name: "Andon Dashboard API client no longer exports old fleet UI fetchers",
+    run: () => {
+      const apiSource = fs.readFileSync("apps/andon-dashboard/src/api.ts", "utf8");
+
+      assert.doesNotMatch(apiSource, /getFleet|FleetResponse|getActiveSession|getSessionsList|getTimeline|postCallback/);
+      assert.match(apiSource, /getMissionControl/);
+      assert.match(apiSource, /getHistory/);
+      assert.match(apiSource, /getSessionReplay/);
+      assert.match(apiSource, /getAndonHealth/);
     },
   },
   {

@@ -23,7 +23,6 @@ import { insertRuntimeEvent, upsertRuntimeSession } from "../services/andon-api/
 import { createAndonHandler } from "../services/andon-api/src/server.ts";
 import { shouldPostProgressHeartbeat } from "../services/andon-collector/src/index.ts";
 import { normalizeOpenHarnessStreamEvent } from "../services/andon-collector/src/openharness-adapter.ts";
-import { shouldShowRuntimeTelemetryGap } from "../apps/andon-dashboard/src/runtime-telemetry-gap.ts";
 
 function makeTempDir(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), `${prefix}-`));

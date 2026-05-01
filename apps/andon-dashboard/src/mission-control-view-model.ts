@@ -114,6 +114,8 @@ export interface MissionLaneViewModel {
   description: string;
   categories: OperationalCategory[];
   count: number;
+  isEmpty: boolean;
+  hasPriority: boolean;
   visibleSessions: MissionSessionViewModel[];
   hiddenCount: number;
 }
@@ -268,6 +270,25 @@ function compareMissionSessions(a: MissionSessionViewModel, b: MissionSessionVie
   return (a.source.signalAgeMs ?? Number.MAX_SAFE_INTEGER) - (b.source.signalAgeMs ?? Number.MAX_SAFE_INTEGER);
 }
 
+function operationalFreshnessLabel(item: MissionControlSession): string {
+  if (item.category === "review") {
+    return `${item.freshness} signal; review-ready`;
+  }
+  if (item.category === "needs_action") {
+    return `${item.freshness} signal; waiting for input`;
+  }
+  if (item.category === "degraded_active") {
+    return `${item.freshness} signal; degraded`;
+  }
+  if (item.category === "unknown") {
+    return `${item.freshness} signal; unknown`;
+  }
+  if (item.category === "live") {
+    return `${item.freshness} signal; active`;
+  }
+  return `${item.freshness} signal`;
+}
+
 export function buildMissionSessionViewModels(
   sessions: MissionControlSession[],
 ): MissionSessionViewModel[] {
@@ -290,7 +311,7 @@ export function buildMissionSessionViewModels(
         repoName: repoName(item.session.repoPath),
         objective: trimLine(item.session.objective, 76),
         reason: trimLine(item.reason.replace(/_/g, " "), 64),
-        freshness: item.freshness,
+        freshness: operationalFreshnessLabel(item),
         lastSignalAge: formatSignalAge(item.signalAgeMs, item.lastSignalTimestamp ?? item.session.lastEventAt),
         confidenceLabel: item.confidence === "high" ? null : `${item.confidence} confidence`,
         nextAction: trimLine(item.nextRecommendedOperatorAction, 78),
@@ -318,6 +339,8 @@ export function buildMissionControlBoardViewModel(
     return {
       ...lane,
       count: laneSessions.length,
+      isEmpty: laneSessions.length === 0,
+      hasPriority: laneSessions.length > 0 && lane.id !== "live",
       visibleSessions: laneSessions.slice(0, laneLimit),
       hiddenCount: Math.max(0, laneSessions.length - laneLimit),
     };

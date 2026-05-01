@@ -349,6 +349,32 @@ holistic handoff \
 ---
 
 
+## Andon developer flow
+
+Andon is Holistic's operational supervision surface for agent runtime truth.
+
+For local development, run the API/runtime services with a shared SQLite database, then run the dashboard app:
+
+```bash
+npm run andon:dev
+npm --prefix apps/andon-dashboard run dev
+```
+
+Current dashboard routes use the clean operational API contracts:
+
+| UI route | API source | Purpose |
+| :--- | :--- | :--- |
+| `/` | `GET /mission-control` | Live operational board only: `needs_action`, `degraded_active`, `review`, `live`, and relevant `unknown` sessions |
+| `/history` | `GET /history` | Historical sessions only |
+| `/session/:id/replay` | `GET /sessions/:id/replay` | Meaningful replay first, heartbeat/no-op/context telemetry grouped away from the primary timeline |
+| `/health` | `GET /health/andon` | DB path, runtime/legacy counts, and runtime alignment diagnostics |
+
+Runtime truth is authoritative. The dashboard must not infer live/review/stale state in React, and historical data is intentionally excluded from Mission Control.
+
+
+---
+
+
 ## Architecture
 
 Holistic is intentionally repo-first, not machine-first.

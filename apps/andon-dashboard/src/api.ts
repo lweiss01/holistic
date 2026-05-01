@@ -1,11 +1,8 @@
 import type {
-  ActiveSessionResponse,
-  FleetResponse,
   OperationalCategory,
   SessionDetailResponse,
   SignalFreshnessState,
-  SessionRecord,
-  TimelineResponse
+  SessionRecord
 } from "../../../packages/andon-core/src/index.ts";
 
 const apiBaseUrl = import.meta.env.VITE_ANDON_API_BASE_URL ?? "http://127.0.0.1:4318";
@@ -32,14 +29,6 @@ async function fetchJson<T>(path: string): Promise<T> {
   }
 
   return (await response.json()) as T;
-}
-
-export function getActiveSession(): Promise<ActiveSessionResponse> {
-  return fetchJson<ActiveSessionResponse>("/sessions/active");
-}
-
-export function getFleet(): Promise<FleetResponse> {
-  return fetchJson<FleetResponse>("/fleet");
 }
 
 export interface MissionControlSession {
@@ -72,29 +61,8 @@ export function getHistory(): Promise<MissionControlResponse> {
   return fetchJson<MissionControlResponse>("/history");
 }
 
-export function getSessionsList(): Promise<{ sessions: SessionRecord[] }> {
-  return fetchJson<{ sessions: SessionRecord[] }>("/sessions");
-}
-
 export function getSessionDetail(sessionId: string): Promise<SessionDetailResponse> {
   return fetchJson<SessionDetailResponse>(`/sessions/${encodeURIComponent(sessionId)}`);
-}
-
-export async function postCallback(sessionId: string, action: "approve" | "pause" | "resume"): Promise<void> {
-  const response = await fetchWithTimeout(
-    `${apiBaseUrl}/sessions/${encodeURIComponent(sessionId)}/callbacks/${action}`,
-    { method: "POST" }
-  );
-
-  if (!response.ok) {
-    throw new Error(`Callback failed with ${response.status}`);
-  }
-}
-
-export interface TimelineQuery {
-  limit?: number;
-  offset?: number;
-  tail?: number;
 }
 
 export interface SessionReplayEvent {
@@ -118,24 +86,6 @@ export interface SessionReplayResponse {
 
 export function getSessionReplay(sessionId: string): Promise<SessionReplayResponse> {
   return fetchJson<SessionReplayResponse>(`/sessions/${encodeURIComponent(sessionId)}/replay`);
-}
-
-export function getTimeline(sessionId: string, query?: TimelineQuery): Promise<TimelineResponse> {
-  const params = new URLSearchParams();
-  if (query?.tail != null) {
-    params.set("tail", String(query.tail));
-  } else {
-    if (query?.limit != null) {
-      params.set("limit", String(query.limit));
-    }
-    if (query?.offset != null) {
-      params.set("offset", String(query.offset));
-    }
-  }
-
-  const qs = params.toString();
-  const path = `/sessions/${encodeURIComponent(sessionId)}/timeline${qs ? `?${qs}` : ""}`;
-  return fetchJson<TimelineResponse>(path);
 }
 
 export interface AndonHealthResponse {

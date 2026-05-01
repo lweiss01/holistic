@@ -228,7 +228,10 @@ function MissionLane({ lane }: { lane: MissionLaneViewModel }) {
   const presentation = getCategoryPresentation(primaryCategory);
 
   return (
-    <section className={`mission-lane lane-${lane.id} tone-${presentation.tone}`} aria-labelledby={`${lane.id}-title`}>
+    <section
+      className={`mission-lane lane-${lane.id} tone-${presentation.tone} ${lane.isEmpty ? "is-empty" : "has-items"} ${lane.hasPriority ? "has-priority" : ""} ${lane.count === 1 ? "has-single-item" : ""}`}
+      aria-labelledby={`${lane.id}-title`}
+    >
       <div className="lane-status">
         <span className={`lane-light marker-${presentation.marker}`} aria-hidden="true" />
         <div>
