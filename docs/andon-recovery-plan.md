@@ -213,6 +213,7 @@ Required projection fields:
 - signal age
 - freshness
 - confidence
+- operator activity insight (`editing`, `planning`, `reading`, `testing`, `waiting`, `blocked`, `idle`, `review-ready`, or `unknown`)
 - projection reasons / evidence
 - next recommended operator action
 
@@ -230,6 +231,7 @@ Rules:
 - Runtime events, Holistic checkpoints, and user actions must be distinguishable.
 - Heartbeat/no-op telemetry should be hidden by default or grouped behind a raw/debug toggle.
 - `agent.summary_emitted` is not a transport bucket for arbitrary housekeeping.
+- Compatibility mirror events may remain for legacy ingestion, but they must be marked as plumbing and excluded from primary meaningful replay.
 
 ## 10. Required Tests
 

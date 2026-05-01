@@ -18,9 +18,20 @@ import {
 export const OPERATIONAL_PROJECTION_FRESH_MS = 5 * 60 * 1000;
 export const OPERATIONAL_PROJECTION_COLD_MS = 20 * 60 * 1000;
 export const OPERATIONAL_PROJECTION_LEGACY_HISTORY_MS = 60 * 60 * 1000;
+export const OPERATIONAL_PROJECTION_REVIEW_STALE_MS = 24 * 60 * 60 * 1000;
 
 export type OperationalSourceOfTruth = "runtime" | "legacy" | "mixed" | "missing";
 export type OperationalConfidence = "high" | "medium" | "low";
+export type OperatorActivityInsight =
+  | "editing"
+  | "planning"
+  | "reading"
+  | "testing"
+  | "waiting"
+  | "blocked"
+  | "idle"
+  | "review-ready"
+  | "unknown";
 
 export type OperationalProjectionReason =
   | "runtime_active"
@@ -33,6 +44,7 @@ export type OperationalProjectionReason =
   | "runtime_db_mismatch"
   | "terminated"
   | "parked"
+  | "stale_review"
   | "stale_legacy_only"
   | "legacy_active_without_runtime"
   | "contradictory_telemetry"
@@ -61,6 +73,7 @@ export interface OperationalProjectionInput {
   freshAfterMs?: number;
   coldAfterMs?: number;
   legacyHistoricalAfterMs?: number;
+  reviewStaleAfterMs?: number;
 }
 
 export interface OperationalProjection {
@@ -84,6 +97,7 @@ export interface OperationalProjection {
   lastMeaningfulActivityAt: string | null;
   meaningfulActivityAgeMs: number | null;
   hasMeaningfulActivity: boolean;
+  operatorActivity: OperatorActivityInsight;
   confidence: OperationalConfidence;
   nextRecommendedOperatorAction: string;
   belongsOnMissionControl: boolean;
@@ -195,6 +209,7 @@ function projection(
     now: number;
     evidence: string[];
     confidence?: OperationalConfidence;
+    operatorActivity?: OperatorActivityInsight;
   }
 ): OperationalProjection {
   const missionControlCategories: RuntimeOperationalCategory[] = [
@@ -219,12 +234,61 @@ function projection(
     lastMeaningfulActivityAt: fields.lastMeaningfulActivityAt,
     meaningfulActivityAgeMs: ageMs(fields.lastMeaningfulActivityAt, fields.now),
     hasMeaningfulActivity: fields.lastMeaningfulActivityAt !== null,
+    operatorActivity: fields.operatorActivity ?? operatorActivityFor(input, fields.rawRuntimeStatus, fields.category),
     confidence: fields.confidence ?? confidenceFor(fields.category, fields.reason),
     nextRecommendedOperatorAction: recommendedActionFor(fields.category, fields.reason),
     belongsOnMissionControl: missionControlCategories.includes(fields.category),
     belongsInHistory: fields.category === "historical",
     evidence: fields.evidence
   };
+}
+
+function runtimeActivityInsight(activity: RuntimeSession["activity"] | undefined): OperatorActivityInsight {
+  switch (activity) {
+    case "planning":
+    case "thinking":
+      return "planning";
+    case "reading":
+      return "reading";
+    case "editing":
+    case "running_command":
+      return "editing";
+    case "running_tests":
+      return "testing";
+    case "reviewing":
+      return "reading";
+    case "waiting":
+      return "waiting";
+    case "idle":
+      return "idle";
+    default:
+      return "unknown";
+  }
+}
+
+function operatorActivityFor(
+  input: OperationalProjectionInput,
+  rawRuntimeStatus: RuntimeStatus | "missing",
+  category: RuntimeOperationalCategory
+): OperatorActivityInsight {
+  if (category === "needs_action" || rawRuntimeStatus === "waiting_for_input") {
+    return "waiting";
+  }
+  if (category === "review" || rawRuntimeStatus === "waiting_for_approval" || rawRuntimeStatus === "awaiting_review") {
+    return "review-ready";
+  }
+  if (category === "degraded_active" && (rawRuntimeStatus === "blocked" || rawRuntimeStatus === "failed")) {
+    return "blocked";
+  }
+  if (category === "historical" || rawRuntimeStatus === "completed" || rawRuntimeStatus === "cancelled" || rawRuntimeStatus === "terminated" || rawRuntimeStatus === "parked") {
+    return "idle";
+  }
+  return runtimeActivityInsight(input.runtimeSession?.activity);
+}
+
+function isStaleReviewSignal(input: OperationalProjectionInput, lastSignalTimestamp: string | null, now: number): boolean {
+  const reviewAge = ageMs(lastSignalTimestamp, now);
+  return reviewAge !== null && reviewAge > (input.reviewStaleAfterMs ?? OPERATIONAL_PROJECTION_REVIEW_STALE_MS);
 }
 
 function confidenceFor(category: RuntimeOperationalCategory, reason: OperationalProjectionReason): OperationalConfidence {
@@ -253,7 +317,9 @@ function recommendedActionFor(category: RuntimeOperationalCategory, reason: Oper
       : "Investigate runtime telemetry";
   }
   if (category === "historical") {
-    return "No live operator action";
+    return reason === "stale_review"
+      ? "Review aged out of Mission Control; open History if follow-up is needed"
+      : "No live operator action";
   }
   return "Inspect source data before acting";
 }
@@ -308,6 +374,22 @@ function legacyProjection(input: OperationalProjectionInput, now: number): Opera
   }
 
   if (input.reviewNeeded || input.legacySession?.status === "waiting_for_approval" || input.legacySession?.status === "awaiting_review") {
+    if (isStaleReviewSignal(input, lastSignalTimestamp, now)) {
+      return projection(input, {
+        category: "historical",
+        reason: "stale_review",
+        rawRuntimeStatus: "missing",
+        derivedOperationalStatus: "historical",
+        sourceOfTruth,
+        freshness,
+        lastSignalTimestamp,
+        lastHeartbeatAt: null,
+        lastMeaningfulActivityAt: null,
+        now,
+        evidence: ["Review signal is older than the Mission Control review window."]
+      });
+    }
+
     return projection(input, {
       category: "review",
       reason: "awaiting_review",
@@ -385,6 +467,22 @@ export function projectOperationalSession(input: OperationalProjectionInput): Op
 
   if (isRuntimeHistoricalStatus(rawRuntimeStatus) || rawRuntimeStatus === "paused") {
     if (rawRuntimeStatus === "completed" && input.completedAcknowledged !== true) {
+      if (isStaleReviewSignal(input, lastSignalTimestamp, now)) {
+        return projection(input, {
+          category: "historical",
+          reason: "stale_review",
+          rawRuntimeStatus,
+          derivedOperationalStatus: "historical",
+          sourceOfTruth,
+          freshness,
+          lastSignalTimestamp,
+          lastHeartbeatAt,
+          lastMeaningfulActivityAt,
+          now,
+          evidence: [...evidenceBase, "Completed review signal is older than the Mission Control review window."]
+        });
+      }
+
       return projection(input, {
         category: "review",
         reason: "unacknowledged_completion",
@@ -432,6 +530,22 @@ export function projectOperationalSession(input: OperationalProjectionInput): Op
   }
 
   if (isRuntimeReviewStatus(rawRuntimeStatus) || input.reviewNeeded) {
+    if (isStaleReviewSignal(input, lastSignalTimestamp, now)) {
+      return projection(input, {
+        category: "historical",
+        reason: "stale_review",
+        rawRuntimeStatus,
+        derivedOperationalStatus: "historical",
+        sourceOfTruth,
+        freshness,
+        lastSignalTimestamp,
+        lastHeartbeatAt,
+        lastMeaningfulActivityAt,
+        now,
+        evidence: [...evidenceBase, "Review signal is older than the Mission Control review window."]
+      });
+    }
+
     return projection(input, {
       category: "review",
       reason: "awaiting_review",

@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import type { AgentEvent } from "../packages/andon-core/src/index.ts";
 import { classifyReplayEventType } from "../services/andon-api/src/event-integrity.ts";
-import { getSessionTimeline, ingestEvents } from "../services/andon-api/src/repository.ts";
+import { getSessionReplay, getSessionTimeline, ingestEvents } from "../services/andon-api/src/repository.ts";
 import { getRuntimeEvents } from "../services/andon-api/src/runtime-repository.ts";
 
 function makeTempDir(prefix: string): string {
@@ -163,6 +163,87 @@ const tests: Array<{ name: string; run: () => void }> = [
         "agent.summary_emitted"
       ]);
       assert.equal(types.filter((type) => type === "agent.summary_emitted").length, 1);
+    }
+  },
+  {
+    name: "Andon event integrity runtime writer heartbeat summary is normalized to liveness not agent summary",
+    run: () => {
+      const database = createDatabase();
+      ingestEvents(database, [
+        makeEvent({
+          id: "runtime-writer-heartbeat-session-1-1",
+          type: "agent.summary_emitted",
+          timestamp: "2026-04-30T23:16:00.000Z",
+          summary: "Session started.",
+          payload: {
+            source: "andon.runtime-writer",
+            latestStatus: "Session started.",
+            activity: "editing"
+          }
+        })
+      ]);
+
+      const timeline = getSessionTimeline(database, "session-integrity");
+      const replay = getSessionReplay(database, "session-integrity");
+
+      assert.equal(timeline?.items[0]?.type, "session.heartbeat");
+      assert.equal(timeline?.items[0]?.summary, "Runtime writer heartbeat.");
+      assert.equal(replay?.events.some((event) => event.type === "agent.summary_emitted"), false);
+      assert.equal(replay?.events.some((event) => event.kind === "agent_summary"), false);
+    }
+  },
+  {
+    name: "Andon event integrity repeated runtime writer heartbeat does not create meaningful Session started replay rows",
+    run: () => {
+      const database = createDatabase();
+      ingestEvents(database, Array.from({ length: 100 }, (_, index) =>
+        makeEvent({
+          id: `runtime-writer-heartbeat-session-1-${index}`,
+          type: "agent.summary_emitted",
+          timestamp: `2026-04-30T23:17:${String(index % 60).padStart(2, "0")}.000Z`,
+          summary: "Session started.",
+          payload: {
+            source: "andon.runtime-writer",
+            latestStatus: "Session started.",
+            activity: "editing"
+          }
+        })
+      ));
+
+      const replay = getSessionReplay(database, "session-integrity");
+      const primary = replay?.events.filter((event) =>
+        event.meaningful
+        && event.kind !== "heartbeat_liveness"
+        && event.kind !== "noop_telemetry"
+        && event.kind !== "compatibility_mirror"
+      ) ?? [];
+
+      assert.equal(primary.length, 0);
+      assert.equal(replay?.events.some((event) => event.summary === "Session started." && event.meaningful), false);
+    }
+  },
+  {
+    name: "Andon event integrity mirrored compatibility events are grouped out of primary replay",
+    run: () => {
+      const database = createDatabase();
+      ingestEvents(database, [
+        makeEvent({
+          id: "real-summary",
+          type: "agent.summary_emitted",
+          timestamp: "2026-04-30T23:18:00.000Z",
+          summary: "Implemented telemetry insight."
+        })
+      ]);
+
+      const replay = getSessionReplay(database, "session-integrity");
+      const summaryEvents = replay?.events.filter((event) => event.summary?.includes("Implemented telemetry insight")) ?? [];
+      const primarySummaries = replay?.events.filter((event) => event.kind === "agent_summary" && event.meaningful) ?? [];
+      const mirrors = replay?.events.filter((event) => event.kind === "compatibility_mirror") ?? [];
+
+      assert.equal(summaryEvents.length, 2);
+      assert.equal(primarySummaries.length, 1);
+      assert.equal(mirrors.length, 1);
+      assert.equal(mirrors[0]?.meaningful, false);
     }
   },
   {

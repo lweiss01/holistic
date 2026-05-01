@@ -100,6 +100,7 @@ export interface MissionSessionViewModel {
   repoName: string;
   objective: string;
   reason: string;
+  operatorActivity: string;
   freshness: string;
   lastSignalAge: string;
   confidenceLabel: string | null;
@@ -160,6 +161,7 @@ export interface DetailProjectionViewModel {
   freshness: string;
   lastSignalAge: string;
   confidence: string;
+  operatorActivity: string;
   nextAction: string;
   belongsToMissionControl: boolean;
   belongsToHistory: boolean;
@@ -170,6 +172,7 @@ export type ReplayDisplayKind =
   | "no-op telemetry"
   | "checkpoint"
   | "context change"
+  | "compatibility mirror"
   | "agent summary"
   | "meaningful activity"
   | "user action"
@@ -311,6 +314,7 @@ export function buildMissionSessionViewModels(
         repoName: repoName(item.session.repoPath),
         objective: trimLine(item.session.objective, 76),
         reason: trimLine(item.reason.replace(/_/g, " "), 64),
+        operatorActivity: item.operatorActivity.replace(/-/g, " "),
         freshness: operationalFreshnessLabel(item),
         lastSignalAge: formatSignalAge(item.signalAgeMs, item.lastSignalTimestamp ?? item.session.lastEventAt),
         confidenceLabel: item.confidence === "high" ? null : `${item.confidence} confidence`,
@@ -393,6 +397,7 @@ export function buildDetailProjectionViewModel(item: MissionControlSession): Det
     freshness: item.freshness,
     lastSignalAge: formatSignalAge(item.signalAgeMs, item.lastSignalTimestamp ?? item.session.lastEventAt),
     confidence: item.confidence,
+    operatorActivity: item.operatorActivity.replace(/-/g, " "),
     nextAction: item.nextRecommendedOperatorAction,
     belongsToMissionControl: item.belongsToMissionControl,
     belongsToHistory: item.belongsToHistory,
@@ -422,12 +427,13 @@ export function replayEventDisplayKind(event: Pick<SessionReplayEvent, "kind" | 
   if (event.kind === "noop_telemetry") return "no-op telemetry";
   if (event.kind === "checkpoint") return "checkpoint";
   if (event.kind === "context_branch_change") return "context change";
+  if (event.kind === "compatibility_mirror") return "compatibility mirror";
   if (event.kind === "agent_summary") return "agent summary";
   return "meaningful activity";
 }
 
 function isReplayTelemetry(event: Pick<SessionReplayEvent, "kind">): boolean {
-  return event.kind === "heartbeat_liveness" || event.kind === "noop_telemetry";
+  return event.kind === "heartbeat_liveness" || event.kind === "noop_telemetry" || event.kind === "compatibility_mirror";
 }
 
 function isReplayContext(event: Pick<SessionReplayEvent, "kind">): boolean {

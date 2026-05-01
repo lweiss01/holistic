@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 
 const apiBaseUrl = (process.env.ANDON_API_BASE_URL ?? "http://127.0.0.1:4318").replace(/\/$/, "");
 const repoRoot = process.env.HOLISTIC_REPO ?? process.cwd();
@@ -35,43 +36,112 @@ function asPhase(session) {
   return "execute";
 }
 
-function buildStartedEvent(session, nowIso) {
+function asActivity(session) {
+  const phase = asPhase(session);
+  if (phase === "plan") return "planning";
+  if (phase === "research") return "reading";
+  if (phase === "test") return "running_tests";
+  const status = String(session?.latestStatus ?? "").toLowerCase();
+  if (status.includes("waiting")) return "waiting";
+  if (status.includes("review")) return "reviewing";
+  if (status.includes("idle")) return "idle";
+  return "editing";
+}
+
+function asAgentName(session) {
+  const candidate = String(session?.agent || session?.runtime || "").trim();
+  return candidate && candidate.toLowerCase() !== "unknown" ? candidate : "codex";
+}
+
+export function buildStartedEvent(session, nowIso) {
+  const startedAt = session.startedAt || nowIso;
   return {
-    id: `runtime-writer-start-${session.id}-${Date.now()}`,
+    id: `runtime-writer-start-${session.id}`,
     sessionId: session.id,
     runtime: "codex",
     type: "session.started",
     phase: asPhase(session),
     source: "system",
-    timestamp: nowIso,
+    timestamp: startedAt,
     summary: `Runtime writer observed local session start: ${session.currentGoal || session.title || session.id}`,
     payload: {
-      agentName: session.agent || "unknown",
+      agentName: asAgentName(session),
       objective: session.currentGoal || session.title || "Unknown objective",
-      startedAt: session.startedAt || nowIso,
+      startedAt,
       repoPath: repoRoot,
       worktreePath: repoRoot,
-      branch: session.branch || null
+      branch: session.branch || null,
+      activity: asActivity(session),
+      source: "andon.runtime-writer"
     }
   };
 }
 
-function buildHeartbeatEvent(session, nowIso) {
+export function buildHeartbeatEvent(session, nowIso) {
   return {
     id: `runtime-writer-heartbeat-${session.id}-${Date.now()}`,
     sessionId: session.id,
     runtime: "codex",
-    type: "agent.summary_emitted",
+    type: "session.heartbeat",
     phase: asPhase(session),
     source: "system",
     timestamp: nowIso,
-    summary: session.latestStatus || "Runtime heartbeat: local session is active.",
+    summary: "Runtime writer heartbeat.",
     payload: {
       objective: session.currentGoal || session.title || "Unknown objective",
-      agentName: session.agent || "unknown",
+      agentName: asAgentName(session),
       startedAt: session.startedAt || nowIso,
-      checkpointCount: session.checkpointCount ?? 0
+      checkpointCount: session.checkpointCount ?? 0,
+      activity: asActivity(session),
+      latestStatus: session.latestStatus || null,
+      source: "andon.runtime-writer"
     }
+  };
+}
+
+function resolveWriterStateFile() {
+  const explicit = process.env.ANDON_RUNTIME_WRITER_STATE_FILE?.trim();
+  if (explicit) {
+    return explicit;
+  }
+  return path.join(repoRoot, ".holistic-local", "andon-runtime-writer-state.json");
+}
+
+function loadWriterState() {
+  const stateFile = resolveWriterStateFile();
+  if (!fs.existsSync(stateFile)) {
+    return { lastStartedSessionId: null, lastHeartbeatAtMs: 0 };
+  }
+  const parsed = parseState(fs.readFileSync(stateFile, "utf8"));
+  return {
+    lastStartedSessionId: typeof parsed?.lastStartedSessionId === "string" ? parsed.lastStartedSessionId : null,
+    lastHeartbeatAtMs: Number.isFinite(Number(parsed?.lastHeartbeatAtMs)) ? Number(parsed.lastHeartbeatAtMs) : 0
+  };
+}
+
+function saveWriterState(writerState) {
+  const stateFile = resolveWriterStateFile();
+  fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+  fs.writeFileSync(stateFile, `${JSON.stringify(writerState, null, 2)}\n`, "utf8");
+}
+
+export function buildRuntimeWriterEvents(session, nowMs, writerState, heartbeatIntervalMs = intervalMs) {
+  const nowIso = new Date(nowMs).toISOString();
+  const events = [];
+  const shouldEmitStart = writerState.lastStartedSessionId !== session.id;
+  if (shouldEmitStart) {
+    events.push(buildStartedEvent(session, nowIso));
+  }
+
+  const shouldEmitHeartbeat = nowMs - writerState.lastHeartbeatAtMs >= heartbeatIntervalMs;
+  if (shouldEmitHeartbeat) {
+    events.push(buildHeartbeatEvent(session, nowIso));
+  }
+
+  return {
+    events,
+    shouldEmitStart,
+    shouldEmitHeartbeat
   };
 }
 
@@ -96,9 +166,6 @@ async function postEvents(events) {
   }
 }
 
-let lastObservedSessionId = null;
-let lastHeartbeatAtMs = 0;
-
 async function tick() {
   const stateFile = resolveStateFile();
   if (!fs.existsSync(stateFile)) {
@@ -108,53 +175,45 @@ async function tick() {
   const raw = fs.readFileSync(stateFile, "utf8");
   const state = parseState(raw);
   if (!state || !state.activeSession || state.activeSession.endedAt) {
-    lastObservedSessionId = null;
     return;
   }
 
   const session = state.activeSession;
   const nowMs = Date.now();
-  const nowIso = new Date(nowMs).toISOString();
-  const events = [];
-
-  const shouldEmitStart = lastObservedSessionId !== session.id;
-  if (shouldEmitStart) {
-    events.push(buildStartedEvent(session, nowIso));
-  }
-
-  const shouldEmitHeartbeat = nowMs - lastHeartbeatAtMs >= intervalMs;
-  if (shouldEmitHeartbeat) {
-    events.push(buildHeartbeatEvent(session, nowIso));
-  }
+  const writerState = loadWriterState();
+  const { events, shouldEmitStart, shouldEmitHeartbeat } = buildRuntimeWriterEvents(session, nowMs, writerState, intervalMs);
 
   const posted = await postEvents(events);
   if (!posted) {
     return;
   }
   if (shouldEmitStart) {
-    lastObservedSessionId = session.id;
-    lastHeartbeatAtMs = 0;
+    writerState.lastStartedSessionId = session.id;
   }
   if (shouldEmitHeartbeat) {
-    lastHeartbeatAtMs = nowMs;
+    writerState.lastHeartbeatAtMs = nowMs;
   }
+  saveWriterState(writerState);
 }
 
-if (runOnce) {
-  await tick();
-  process.exit(0);
+function isMainModule() {
+  return process.argv[1] ? import.meta.url === pathToFileURL(process.argv[1]).href : false;
 }
 
-setInterval(() => {
-  tick().catch((error) => {
-    process.stderr.write(`[andon-runtime-writer] ${error instanceof Error ? error.message : String(error)}\n`);
-  });
-}, intervalMs);
-
-await tick().catch((error) => {
+if (isMainModule()) {
   if (runOnce) {
-    throw error;
+    await tick();
+    process.exit(0);
   }
-  process.stderr.write(`[andon-runtime-writer] startup retry scheduled: ${error instanceof Error ? error.message : String(error)}\n`);
-});
-process.stdout.write(`[andon-runtime-writer] Watching ${resolveStateFile()} every ${intervalMs}ms\n`);
+
+  setInterval(() => {
+    tick().catch((error) => {
+      process.stderr.write(`[andon-runtime-writer] ${error instanceof Error ? error.message : String(error)}\n`);
+    });
+  }, intervalMs);
+
+  await tick().catch((error) => {
+    process.stderr.write(`[andon-runtime-writer] startup retry scheduled: ${error instanceof Error ? error.message : String(error)}\n`);
+  });
+  process.stdout.write(`[andon-runtime-writer] Watching ${resolveStateFile()} every ${intervalMs}ms\n`);
+}

@@ -42,6 +42,16 @@ export interface MissionControlSession {
   lastSignalTimestamp: string | null;
   signalAgeMs: number | null;
   confidence: "high" | "medium" | "low";
+  operatorActivity:
+    | "editing"
+    | "planning"
+    | "reading"
+    | "testing"
+    | "waiting"
+    | "blocked"
+    | "idle"
+    | "review-ready"
+    | "unknown";
   nextRecommendedOperatorAction: string;
   belongsToMissionControl: boolean;
   belongsToHistory: boolean;

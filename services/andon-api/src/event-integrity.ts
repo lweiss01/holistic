@@ -5,6 +5,7 @@ export type ReplayEventKind =
   | "noop_telemetry"
   | "checkpoint"
   | "context_branch_change"
+  | "compatibility_mirror"
   | "agent_summary"
   | "meaningful_activity";
 
@@ -54,6 +55,19 @@ function eventSummary(event: AgentEvent): string {
 function looksLikeCollectorHeartbeat(event: AgentEvent): boolean {
   const summary = eventSummary(event).toLowerCase();
   return HEARTBEAT_SUMMARY_PREFIXES.some((prefix) => summary.startsWith(prefix));
+}
+
+function looksLikeRuntimeWriterHeartbeat(event: AgentEvent): boolean {
+  const payload = (event.payload ?? {}) as Record<string, unknown>;
+  const summary = eventSummary(event).toLowerCase();
+  const id = text(event.id).toLowerCase();
+  return event.type === "agent.summary_emitted"
+    && (
+      id.startsWith("runtime-writer-heartbeat-")
+      || payload.source === "andon.runtime-writer"
+      || payload.latestStatus === "Session started."
+      || summary === "session started."
+    );
 }
 
 function branchSwitchFromSummary(summary: string): { previousBranch: string | null; currentBranch: string | null } {
@@ -137,10 +151,16 @@ export function normalizeAgentEventForReplayIntegrity(event: AgentEvent): AgentE
     };
   }
 
-  if (event.type === "agent.summary_emitted" && looksLikeCollectorHeartbeat(event)) {
+  if (
+    event.type === "agent.summary_emitted"
+    && (looksLikeCollectorHeartbeat(event) || looksLikeRuntimeWriterHeartbeat(event))
+  ) {
     return {
       ...event,
       type: "session.heartbeat" as EventType,
+      summary: event.summary && event.summary.toLowerCase() === "session started."
+        ? "Runtime writer heartbeat."
+        : event.summary,
       payload: {
         ...payload,
         legacyType: event.type,

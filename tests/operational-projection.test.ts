@@ -98,6 +98,29 @@ const tests: Array<{ name: string; run: () => void }> = [
     }
   },
   {
+    name: "operational projection forty-one hour old review ages into history not Mission Control review",
+    run: () => {
+      const oldReview = "2026-04-29T06:30:00.000Z";
+      const projected = projectOperationalSession({
+        sessionId: "session-old-review",
+        runtimeSession: runtimeSession({
+          id: "session-old-review",
+          status: "awaiting_review",
+          updatedAt: oldReview,
+          lastHeartbeatAt: oldReview
+        }),
+        runtimeProcessAlive: false,
+        now: NOW
+      });
+
+      assert.equal(projected.category, "historical");
+      assert.equal(projected.reason, "stale_review");
+      assert.equal(projected.belongsOnMissionControl, false);
+      assert.equal(projected.belongsInHistory, true);
+      assert.notEqual(projected.category, "review");
+    }
+  },
+  {
     name: "operational projection waiting for input is needs_action not live",
     run: () => {
       const projected = projectOperationalSession({
@@ -109,6 +132,7 @@ const tests: Array<{ name: string; run: () => void }> = [
 
       assert.equal(projected.category, "needs_action");
       assert.equal(projected.derivedOperationalStatus, "needs_input");
+      assert.equal(projected.operatorActivity, "waiting");
       assert.notEqual(projected.category, "live");
     }
   },
@@ -125,6 +149,7 @@ const tests: Array<{ name: string; run: () => void }> = [
 
         assert.equal(projected.category, "degraded_active");
         assert.equal(projected.reason, "blocked_or_failed");
+        assert.equal(projected.operatorActivity, "blocked");
         assert.notEqual(projected.category, "live");
       }
     }
@@ -216,6 +241,32 @@ const tests: Array<{ name: string; run: () => void }> = [
       assert.equal(projected.reason, "runtime_active");
       assert.equal(projected.hasMeaningfulActivity, false);
       assert.equal(projected.lastMeaningfulActivityAt, null);
+      assert.equal(projected.operatorActivity, "editing");
+    }
+  },
+  {
+    name: "operational projection exposes waiting review blocked editing planning activity as operator insight",
+    run: () => {
+      const cases: Array<[RuntimeSession["status"], RuntimeSession["activity"], string]> = [
+        ["waiting_for_input", "waiting", "waiting"],
+        ["awaiting_review", "reviewing", "review-ready"],
+        ["blocked", "editing", "blocked"],
+        ["running", "editing", "editing"],
+        ["running", "planning", "planning"],
+        ["running", "reading", "reading"],
+        ["running", "running_tests", "testing"]
+      ];
+
+      for (const [status, activity, expected] of cases) {
+        const projected = projectOperationalSession({
+          sessionId: `session-${expected}`,
+          runtimeSession: runtimeSession({ id: `session-${expected}`, status, activity }),
+          runtimeProcessAlive: true,
+          now: NOW
+        });
+
+        assert.equal(projected.operatorActivity, expected);
+      }
     }
   },
   {

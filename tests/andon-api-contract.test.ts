@@ -7,6 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import type { HolisticRuntimeEvent, RuntimeSession } from "../packages/runtime-core/src/index.ts";
 import { createAndonHandler } from "../services/andon-api/src/server.ts";
+import { ingestEvents } from "../services/andon-api/src/repository.ts";
 import { insertRuntimeEvent, upsertRuntimeSession } from "../services/andon-api/src/runtime-repository.ts";
 
 function makeTempDir(prefix: string): string {
@@ -189,6 +190,137 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         assert.notEqual(byId.get("session-stale-active")?.category, "live");
         assert.equal(missionPayload.sessions.some((item) => item.session.id === "session-completed-acknowledged"), false);
         assert.equal(historyPayload.sessions.some((item) => item.session.id === "session-completed-acknowledged"), true);
+      });
+    }
+  },
+  {
+    name: "Andon API contract exposes operator activity and resolves unknown agent from runtime source",
+    run: async () => {
+      const database = createDatabase();
+      upsertRuntimeSession(database, runtimeSession({
+        id: "session-activity",
+        runtimeId: "codex",
+        agentName: "unknown",
+        activity: "editing",
+        metadata: { source: "andon.runtime-writer" }
+      }));
+      addHeartbeat(database, "session-activity");
+
+      await withApi(database, async (baseUrl) => {
+        const missionPayload = await (await fetch(`${baseUrl}/mission-control`)).json() as {
+          sessions: Array<{
+            session: { id: string; agentName: string };
+            category: string;
+            operatorActivity: string;
+            sourceOfTruth: string;
+          }>;
+        };
+        const item = missionPayload.sessions.find((session) => session.session.id === "session-activity");
+
+        assert.ok(item);
+        assert.equal(item?.category, "live");
+        assert.equal(item?.operatorActivity, "editing");
+        assert.equal(item?.session.agentName, "codex");
+        assert.equal(item?.sourceOfTruth, "runtime");
+      });
+    }
+  },
+  {
+    name: "Andon API contract runtime writer heartbeat produces live activity insight without summary replay spam",
+    run: async () => {
+      const database = createDatabase();
+      ingestEvents(database, [
+        {
+          id: "runtime-writer-start-session-live",
+          sessionId: "session-live",
+          runtime: "codex",
+          taskId: null,
+          type: "session.started",
+          phase: "execute",
+          source: "system",
+          timestamp: iso(-10 * 60_000),
+          summary: "Runtime writer observed local session start: Fix telemetry",
+          payload: {
+            source: "andon.runtime-writer",
+            agentName: "unknown",
+            objective: "Fix telemetry",
+            repoPath: "D:\\Projects\\active\\holistic",
+            worktreePath: "D:\\Projects\\active\\holistic",
+            startedAt: iso(-10 * 60_000),
+            activity: "editing"
+          }
+        },
+        {
+          id: "runtime-writer-heartbeat-session-live-1",
+          sessionId: "session-live",
+          runtime: "codex",
+          taskId: null,
+          type: "agent.summary_emitted",
+          phase: "execute",
+          source: "system",
+          timestamp: iso(-60_000),
+          summary: "Session started.",
+          payload: {
+            source: "andon.runtime-writer",
+            latestStatus: "Session started.",
+            activity: "editing"
+          }
+        }
+      ]);
+
+      await withApi(database, async (baseUrl) => {
+        const missionPayload = await (await fetch(`${baseUrl}/mission-control`)).json() as {
+          sessions: Array<{
+            session: { id: string; agentName: string };
+            category: string;
+            operatorActivity: string;
+            reason: string;
+          }>;
+        };
+        const replayPayload = await (await fetch(`${baseUrl}/sessions/session-live/replay`)).json() as {
+          events: Array<{ type: string; kind: string; summary: string | null; meaningful: boolean }>;
+        };
+        const item = missionPayload.sessions.find((session) => session.session.id === "session-live");
+        const primary = replayPayload.events.filter((event) =>
+          event.meaningful
+          && event.kind !== "heartbeat_liveness"
+          && event.kind !== "noop_telemetry"
+          && event.kind !== "compatibility_mirror"
+        );
+
+        assert.equal(item?.category, "live");
+        assert.equal(item?.operatorActivity, "editing");
+        assert.equal(item?.session.agentName, "codex");
+        assert.equal(primary.some((event) => event.summary === "Session started."), false);
+        assert.equal(replayPayload.events.some((event) => event.type === "agent.summary_emitted"), false);
+      });
+    }
+  },
+  {
+    name: "Andon API contract forty-one hour old review is historical not current Mission Control review",
+    run: async () => {
+      const database = createDatabase();
+      const oldReview = iso(-41 * 60 * 60_000);
+      upsertRuntimeSession(database, runtimeSession({
+        id: "session-old-review",
+        status: "awaiting_review",
+        updatedAt: oldReview
+      }));
+      addHeartbeat(database, "session-old-review", oldReview);
+
+      await withApi(database, async (baseUrl) => {
+        const missionPayload = await (await fetch(`${baseUrl}/mission-control`)).json() as {
+          sessions: Array<{ session: { id: string }; category: string; reason: string }>;
+        };
+        const historyPayload = await (await fetch(`${baseUrl}/history`)).json() as {
+          sessions: Array<{ session: { id: string }; category: string; reason: string }>;
+        };
+
+        assert.equal(missionPayload.sessions.some((item) => item.session.id === "session-old-review"), false);
+        const historical = historyPayload.sessions.find((item) => item.session.id === "session-old-review");
+        assert.ok(historical);
+        assert.equal(historical?.category, "historical");
+        assert.equal(historical?.reason, "stale_review");
       });
     }
   },

@@ -208,6 +208,7 @@ function SessionRow({ item }: { item: MissionSessionViewModel }) {
         <p>{item.objective}</p>
       </a>
       <div className="session-row-meta">
+        <span>{item.operatorActivity}</span>
         <span>{item.lastSignalAge}</span>
         <span>{item.freshness}</span>
         {item.confidenceLabel && <span>{item.confidenceLabel}</span>}
@@ -461,6 +462,7 @@ function ProjectionFacts({ projection }: { projection: DetailProjectionViewModel
         <div><span>Category</span><strong>{projection.presentation.label}</strong></div>
         <div><span>Reason</span><strong>{projection.reason}</strong></div>
         <div><span>Source</span><strong>{projection.sourceOfTruth}</strong></div>
+        <div><span>Activity</span><strong>{projection.operatorActivity}</strong></div>
         <div><span>Raw runtime</span><strong>{formatValue(projection.rawRuntimeStatus)}</strong></div>
         <div><span>Derived status</span><strong>{normalizeLabel(projection.derivedOperationalStatus)}</strong></div>
         <div><span>Freshness</span><strong>{projection.freshness}</strong></div>

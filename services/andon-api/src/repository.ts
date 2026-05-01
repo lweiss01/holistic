@@ -89,7 +89,27 @@ function isMissionControlHousekeepingObjective(objective: string): boolean {
   return MISSION_CONTROL_HOUSEKEEPING_OBJECTIVE_MARKERS.some((marker) => normalized.includes(marker));
 }
 
-function inferAgentName(payload: Record<string, unknown>, existingAgentName: string | undefined): string {
+function agentNameFromRuntimeSource(value: unknown): string | null {
+  const normalized = asNonEmptyString(value)?.toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  if (normalized === "codex") {
+    return "codex";
+  }
+  if (normalized === "claude-code") {
+    return "claude-code";
+  }
+  if (normalized === "openharness") {
+    return "openharness";
+  }
+  if (normalized === "local") {
+    return "local runtime";
+  }
+  return null;
+}
+
+function inferAgentName(payload: Record<string, unknown>, existingAgentName: string | undefined, runtime?: unknown): string {
   const direct = normalizeAttributedAgentName(payload.agentName);
   if (direct) {
     return direct;
@@ -102,11 +122,16 @@ function inferAgentName(payload: Record<string, unknown>, existingAgentName: str
   if (existing) {
     return existing;
   }
+  const source = agentNameFromRuntimeSource(payload.runtime ?? runtime ?? payload.source);
+  if (source) {
+    return source;
+  }
   return UNKNOWN_AGENT_SOURCE_LABEL;
 }
 
 function resolveFleetAgentName(input: {
   runtimeAgentName?: unknown;
+  runtimeId?: unknown;
   runtimeMetadata?: Record<string, unknown> | null;
   legacyAgentName?: unknown;
 }): string {
@@ -121,6 +146,10 @@ function resolveFleetAgentName(input: {
   const legacy = normalizeAttributedAgentName(input.legacyAgentName);
   if (legacy) {
     return legacy;
+  }
+  const runtimeSource = agentNameFromRuntimeSource(input.runtimeId ?? input.runtimeMetadata?.runtimeId ?? input.runtimeMetadata?.source);
+  if (runtimeSource) {
+    return runtimeSource;
   }
   return UNKNOWN_AGENT_SOURCE_LABEL;
 }
@@ -157,6 +186,7 @@ function runtimeSessionToSessionRecord(session: RuntimeSession): SessionRecord {
     id: session.id,
     agentName: resolveFleetAgentName({
       runtimeAgentName: session.agentName,
+      runtimeId: session.runtimeId,
       runtimeMetadata: session.metadata
     }),
     runtime: mapRuntimeIdToAgentRuntime(session.runtimeId),
@@ -455,6 +485,7 @@ export interface OperationalSessionApiItem {
   lastSignalTimestamp: string | null;
   signalAgeMs: number | null;
   confidence: OperationalProjection["confidence"];
+  operatorActivity: OperationalProjection["operatorActivity"];
   nextRecommendedOperatorAction: string;
   belongsToMissionControl: boolean;
   belongsToHistory: boolean;
@@ -595,6 +626,7 @@ function operationalItem(session: SessionRecord, projection: OperationalProjecti
     lastSignalTimestamp: projection.lastSignalTimestamp,
     signalAgeMs: projection.signalAgeMs,
     confidence: projection.confidence,
+    operatorActivity: projection.operatorActivity,
     nextRecommendedOperatorAction: projection.nextRecommendedOperatorAction,
     belongsToMissionControl: projection.belongsOnMissionControl,
     belongsToHistory: projection.belongsInHistory,
@@ -873,6 +905,7 @@ function getRuntimeRecentEvents(database: DatabaseSync): FleetRecentEvent[] {
         e.message AS summary,
         e.timestamp AS created_at,
         s.agent_name,
+        s.runtime_id,
         s.repo_path,
         s.metadata_json
       FROM runtime_events e
@@ -894,6 +927,7 @@ function getRuntimeRecentEvents(database: DatabaseSync): FleetRecentEvent[] {
       createdAt: String(row.created_at),
       agentName: resolveFleetAgentName({
         runtimeAgentName: row.agent_name,
+        runtimeId: row.runtime_id,
         runtimeMetadata: metadata
       }),
       repoName: repoName(String(row.repo_path))
@@ -1012,6 +1046,7 @@ function fleetItemFromOperational(item: OperationalSessionApiItem): FleetSession
     derivedOperationalStatus: item.derivedOperationalStatus,
     sourceOfTruth: item.sourceOfTruth,
     confidence: item.confidence,
+    operatorActivity: item.operatorActivity,
     nextRecommendedOperatorAction: item.nextRecommendedOperatorAction,
     belongsToMissionControl: item.belongsToMissionControl,
     belongsToHistory: item.belongsToHistory,
@@ -1194,7 +1229,10 @@ function replayItemFromLegacyEvent(event: AgentEvent): ReplayEventItem {
 }
 
 function replayItemFromRuntimeEvent(event: HolisticRuntimeEvent): ReplayEventItem {
-  const kind = classifyReplayEventType(event.type);
+  const payload = (event.payload ?? {}) as Record<string, unknown>;
+  const kind: ReplayEventKind = payload.compatibilityMirror === true
+    ? "compatibility_mirror"
+    : classifyReplayEventType(event.type);
   return {
     id: event.id,
     sessionId: event.sessionId,
@@ -1235,7 +1273,9 @@ export function getSessionReplay(database: DatabaseSync, sessionId: string): Ses
     sessionId,
     generatedAt: new Date().toISOString(),
     events,
-    hiddenTelemetryCount: events.filter((event) => event.kind === "heartbeat_liveness" || event.kind === "noop_telemetry").length
+    hiddenTelemetryCount: events.filter((event) =>
+      event.kind === "heartbeat_liveness" || event.kind === "noop_telemetry" || event.kind === "compatibility_mirror"
+    ).length
   };
 }
 
@@ -1248,7 +1288,7 @@ function ensureSession(database: DatabaseSync, event: AgentEvent): void {
   const objective = event.type === "session.started"
     ? (payloadObjective ?? payloadPrompt ?? NO_RUNTIME_OBJECTIVE_LABEL)
     : (payloadObjective ?? payloadPrompt ?? existing?.objective ?? "Unknown objective");
-  const agentName = inferAgentName(payload, existing?.agentName);
+  const agentName = inferAgentName(payload, existing?.agentName, event.runtime);
   const runtime = String(payload.runtime ?? event.runtime ?? existing?.runtime ?? "unknown");
   const repoPath = String(payload.repoPath ?? existing?.repoPath ?? process.cwd());
   const worktreePath = String(payload.worktreePath ?? existing?.worktreePath ?? process.cwd());
@@ -1421,19 +1461,25 @@ function maybeUpsertMirrorRuntimeFromLegacyEvent(database: DatabaseSync, event: 
   }
 
   const existingRt = getRuntimeSession(database, event.sessionId);
-  if (existingRt && existingRt.metadata?.andonIngestMirror !== true) {
+  const eventPayload = (event.payload ?? {}) as Record<string, unknown>;
+  const isRuntimeWriterEvent = eventPayload.source === "andon.runtime-writer"
+    || event.id.startsWith("runtime-writer-start-")
+    || event.id.startsWith("runtime-writer-heartbeat-");
+  const existingRuntimeWriter = existingRt?.metadata?.source === "andon.runtime-writer";
+  if (existingRt && existingRt.metadata?.andonIngestMirror !== true && !existingRuntimeWriter) {
     return;
   }
-
   const status = legacyAgentEventToMirrorRuntimeStatus(event, existingRt);
-  const activity = phaseToMirrorRuntimeActivity(sessionRow.currentPhase);
+  const payloadActivity = asNonEmptyString(eventPayload.activity) as RuntimeSession["activity"] | null;
+  const activity = payloadActivity ?? phaseToMirrorRuntimeActivity(sessionRow.currentPhase);
   const completedAt = status === "completed" ? event.timestamp : undefined;
 
   const metadata: Record<string, unknown> = {
-    andonIngestMirror: true,
-    source: "andon.ingest.mirror",
+    andonIngestMirror: !isRuntimeWriterEvent,
+    source: isRuntimeWriterEvent ? "andon.runtime-writer" : "andon.ingest.mirror",
     objective: sessionRow.objective,
     prompt: sessionRow.objective,
+    agentName: sessionRow.agentName,
     lastLegacyEventType: event.type
   };
 
@@ -1466,7 +1512,9 @@ function maybeUpsertMirrorRuntimeFromLegacyEvent(database: DatabaseSync, event: 
     payload: {
       legacyEventId: event.id,
       legacyEventType: event.type,
-      replayKind: classifyReplayEventType(event.type)
+      replayKind: classifyReplayEventType(event.type),
+      compatibilityMirror: true,
+      plumbing: true
     }
   };
   insertRuntimeEvent(database, rtEvent);

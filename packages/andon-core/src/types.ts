@@ -196,6 +196,7 @@ export interface FleetSessionItem {
     | "terminated"
     | "unacknowledged_completion"
     | "parked"
+    | "stale_review"
     | "stale_runtime"
     | "db_mismatch"
     | "legacy_active"
@@ -210,6 +211,7 @@ export interface FleetSessionItem {
   sourceOfTruth?: string;
   confidence?: string;
   nextRecommendedOperatorAction?: string;
+  operatorActivity?: string;
   belongsToMissionControl?: boolean;
   belongsToHistory?: boolean;
   lastSignalAt: string | null;

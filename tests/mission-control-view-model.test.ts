@@ -42,6 +42,7 @@ function makeMissionSession(
     lastSignalTimestamp: "2026-04-29T12:10:00.000Z",
     signalAgeMs: 30_000,
     confidence: category === "unknown" ? "low" : "high",
+    operatorActivity: category === "review" ? "review-ready" : category === "needs_action" ? "waiting" : "editing",
     nextRecommendedOperatorAction: category === "needs_action" ? "Answer the agent prompt." : "Inspect when ready.",
     belongsToMissionControl: category !== "historical",
     belongsToHistory: category === "historical",
@@ -174,6 +175,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(viewModel.category, "needs_action");
       assert.equal(viewModel.rawRuntimeStatus, "running");
       assert.equal(viewModel.reason, "waiting for input");
+      assert.equal(viewModel.operatorActivity, "waiting");
     },
   },
   {
@@ -268,6 +270,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         sourceOfTruth: "mixed",
         freshness: "stale",
         confidence: "medium",
+        operatorActivity: "blocked",
         nextRecommendedOperatorAction: "Investigate stale runtime telemetry.",
         signalAgeMs: 600_000,
       }));
@@ -279,6 +282,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(projection.sourceOfTruth, "mixed");
       assert.equal(projection.freshness, "stale");
       assert.equal(projection.confidence, "medium");
+      assert.equal(projection.operatorActivity, "blocked");
       assert.equal(projection.lastSignalAge, "10m");
       assert.match(projection.nextAction, /stale runtime/i);
     },
@@ -322,6 +326,16 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
             meaningful: true,
           },
           {
+            id: "mirror-summary-1",
+            sessionId: "replay-1",
+            type: "agent.summary",
+            kind: "compatibility_mirror",
+            timestamp: "2026-04-29T12:03:01.000Z",
+            summary: "Legacy ingest: agent.summary_emitted - Implemented the detail page.",
+            source: "runtime",
+            meaningful: false,
+          },
+          {
             id: "summary-1",
             sessionId: "replay-1",
             type: "agent.summary",
@@ -337,7 +351,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       const viewModel = buildReplayViewModel(replay);
 
       assert.deepEqual(viewModel.primaryEvents.map((item) => item.id), ["summary-1"]);
-      assert.deepEqual(viewModel.groupedEvents.map((item) => item.id), ["heartbeat-1", "noop-1", "branch-1"]);
+      assert.deepEqual(viewModel.groupedEvents.map((item) => item.id), ["heartbeat-1", "noop-1", "branch-1", "mirror-summary-1"]);
       assert.equal(viewModel.hiddenTelemetryCount, 2);
     },
   },
@@ -348,6 +362,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(replayEventDisplayKind({ kind: "noop_telemetry", type: "telemetry.noop" }), "no-op telemetry");
       assert.equal(replayEventDisplayKind({ kind: "checkpoint", type: "holistic.checkpoint" }), "checkpoint");
       assert.equal(replayEventDisplayKind({ kind: "context_branch_change", type: "context.branch_changed" }), "context change");
+      assert.equal(replayEventDisplayKind({ kind: "compatibility_mirror", type: "agent.summary" }), "compatibility mirror");
       assert.equal(replayEventDisplayKind({ kind: "agent_summary", type: "agent.summary" }), "agent summary");
       assert.equal(replayEventDisplayKind({ kind: "meaningful_activity", type: "tool.completed" }), "meaningful activity");
       assert.equal(replayEventDisplayKind({ kind: "meaningful_activity", type: "user.action" }), "user action");

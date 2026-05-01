@@ -1751,11 +1751,11 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         assert.equal(sessionById.get("runtime-objective-metadata")?.objective, "Objective from runtime metadata");
         assert.equal(sessionById.get("runtime-objective-prompt")?.objective, "Prompt-backed runtime objective");
         assert.equal(sessionById.get("runtime-objective-missing")?.objective, "No runtime objective");
-        assert.equal(sessionById.get("runtime-objective-metadata")?.agentName, "unknown (source missing)");
-        assert.equal(sessionById.get("runtime-objective-prompt")?.agentName, "unknown (source missing)");
-        assert.equal(sessionById.get("runtime-objective-missing")?.agentName, "unknown (source missing)");
+        assert.equal(sessionById.get("runtime-objective-metadata")?.agentName, "local runtime");
+        assert.equal(sessionById.get("runtime-objective-prompt")?.agentName, "local runtime");
+        assert.equal(sessionById.get("runtime-objective-missing")?.agentName, "local runtime");
         assert.equal(
-          payload.recentEvents.some((event) => event.sessionId === "runtime-objective-metadata" && event.agentName === "unknown (source missing)"),
+          payload.recentEvents.some((event) => event.sessionId === "runtime-objective-metadata" && event.agentName === "local runtime"),
           true
         );
       } finally {
