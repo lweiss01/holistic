@@ -8,6 +8,7 @@ import {
   getSessionReplay,
   subscribeToStream,
   type AndonHealthResponse,
+  type CanonicalSessionDetailResponse,
   type MissionControlResponse,
   type SessionReplayResponse,
   type MissionControlSession,
@@ -21,7 +22,6 @@ import {
   getCategoryPresentation,
   type DetailProjectionViewModel,
   type HistorySessionViewModel,
-  type MissionLaneViewModel,
   type ReplayEventViewModel,
   type MissionSessionViewModel,
 } from "./mission-control-view-model.ts";
@@ -104,8 +104,6 @@ function Navigation({
 
       <nav className="nav-links" aria-label="Primary navigation">
         <a href="/">Mission Control</a>
-        <a href="/needs-action">Needs Action</a>
-        <a href="/review">Review</a>
         <a href="/history">History</a>
         <a href="/health">Health</a>
       </nav>
@@ -145,7 +143,7 @@ function MessageState({
 function StatusMarker({ item, compact = false }: { item: MissionSessionViewModel; compact?: boolean }) {
   return (
     <span
-      className={`status-marker marker-${item.presentation.marker} tone-${item.presentation.tone} ${compact ? "is-compact" : ""}`}
+      className={`status-marker marker-${item.trafficLight.marker} tone-${item.trafficLight.tone} ${compact ? "is-compact" : ""}`}
       aria-hidden="true"
     />
   );
@@ -161,112 +159,44 @@ function CategoryBadge({ category }: { category: OperationalCategory }) {
   );
 }
 
-function DecisionBadge({ item }: { item: MissionSessionViewModel }) {
+function MissionSessionCard({ item }: { item: MissionSessionViewModel }) {
   return (
-    <span className={`category-badge tone-${item.presentation.tone}`}>
-      <span className={`badge-shape marker-${item.presentation.marker}`} aria-hidden="true" />
-      {item.primaryStatusLabel}
-    </span>
-  );
-}
-
-function SignalStrip({
-  data,
-  historyCount,
-}: {
-  data: MissionControlResponse;
-  historyCount: number;
-}) {
-  const ordered: OperationalCategory[] = ["needs_action", "degraded_active", "review", "live", "unknown"];
-
-  return (
-    <section className="signal-strip" aria-label="Operational status counts">
-      {ordered.map((category) => {
-        const presentation = getCategoryPresentation(category);
-        const href =
-          category === "needs_action" ? "/needs-action"
-            : category === "review" ? "/review"
-              : "/";
-        return (
-          <a key={category} className={`signal-cell tone-${presentation.tone}`} href={href}>
-            <span className={`signal-shape marker-${presentation.marker}`} aria-hidden="true" />
-            <span>{presentation.label}</span>
-            <strong>{data.totals[category] ?? 0}</strong>
-          </a>
-        );
-      })}
-      <a className="signal-cell tone-history is-secondary" href="/history">
-        <span className="signal-shape marker-outline" aria-hidden="true" />
-        <span>History</span>
-        <strong>{historyCount}</strong>
-      </a>
-    </section>
-  );
-}
-
-function SessionRow({ item }: { item: MissionSessionViewModel }) {
-  return (
-    <article className={`session-row tone-${item.presentation.tone}`} data-category={item.category}>
-      <div className="session-row-state">
+    <article className={`session-card tone-${item.trafficLight.tone}`} data-primary-status={item.primaryStatus}>
+      <div className="session-card-status">
         <StatusMarker item={item} />
-        <DecisionBadge item={item} />
+        <div>
+          <p className="eyebrow">Current state</p>
+          <strong>{item.primaryStatusLabel}</strong>
+        </div>
       </div>
-      <a className="session-row-main" href={`/session/${encodeURIComponent(item.id)}`}>
-        <strong>{item.agentName}</strong>
+      <a className="session-card-main" href={item.detailHref}>
         <span>{item.repoName}</span>
+        <strong>{item.agentName}</strong>
         <p>{item.objective}</p>
       </a>
-      <div className="session-row-meta">
+      <div className="session-card-meta">
         <span>{item.lastAgentSignalAge}</span>
         <span>{item.runtimeAliveLabel}</span>
         {item.confidenceLabel && <span>{item.confidenceLabel}</span>}
       </div>
-      <div className="session-row-action">
+      {item.attentionFlags.length > 0 && (
+        <div className="session-card-flags">
+          {item.attentionFlags.map((flag) => <span key={flag}>{flag}</span>)}
+        </div>
+      )}
+      <div className="session-card-action">
         <b>{item.nextAction}</b>
         <small>{item.reason}</small>
       </div>
-      <a className="row-link" href={`/session/${encodeURIComponent(item.id)}/replay`}>
-        Replay
-      </a>
+      <div className="session-card-links">
+        <a className="button primary" href={item.detailHref}>Detail</a>
+        <a className="row-link" href={item.replayHref}>Replay</a>
+      </div>
     </article>
   );
 }
 
-function MissionLane({ lane }: { lane: MissionLaneViewModel }) {
-  const primaryCategory = lane.categories[0];
-  const presentation = getCategoryPresentation(primaryCategory);
-
-  return (
-    <section
-      className={`mission-lane lane-${lane.id} tone-${presentation.tone} ${lane.isEmpty ? "is-empty" : "has-items"} ${lane.hasPriority ? "has-priority" : ""} ${lane.count === 1 ? "has-single-item" : ""}`}
-      aria-labelledby={`${lane.id}-title`}
-    >
-      <div className="lane-status">
-        <span className={`lane-light marker-${presentation.marker}`} aria-hidden="true" />
-        <div>
-          <p className="eyebrow">{lane.description}</p>
-          <h2 id={`${lane.id}-title`}>{lane.label}</h2>
-        </div>
-        <strong>{lane.count}</strong>
-      </div>
-
-      <div className="lane-items">
-        {lane.visibleSessions.length === 0 ? (
-          <p className="lane-empty">Clear</p>
-        ) : (
-          lane.visibleSessions.map((item) => <SessionRow key={item.id} item={item} />)
-        )}
-        {lane.hiddenCount > 0 && (
-          <a className="more-link" href={`/${lane.id === "needs_action" ? "needs-action" : lane.id === "review" ? "review" : ""}`}>
-            +{lane.hiddenCount} more
-          </a>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function MissionControlPage({ focusCategory = null }: { focusCategory?: OperationalCategory | null }) {
+function MissionControlPage() {
   const [data, setData] = useState<MissionControlResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
@@ -286,14 +216,14 @@ function MissionControlPage({ focusCategory = null }: { focusCategory?: Operatio
   });
 
   const board = useMemo(
-    () => data ? buildMissionControlBoardViewModel(data, { focusCategory, laneLimit: focusCategory ? 8 : 3 }) : null,
-    [data, focusCategory],
+    () => data ? buildMissionControlBoardViewModel(data) : null,
+    [data],
   );
 
   if (error) {
     return (
       <MessageState
-        title="Mission Control is unreachable"
+        title="Mission Control could not load session state."
         description={error}
         retryText="Try again"
         onRetry={loadData}
@@ -305,40 +235,39 @@ function MissionControlPage({ focusCategory = null }: { focusCategory?: Operatio
     return <MessageState title="Reading operational truth" description="Loading the current runtime projection." />;
   }
 
-  const lanes = focusCategory
-    ? board.lanes.filter((lane) => lane.categories.includes(focusCategory))
-    : board.lanes;
-  const headline =
-    focusCategory === "needs_action" ? "Needs Action"
-      : focusCategory === "review" ? "Review"
-        : "Mission Control";
-
   return (
     <main className="mission-control" aria-label="Andon Mission Control">
       <section className="mission-header">
         <div>
-          <p className="eyebrow">Operational board</p>
-          <h1>{headline}</h1>
+          <p className="eyebrow">Agent session status board</p>
+          <h1>Mission Control</h1>
         </div>
-        <div className="mission-clock" aria-label="Refresh status">
+        <div className="mission-clock" aria-label="Agent signal summary">
           <strong>{formatClock(now)}</strong>
-          <span>API {board.generatedAge} ago</span>
+          <span>{board.ingestionStatus.label}</span>
         </div>
       </section>
 
-      <SignalStrip data={data} historyCount={board.historyCount} />
+      <section className="session-summary" aria-label="Mission Control session summary">
+        <span><b>{board.runtimeSummary.sessionCount}</b> visible sessions</span>
+        <span><b>{board.runtimeSummary.runningCount}</b> running</span>
+        <span><b>{board.runtimeSummary.attentionCount}</b> need attention</span>
+        <span><b>{board.runtimeSummary.sourceCount}</b> signal sources</span>
+        <span><b>{board.runtimeSummary.connectedSourceCount}</b> connected or idle</span>
+        <a href="/history">{board.historyCount} historical</a>
+      </section>
 
-      {board.operationalTotal === 0 ? (
-        <section className="all-clear" aria-label="Empty operational board">
+      {board.sessionCount === 0 ? (
+        <section className={`all-clear source-${board.emptyState?.tone ?? "unknown"}`} aria-label="Empty operational board">
           <span className="all-clear-light" aria-hidden="true" />
           <div>
-            <h2>No operational sessions</h2>
-            <p>Mission Control has no live, waiting, degraded, review, or unknown sessions from the server projection.</p>
+            <h2>{board.emptyState?.title ?? "Agent signal source status is unknown."}</h2>
+            <p>{board.emptyState?.description ?? "Mission Control is online, but source visibility could not be determined."}</p>
           </div>
         </section>
       ) : (
-        <section className={`board-grid ${focusCategory ? "is-focused" : ""}`} aria-label="Operational lanes">
-          {lanes.map((lane) => <MissionLane key={lane.id} lane={lane} />)}
+        <section className="session-board" aria-label="Agent session cards">
+          {board.sessions.map((item) => <MissionSessionCard key={item.id} item={item} />)}
         </section>
       )}
     </main>
@@ -452,7 +381,7 @@ function HealthPage() {
 }
 
 interface DetailPageData {
-  detail: SessionDetailResponse | null;
+  detail: CanonicalSessionDetailResponse | null;
   projection: MissionControlSession | null;
 }
 
@@ -467,6 +396,10 @@ function ProjectionFacts({ projection }: { projection: DetailProjectionViewModel
         <CategoryBadge category={projection.category} />
       </div>
       <div className="detail-grid detail-grid-tight">
+        <div><span>Primary status</span><strong>{projection.primaryStatusLabel}</strong></div>
+        <div><span>Lifecycle</span><strong>{projection.lifecycleState}</strong></div>
+        <div><span>Operator attention</span><strong>{projection.operatorAttention}</strong></div>
+        <div><span>Runtime signal</span><strong>{projection.runtimeSignal}</strong></div>
         <div><span>Category</span><strong>{projection.presentation.label}</strong></div>
         <div><span>Reason</span><strong>{projection.reason}</strong></div>
         <div><span>Source</span><strong>{projection.sourceOfTruth}</strong></div>
@@ -484,7 +417,7 @@ function ProjectionFacts({ projection }: { projection: DetailProjectionViewModel
   );
 }
 
-function HolisticContextPanel({ data }: { data: SessionDetailResponse | null }) {
+function HolisticContextPanel({ data }: { data: CanonicalSessionDetailResponse | SessionDetailResponse | null }) {
   const context = data?.holisticContext;
   return (
     <section className="detail-panel">
@@ -534,7 +467,7 @@ function DetailPage({ sessionId }: { sessionId: string }) {
       ),
     ])
       .then(([missionControl, history, detail]) => {
-        const projection = findProjectionSession(sessionId, missionControl, history);
+        const projection = detail?.projection ?? findProjectionSession(sessionId, missionControl, history);
         if (!projection && !detail) {
           throw new Error("Session was not found in detail, Mission Control, or History.");
         }
@@ -583,15 +516,18 @@ function DetailPage({ sessionId }: { sessionId: string }) {
       <HolisticContextPanel data={data.detail} />
 
       {data.detail && (
-        <section className="detail-panel">
-          <p className="eyebrow">Legacy status engine</p>
+        <details className="detail-panel">
+          <summary>
+            <span className="eyebrow">Non-authoritative diagnostic</span>
+            Legacy status engine
+          </summary>
           <h2>{data.detail.recommendation.title}</h2>
           <p>{data.detail.recommendation.description}</p>
           <div className="detail-grid detail-grid-tight">
             <div><span>Status</span><strong>{normalizeLabel(data.detail.status.status)}</strong></div>
             <div><span>Recommendation urgency</span><strong>{data.detail.recommendation.urgency}</strong></div>
           </div>
-        </section>
+        </details>
       )}
 
       <section className="detail-panel action-panel">
@@ -630,7 +566,7 @@ function ReplayPage({ sessionId }: { sessionId: string }) {
         <h1>{replay.primaryEvents.length} meaningful events</h1>
         <p>
           Heartbeat, no-op telemetry, and context-only events are grouped below the primary replay.
-          {replay.hiddenTelemetryCount > 0 ? ` ${replay.hiddenTelemetryCount} telemetry event(s) are hidden from the main lane.` : ""}
+          {replay.hiddenTelemetryCount > 0 ? ` ${replay.hiddenTelemetryCount} telemetry event(s) are grouped below.` : ""}
         </p>
         <button className="button secondary raw-toggle" type="button" onClick={() => setShowRaw((value) => !value)}>
           {showRaw ? "Hide raw" : "Show raw"}
@@ -697,8 +633,7 @@ function pickRoute(pathname: string) {
   const detailMatch = pathname.match(/^\/session\/([^/]+)$/);
   if (detailMatch) return <DetailPage sessionId={decodeURIComponent(detailMatch[1])} />;
 
-  if (pathname === "/needs-action") return <MissionControlPage focusCategory="needs_action" />;
-  if (pathname === "/review") return <MissionControlPage focusCategory="review" />;
+  if (pathname === "/needs-action" || pathname === "/review") return <MissionControlPage />;
   if (pathname === "/history") return <HistoryPage />;
   if (pathname === "/health") return <HealthPage />;
 

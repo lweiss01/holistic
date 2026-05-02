@@ -15,8 +15,9 @@ import {
   isRuntimeRunningStatus
 } from "../../../packages/runtime-core/src/index.ts";
 
-export const OPERATIONAL_PROJECTION_FRESH_MS = 5 * 60 * 1000;
-export const OPERATIONAL_PROJECTION_COLD_MS = 20 * 60 * 1000;
+export const OPERATIONAL_PROJECTION_FRESH_MS = 30 * 1000;
+export const OPERATIONAL_PROJECTION_COLD_MS = 2 * 60 * 1000;
+export const OPERATIONAL_PROJECTION_EXPIRED_MS = 10 * 60 * 1000;
 export const OPERATIONAL_PROJECTION_LEGACY_HISTORY_MS = 60 * 60 * 1000;
 export const OPERATIONAL_PROJECTION_REVIEW_STALE_MS = 24 * 60 * 60 * 1000;
 
@@ -35,12 +36,11 @@ export type RuntimeSignalState = "alive" | "stale" | "dead" | "unknown";
 export type OperatorAttention = "none" | "review_needed" | "input_needed" | "intervention_needed";
 export type MissionPrimaryStatus =
   | "running"
-  | "needs_action"
+  | "waiting_for_review"
+  | "waiting_on_human_input"
   | "needs_intervention"
-  | "review"
-  | "parked"
-  | "completed"
-  | "stale"
+  | "parked_idle"
+  | "done_historical"
   | "unknown";
 export type OperatorActivityInsight =
   | "editing"
@@ -89,6 +89,7 @@ export interface OperationalProjectionInput {
   humanInputNeeded?: boolean;
   reviewNeeded?: boolean;
   completedAcknowledged?: boolean;
+  canonicalStatusHint?: "running" | "needs_input" | "awaiting_review" | "parked" | "blocked" | "at_risk" | null;
   now?: Date | number | string;
   freshAfterMs?: number;
   coldAfterMs?: number;
@@ -329,6 +330,15 @@ function operatorActivityFor(
   return runtimeActivityInsight(input.runtimeSession?.activity);
 }
 
+function isChildOrPlumbingRuntimeSession(runtimeSession: RuntimeSession): boolean {
+  const metadata = runtimeSession.metadata ?? {};
+  const sessionKind = typeof metadata.sessionKind === "string" ? metadata.sessionKind : null;
+  return metadata.topLevelWorkflow === false
+    || metadata.plumbing === true
+    || metadata.compatibilityMirror === true
+    || ["task", "checkpoint", "artifact", "maintenance", "child_activity"].includes(sessionKind ?? "");
+}
+
 function isStaleReviewSignal(input: OperationalProjectionInput, lastSignalTimestamp: string | null, now: number): boolean {
   const reviewAge = ageMs(lastSignalTimestamp, now);
   return reviewAge !== null && reviewAge > (input.reviewStaleAfterMs ?? OPERATIONAL_PROJECTION_REVIEW_STALE_MS);
@@ -387,13 +397,13 @@ function operatorAttentionFor(
 }
 
 function primaryStatusFor(lifecycleState: LifecycleState, operatorAttention: OperatorAttention): MissionPrimaryStatus {
-  if (operatorAttention === "input_needed") return "needs_action";
+  if (operatorAttention === "input_needed") return "waiting_on_human_input";
   if (operatorAttention === "intervention_needed") return "needs_intervention";
-  if (operatorAttention === "review_needed") return "review";
+  if (operatorAttention === "review_needed") return "waiting_for_review";
   if (lifecycleState === "running") return "running";
-  if (lifecycleState === "parked") return "parked";
-  if (lifecycleState === "completed") return "completed";
-  if (lifecycleState === "stale") return "stale";
+  if (lifecycleState === "parked") return "parked_idle";
+  if (lifecycleState === "completed") return "done_historical";
+  if (lifecycleState === "stale") return "needs_intervention";
   return "unknown";
 }
 
@@ -545,6 +555,114 @@ export function projectOperationalSession(input: OperationalProjectionInput): Op
     input.coldAfterMs ?? OPERATIONAL_PROJECTION_COLD_MS
   );
   const evidenceBase = [`Runtime status is ${rawRuntimeStatus}.`];
+
+  if (isChildOrPlumbingRuntimeSession(input.runtimeSession)) {
+    return projection(input, {
+      category: "historical",
+      reason: "parked",
+      rawRuntimeStatus,
+      derivedOperationalStatus: "historical",
+      sourceOfTruth,
+      freshness,
+      lastSignalTimestamp,
+      lastHeartbeatAt,
+      lastMeaningfulActivityAt,
+      now,
+      evidence: [
+        ...evidenceBase,
+        "Runtime metadata marks this as child activity or telemetry plumbing, not a top-level agent workflow."
+      ]
+    });
+  }
+
+  if (isRuntimeRunningStatus(rawRuntimeStatus) && input.canonicalStatusHint === "parked") {
+    return projection(input, {
+      category: "historical",
+      reason: "parked",
+      rawRuntimeStatus,
+      derivedOperationalStatus: "historical",
+      sourceOfTruth,
+      freshness,
+      lastSignalTimestamp,
+      lastHeartbeatAt,
+      lastMeaningfulActivityAt,
+      now,
+      evidence: [
+        ...evidenceBase,
+        "Canonical session status is parked; heartbeat is liveness metadata and does not make the session running."
+      ]
+    });
+  }
+
+  if (isRuntimeRunningStatus(rawRuntimeStatus) && input.canonicalStatusHint === "awaiting_review") {
+    if (isStaleReviewSignal(input, lastSignalTimestamp, now)) {
+      return projection(input, {
+        category: "historical",
+        reason: "stale_review",
+        rawRuntimeStatus,
+        derivedOperationalStatus: "historical",
+        sourceOfTruth,
+        freshness,
+        lastSignalTimestamp,
+        lastHeartbeatAt,
+        lastMeaningfulActivityAt,
+        now,
+        evidence: [...evidenceBase, "Canonical review status is older than the Mission Control review window."]
+      });
+    }
+
+    return projection(input, {
+      category: "review",
+      reason: "awaiting_review",
+      rawRuntimeStatus,
+      derivedOperationalStatus: "awaiting_review",
+      sourceOfTruth,
+      freshness,
+      lastSignalTimestamp,
+      lastHeartbeatAt,
+      lastMeaningfulActivityAt,
+      now,
+      evidence: [
+        ...evidenceBase,
+        "Canonical session status is review-ready; heartbeat is liveness metadata and does not make it running."
+      ]
+    });
+  }
+
+  if (isRuntimeRunningStatus(rawRuntimeStatus) && input.canonicalStatusHint === "needs_input") {
+    return projection(input, {
+      category: "needs_action",
+      reason: "waiting_for_input",
+      rawRuntimeStatus,
+      derivedOperationalStatus: "needs_input",
+      sourceOfTruth,
+      freshness,
+      lastSignalTimestamp,
+      lastHeartbeatAt,
+      lastMeaningfulActivityAt,
+      now,
+      evidence: [...evidenceBase, "Canonical session status is waiting for human input."]
+    });
+  }
+
+  if (
+    isRuntimeRunningStatus(rawRuntimeStatus)
+    && (input.canonicalStatusHint === "blocked" || input.canonicalStatusHint === "at_risk")
+  ) {
+    return projection(input, {
+      category: "degraded_active",
+      reason: "blocked_or_failed",
+      rawRuntimeStatus,
+      derivedOperationalStatus: "degraded",
+      sourceOfTruth,
+      freshness,
+      lastSignalTimestamp,
+      lastHeartbeatAt,
+      lastMeaningfulActivityAt,
+      now,
+      evidence: [...evidenceBase, "Canonical session status requires intervention."]
+    });
+  }
 
   if (input.runtimeSession.completedAt && isRuntimeRunningStatus(rawRuntimeStatus)) {
     return projection(input, {
@@ -712,6 +830,27 @@ export function projectOperationalSession(input: OperationalProjectionInput): Op
       });
     }
 
+    const lastAgentSignalAge = ageMs(latestTimestamp([lastHeartbeatAt, lastMeaningfulActivityAt]), now);
+    if (
+      input.runtimeProcessAlive !== true
+      && lastAgentSignalAge !== null
+      && lastAgentSignalAge > OPERATIONAL_PROJECTION_EXPIRED_MS
+    ) {
+      return projection(input, {
+        category: "historical",
+        reason: "parked",
+        rawRuntimeStatus,
+        derivedOperationalStatus: "historical",
+        sourceOfTruth,
+        freshness,
+        lastSignalTimestamp,
+        lastHeartbeatAt,
+        lastMeaningfulActivityAt,
+        now,
+        evidence: [...evidenceBase, "Runtime signal is expired and no live process proof exists."]
+      });
+    }
+
     if (input.runtimeProcessAlive !== true) {
       return projection(input, {
         category: "degraded_active",
@@ -744,7 +883,7 @@ export function projectOperationalSession(input: OperationalProjectionInput): Op
       });
     }
 
-    if (freshness !== "fresh") {
+    if (freshness === "cold") {
       return projection(input, {
         category: "degraded_active",
         reason: "stale_runtime",
@@ -756,7 +895,7 @@ export function projectOperationalSession(input: OperationalProjectionInput): Op
         lastHeartbeatAt,
         lastMeaningfulActivityAt,
         now,
-        evidence: [...evidenceBase, "Runtime heartbeat is not fresh enough for healthy live status."]
+        evidence: [...evidenceBase, "Runtime heartbeat is too old for running status."]
       });
     }
 
@@ -772,8 +911,8 @@ export function projectOperationalSession(input: OperationalProjectionInput): Op
       lastMeaningfulActivityAt,
       now,
       evidence: lastMeaningfulActivityAt
-        ? [...evidenceBase, "Fresh heartbeat proves liveness; meaningful activity is tracked separately."]
-        : [...evidenceBase, "Fresh heartbeat proves liveness; no meaningful activity is implied."]
+        ? [...evidenceBase, "Recent heartbeat proves liveness; meaningful activity is tracked separately."]
+        : [...evidenceBase, "Recent heartbeat proves liveness; no meaningful activity is implied."]
     });
   }
 

@@ -57,12 +57,11 @@ export interface MissionControlSession {
   operatorAttention: "none" | "review_needed" | "input_needed" | "intervention_needed";
   primaryStatus:
     | "running"
-    | "needs_action"
+    | "waiting_for_review"
+    | "waiting_on_human_input"
     | "needs_intervention"
-    | "review"
-    | "parked"
-    | "completed"
-    | "stale"
+    | "parked_idle"
+    | "done_historical"
     | "unknown";
   confidence: "high" | "medium" | "low";
   operatorActivity:
@@ -80,10 +79,69 @@ export interface MissionControlSession {
   belongsToHistory: boolean;
 }
 
+export interface CanonicalSessionDetailResponse extends SessionDetailResponse {
+  projection: MissionControlSession | null;
+}
+
+export interface AgentSessionSourceSummary {
+  sourceId: string;
+  sourceName: string;
+  sourceType:
+    | "codex"
+    | "chatgpt"
+    | "claude_code"
+    | "cursor"
+    | "aider"
+    | "openhands"
+    | "jules"
+    | "github_copilot"
+    | "gsd"
+    | "symphony_runner"
+    | "local_cli"
+    | "file_heartbeat"
+    | "http_event_source"
+    | "manual"
+    | "custom"
+    | "unknown";
+  platform: string | null;
+  transport: "http_events" | "file_state" | "cli_writer" | "websocket" | "webhook" | "database" | "unknown";
+  status: "connected" | "idle" | "active" | "stale" | "disconnected" | "uninstrumented" | "unknown" | "error";
+  repo: string | null;
+  lastSignalAt: string | null;
+  lastHeartbeatAt: string | null;
+  capabilities: string[];
+  reason: string | null;
+}
+
+export interface AgentSignalIngestionStatus {
+  status:
+    | "active"
+    | "idle"
+    | "stale"
+    | "disconnected"
+    | "uninstrumented"
+    | "unknown"
+    | "error"
+    | "no_sources_configured"
+    | "historical_only";
+  label: string;
+  message: string;
+  tone: "healthy" | "neutral" | "warning" | "critical" | "unknown";
+  lastSignalAt: string | null;
+  sourceCount: number;
+  activeSourceCount: number;
+  staleSourceCount: number;
+  historicalCount: number;
+}
+
 export interface MissionControlResponse {
   generatedAt: string;
   totals: Record<OperationalCategory | "total", number>;
   sessions: MissionControlSession[];
+  sources: AgentSessionSourceSummary[];
+  ingestionStatus: AgentSignalIngestionStatus;
+  historicalCount: number;
+  lastSignalAt: string | null;
 }
 
 export function getMissionControl(): Promise<MissionControlResponse> {
@@ -94,8 +152,8 @@ export function getHistory(): Promise<MissionControlResponse> {
   return fetchJson<MissionControlResponse>("/history");
 }
 
-export function getSessionDetail(sessionId: string): Promise<SessionDetailResponse> {
-  return fetchJson<SessionDetailResponse>(`/sessions/${encodeURIComponent(sessionId)}`);
+export function getSessionDetail(sessionId: string): Promise<CanonicalSessionDetailResponse> {
+  return fetchJson<CanonicalSessionDetailResponse>(`/sessions/${encodeURIComponent(sessionId)}`);
 }
 
 export interface SessionReplayEvent {

@@ -991,8 +991,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         }
         const port = address.port;
 
-        const olderTs = new Date(Date.now() - 4 * 60 * 1000).toISOString();
-        const newerTs = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+        const olderTs = new Date(Date.now() - 60 * 1000).toISOString();
+        const newerTs = new Date(Date.now() - 30 * 1000).toISOString();
 
         const seedEvents: AgentEvent[] = [
           {
@@ -1273,7 +1273,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         const port = address.port;
 
         const now = Date.now();
-        const activeTs = new Date(now - 60 * 1000).toISOString();
+        const activeTs = new Date(now - 5 * 1000).toISOString();
         upsertRuntimeSession(database, {
           id: "runtime-active-now",
           runtimeId: "local",
@@ -1335,7 +1335,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
-    name: "Andon fleet keeps running runtime status even when freshness is cold",
+    name: "Andon fleet moves cold running runtime sessions out of Mission Control",
     run: async () => {
       const tempDir = makeTempDir("andon-fleet-runtime-cold-running");
       const databasePath = path.join(tempDir, "andon.sqlite");
@@ -1374,11 +1374,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         };
 
         const item = payload.sessions.find((session) => session.session.id === "runtime-cold-running");
-        assert.ok(item);
-        assert.equal(item?.heartbeatFreshness, "cold");
-        assert.equal(item?.freshness, "cold");
-        assert.equal(item?.category, "degraded_active");
-        assert.equal(item?.status.status, "blocked");
+        assert.equal(item, undefined);
         assert.equal(payload.totals.activeAgents, 0);
       } finally {
         database.close();
@@ -1996,7 +1992,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         const port = address.port;
 
         const staleTimestamp = new Date(Date.now() - (70 * 60 * 1000)).toISOString();
-        const freshTimestamp = new Date(Date.now() - (2 * 60 * 1000)).toISOString();
+        const freshTimestamp = new Date(Date.now() - 10 * 1000).toISOString();
 
         const events: AgentEvent[] = [
           {

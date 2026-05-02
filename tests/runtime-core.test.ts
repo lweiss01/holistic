@@ -29,7 +29,24 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
   {
     name: "runtime-core exports the canonical runtime enums and event contract",
     run: () => {
-      assert.deepEqual(RUNTIME_IDS, ["local", "codex", "claude-code", "openharness", "custom"]);
+      assert.deepEqual(RUNTIME_IDS, [
+        "local",
+        "codex",
+        "chatgpt",
+        "claude-code",
+        "claude_code",
+        "cursor",
+        "aider",
+        "openharness",
+        "openhands",
+        "jules",
+        "github_copilot",
+        "gsd",
+        "symphony_runner",
+        "local_cli",
+        "file_heartbeat",
+        "custom"
+      ]);
       assert.equal(RUNTIME_STATUSES.includes("waiting_for_approval"), true);
       assert.equal(RUNTIME_STATUSES.includes("awaiting_review"), true);
       assert.equal(RUNTIME_STATUSES.includes("terminated"), true);

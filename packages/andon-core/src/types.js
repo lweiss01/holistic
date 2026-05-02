@@ -29,6 +29,23 @@ export const EVENT_TYPES = [
     "user.resumed"
 ];
 export const EVENT_SOURCES = ["agent", "collector", "system", "user"];
-export const AGENT_RUNTIMES = ["codex", "openharness", "unknown"];
+export const AGENT_RUNTIMES = [
+    "codex",
+    "chatgpt",
+    "claude-code",
+    "claude_code",
+    "cursor",
+    "aider",
+    "openharness",
+    "openhands",
+    "jules",
+    "github_copilot",
+    "gsd",
+    "symphony_runner",
+    "local_cli",
+    "file_heartbeat",
+    "custom",
+    "unknown"
+];
 export const RECOMMENDATION_URGENCY = ["low", "medium", "high"];
 //# sourceMappingURL=types.js.map

@@ -51,7 +51,58 @@ function asActivity(session) {
 
 function asAgentName(session) {
   const candidate = String(session?.agent || session?.runtime || "").trim();
-  return candidate && candidate.toLowerCase() !== "unknown" ? candidate : "codex";
+  return candidate && candidate.toLowerCase() !== "unknown" ? candidate : "unknown";
+}
+
+const sourceRuntimeTypes = new Set([
+  "codex",
+  "chatgpt",
+  "claude-code",
+  "claude_code",
+  "cursor",
+  "aider",
+  "openhands",
+  "jules",
+  "github_copilot",
+  "gsd",
+  "symphony_runner",
+  "local_cli",
+  "file_heartbeat",
+  "custom",
+  "openharness"
+]);
+
+function normalizedSourceType(value) {
+  const candidate = String(value || "").trim().toLowerCase();
+  if (!candidate || candidate === "unknown") {
+    return null;
+  }
+  const normalized = candidate.replace(/-/g, "_");
+  if (sourceRuntimeTypes.has(candidate)) return candidate;
+  if (sourceRuntimeTypes.has(normalized)) return normalized;
+  if (normalized === "local") return "local_cli";
+  return null;
+}
+
+function asRuntimeName(session) {
+  return normalizedSourceType(session?.runtime) ?? normalizedSourceType(session?.agent) ?? "unknown";
+}
+
+function asSourceType(session) {
+  return normalizedSourceType(session?.runtime) ?? normalizedSourceType(session?.agent) ?? "file_heartbeat";
+}
+
+function sourcePayload(session) {
+  const platform = normalizedSourceType(session?.runtime) ?? normalizedSourceType(session?.agent);
+  return {
+    source: "andon.runtime-writer",
+    sourceId: "holistic-file-state-writer",
+    sourceName: "Holistic file-state writer",
+    sourceType: asSourceType(session),
+    platform,
+    transport: "cli_writer",
+    capabilities: ["session.started", "session.heartbeat", "session.completed"]
+  };
 }
 
 function parseTimestampMs(value) {
@@ -87,7 +138,7 @@ export function buildStartedEvent(session, nowIso) {
   return {
     id: `runtime-writer-start-${session.id}`,
     sessionId: session.id,
-    runtime: "codex",
+    runtime: asRuntimeName(session),
     type: "session.started",
     phase: asPhase(session),
     source: "system",
@@ -101,7 +152,7 @@ export function buildStartedEvent(session, nowIso) {
       worktreePath: repoRoot,
       branch: session.branch || null,
       activity: asActivity(session),
-      source: "andon.runtime-writer"
+      ...sourcePayload(session)
     }
   };
 }
@@ -110,7 +161,7 @@ export function buildHeartbeatEvent(session, nowIso) {
   return {
     id: `runtime-writer-heartbeat-${session.id}-${Date.now()}`,
     sessionId: session.id,
-    runtime: "codex",
+    runtime: asRuntimeName(session),
     type: "session.heartbeat",
     phase: asPhase(session),
     source: "system",
@@ -124,7 +175,7 @@ export function buildHeartbeatEvent(session, nowIso) {
       activity: asActivity(session),
       latestStatus: session.latestStatus || null,
       sessionUpdatedAt: session.updatedAt || session.lastUpdatedAt || session.lastEventAt || null,
-      source: "andon.runtime-writer"
+      ...sourcePayload(session)
     }
   };
 }
@@ -133,7 +184,7 @@ export function buildCompletedEvent(session, nowIso) {
   return {
     id: `runtime-writer-completed-${session.id}`,
     sessionId: session.id,
-    runtime: "codex",
+    runtime: asRuntimeName(session),
     type: "session.completed",
     phase: asPhase(session),
     source: "system",
@@ -148,7 +199,7 @@ export function buildCompletedEvent(session, nowIso) {
       latestStatus: session.latestStatus || null,
       sessionUpdatedAt: session.updatedAt || session.lastUpdatedAt || session.lastEventAt || null,
       completionSignal: session.completionSignal ?? null,
-      source: "andon.runtime-writer"
+      ...sourcePayload(session)
     }
   };
 }

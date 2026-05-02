@@ -1,7 +1,14 @@
 import type { OperationalCategory } from "../../../packages/andon-core/src/index.ts";
-import type { MissionControlResponse, MissionControlSession, SessionReplayEvent, SessionReplayResponse } from "./api.ts";
+import type {
+  AgentSignalIngestionStatus,
+  AgentSessionSourceSummary,
+  MissionControlResponse,
+  MissionControlSession,
+  SessionReplayEvent,
+  SessionReplayResponse
+} from "./api.ts";
 
-export type MissionLaneId = "needs_action" | "degraded_unknown" | "review" | "live";
+export type MissionPrimaryStatus = MissionControlSession["primaryStatus"];
 
 export interface CategoryPresentation {
   label: string;
@@ -49,53 +56,72 @@ export const CATEGORY_PRESENTATION: Record<OperationalCategory, CategoryPresenta
   },
 };
 
-export const MISSION_CATEGORY_ORDER: OperationalCategory[] = [
-  "needs_action",
-  "degraded_active",
-  "unknown",
-  "review",
-  "live",
-  "historical",
-];
-
-export const MISSION_LANES: Array<{
-  id: MissionLaneId;
+export interface TrafficLightPresentation {
   label: string;
+  shortLabel: string;
+  tone: "healthy" | "review" | "input" | "critical" | "idle" | "history" | "unknown";
+  marker: "circle" | "diamond" | "triangle" | "octagon" | "outline" | "question";
   description: string;
-  categories: OperationalCategory[];
-}> = [
-  {
-    id: "needs_action",
-    label: "Needs Action",
-    description: "Human intervention required now",
-    categories: ["needs_action"],
-  },
-  {
-    id: "degraded_unknown",
-    label: "Needs Intervention",
-    description: "Blocked, stale, or missing runtime truth",
-    categories: ["degraded_active", "unknown"],
-  },
-  {
-    id: "review",
-    label: "Review",
-    description: "Ready for inspection or approval",
-    categories: ["review"],
-  },
-  {
-    id: "live",
+}
+
+export const TRAFFIC_LIGHT_PRESENTATION: Record<MissionPrimaryStatus, TrafficLightPresentation> = {
+  running: {
     label: "Running",
-    description: "Agent is actively running now",
-    categories: ["live"],
+    shortLabel: "Running",
+    tone: "healthy",
+    marker: "circle",
+    description: "Agent session is actively running now.",
   },
-];
+  waiting_for_review: {
+    label: "Waiting for Review",
+    shortLabel: "Review",
+    tone: "review",
+    marker: "diamond",
+    description: "Agent output is ready for inspection or approval.",
+  },
+  waiting_on_human_input: {
+    label: "Waiting on Human Input",
+    shortLabel: "Input",
+    tone: "input",
+    marker: "triangle",
+    description: "Agent is blocked until a human responds.",
+  },
+  needs_intervention: {
+    label: "Needs Intervention",
+    shortLabel: "Intervention",
+    tone: "critical",
+    marker: "octagon",
+    description: "Agent session needs operator intervention.",
+  },
+  parked_idle: {
+    label: "Parked / Idle",
+    shortLabel: "Parked",
+    tone: "idle",
+    marker: "outline",
+    description: "Agent session is parked or idle.",
+  },
+  done_historical: {
+    label: "Done / Historical",
+    shortLabel: "Done",
+    tone: "history",
+    marker: "outline",
+    description: "Agent session is done and belongs in history.",
+  },
+  unknown: {
+    label: "Unknown",
+    shortLabel: "Unknown",
+    tone: "unknown",
+    marker: "question",
+    description: "Andon lacks enough truth to call the current state.",
+  },
+};
 
 export interface MissionSessionViewModel {
   id: string;
   source: MissionControlSession;
   category: OperationalCategory;
-  presentation: CategoryPresentation;
-  laneId: MissionLaneId;
+  trafficLight: TrafficLightPresentation;
+  primaryStatus: MissionPrimaryStatus;
   agentName: string;
   repoName: string;
   objective: string;
@@ -110,28 +136,37 @@ export interface MissionSessionViewModel {
   nextAction: string;
   rawRuntimeStatus: string | null;
   sourceOfTruth: string;
-}
-
-export interface MissionLaneViewModel {
-  id: MissionLaneId;
-  label: string;
-  description: string;
-  categories: OperationalCategory[];
-  count: number;
-  isEmpty: boolean;
-  hasPriority: boolean;
-  visibleSessions: MissionSessionViewModel[];
-  hiddenCount: number;
+  attentionFlags: string[];
+  isHistorical: boolean;
+  detailHref: string;
+  replayHref: string;
 }
 
 export interface MissionControlBoardViewModel {
   generatedAt: string;
   generatedAge: string;
   totals: Record<OperationalCategory | "total", number>;
-  operationalTotal: number;
+  sessionCount: number;
   historyCount: number;
-  lanes: MissionLaneViewModel[];
-  visibleSessions: MissionSessionViewModel[];
+  runtimeSummary: {
+    label: string;
+    sessionCount: number;
+    runningCount: number;
+    attentionCount: number;
+    sourceCount: number;
+    activeSourceCount: number;
+    connectedSourceCount: number;
+    lastAgentSignalAge: string;
+  };
+  sessions: MissionSessionViewModel[];
+  sources: AgentSessionSourceSummary[];
+  ingestionStatus: AgentSignalIngestionStatus;
+  emptyState: {
+    title: string;
+    description: string;
+    tone: AgentSignalIngestionStatus["tone"];
+    status: AgentSignalIngestionStatus["status"];
+  } | null;
 }
 
 export interface HistorySessionViewModel {
@@ -159,6 +194,11 @@ export interface DetailProjectionViewModel {
   id: string;
   category: OperationalCategory;
   presentation: CategoryPresentation;
+  primaryStatus: string;
+  primaryStatusLabel: string;
+  lifecycleState: string;
+  runtimeSignal: string;
+  operatorAttention: string;
   reason: string;
   rawRuntimeStatus: string | null;
   derivedOperationalStatus: string;
@@ -262,15 +302,22 @@ export function getCategoryPresentation(category: OperationalCategory): Category
   return CATEGORY_PRESENTATION[category];
 }
 
-function laneForCategory(category: OperationalCategory): MissionLaneId | null {
-  if (category === "historical") return null;
-  if (category === "degraded_active" || category === "unknown") return "degraded_unknown";
-  return category;
+export function mapPrimaryStatusToTrafficLight(status: MissionPrimaryStatus): TrafficLightPresentation {
+  return TRAFFIC_LIGHT_PRESENTATION[status] ?? TRAFFIC_LIGHT_PRESENTATION.unknown;
 }
 
 function compareMissionSessions(a: MissionSessionViewModel, b: MissionSessionViewModel): number {
-  const categoryDelta = MISSION_CATEGORY_ORDER.indexOf(a.category) - MISSION_CATEGORY_ORDER.indexOf(b.category);
-  if (categoryDelta !== 0) return categoryDelta;
+  const statusOrder: MissionPrimaryStatus[] = [
+    "waiting_on_human_input",
+    "needs_intervention",
+    "waiting_for_review",
+    "running",
+    "unknown",
+    "parked_idle",
+    "done_historical",
+  ];
+  const statusDelta = statusOrder.indexOf(a.primaryStatus) - statusOrder.indexOf(b.primaryStatus);
+  if (statusDelta !== 0) return statusDelta;
 
   const confidenceWeight: Record<string, number> = { low: 0, medium: 1, high: 2 };
   const confidenceDelta =
@@ -278,25 +325,6 @@ function compareMissionSessions(a: MissionSessionViewModel, b: MissionSessionVie
   if (confidenceDelta !== 0) return confidenceDelta;
 
   return (a.source.signalAgeMs ?? Number.MAX_SAFE_INTEGER) - (b.source.signalAgeMs ?? Number.MAX_SAFE_INTEGER);
-}
-
-function operationalFreshnessLabel(item: MissionControlSession): string {
-  if (item.category === "review") {
-    return `${item.freshness} signal; review-ready`;
-  }
-  if (item.category === "needs_action") {
-    return `${item.freshness} signal; waiting for input`;
-  }
-  if (item.category === "degraded_active") {
-    return `${item.freshness} signal; degraded`;
-  }
-  if (item.category === "unknown") {
-    return `${item.freshness} signal; unknown`;
-  }
-  if (item.category === "live") {
-    return `${item.freshness} signal; active`;
-  }
-  return `${item.freshness} signal`;
 }
 
 function runtimeAliveLabel(item: MissionControlSession): string {
@@ -307,24 +335,46 @@ function runtimeAliveLabel(item: MissionControlSession): string {
 }
 
 function primaryStatusLabel(item: MissionControlSession): string {
-  switch (item.primaryStatus) {
-    case "running":
-      return "Running";
-    case "needs_action":
-      return "Needs Action";
-    case "needs_intervention":
-      return "Needs Intervention";
-    case "review":
-      return "Review";
-    case "parked":
-      return "Parked";
-    case "completed":
-      return "Done";
-    case "stale":
-      return "Stale";
-    default:
-      return "Unknown";
-  }
+  return mapPrimaryStatusToTrafficLight(item.primaryStatus).label;
+}
+
+function attentionFlags(item: MissionControlSession): string[] {
+  const flags: string[] = [];
+  if (item.confidence !== "high") flags.push(`${item.confidence} confidence`);
+  if (item.runtimeSignal === "stale") flags.push("stale signal");
+  if (item.runtimeSignal === "dead") flags.push("runtime disconnected");
+  if (item.runtimeSignal === "unknown") flags.push("runtime unknown");
+  if (item.freshness === "cold") flags.push("cold signal");
+  if (item.freshness === "unknown") flags.push("unknown signal");
+  return [...new Set(flags)];
+}
+
+function summarizeMissionRuntime(
+  sessions: MissionSessionViewModel[],
+  sources: AgentSessionSourceSummary[],
+): MissionControlBoardViewModel["runtimeSummary"] {
+  const runningCount = sessions.filter((session) => session.primaryStatus === "running").length;
+  const attentionCount = sessions.filter((session) =>
+    ["waiting_on_human_input", "needs_intervention", "waiting_for_review", "unknown"].includes(session.primaryStatus)
+  ).length;
+  const activeSourceCount = sources.filter((source) => source.status === "active").length;
+  const connectedSourceCount = sources.filter((source) => source.status === "active" || source.status === "idle" || source.status === "connected").length;
+  const youngestSignalMs = sessions.reduce<number | null>((youngest, session) => {
+    const age = session.source.agentSignalAgeMs;
+    if (age === null) return youngest;
+    return youngest === null ? age : Math.min(youngest, age);
+  }, null);
+
+  return {
+    label: sessions.length === 1 ? "1 agent session" : `${sessions.length} agent sessions`,
+    sessionCount: sessions.length,
+    runningCount,
+    attentionCount,
+    sourceCount: sources.length,
+    activeSourceCount,
+    connectedSourceCount,
+    lastAgentSignalAge: formatSignalAge(youngestSignalMs),
+  };
 }
 
 export function buildMissionSessionViewModels(
@@ -334,23 +384,20 @@ export function buildMissionSessionViewModels(
     .filter((item) => item.belongsToMissionControl !== false)
     .filter((item) => item.category !== "historical")
     .map((item) => {
-      const laneId = laneForCategory(item.category);
-      if (!laneId) {
-        return null;
-      }
+      const trafficLight = mapPrimaryStatusToTrafficLight(item.primaryStatus);
 
       return {
         id: item.session.id,
         source: item,
         category: item.category,
-        presentation: getCategoryPresentation(item.category),
-        laneId,
+        trafficLight,
+        primaryStatus: item.primaryStatus,
         agentName: item.session.agentName,
         repoName: repoName(item.session.repoPath),
         objective: trimLine(item.session.objective, 76),
         reason: trimLine(item.reason.replace(/_/g, " "), 64),
         operatorActivity: item.operatorActivity.replace(/-/g, " "),
-        freshness: operationalFreshnessLabel(item),
+        freshness: `${item.freshness} signal`,
         lastSignalAge: formatSignalAge(item.signalAgeMs, item.lastSignalTimestamp ?? item.session.lastEventAt),
         lastAgentSignalAge: `agent ${formatSignalAge(item.agentSignalAgeMs, item.lastAgentSignalTimestamp)}`,
         runtimeAliveLabel: runtimeAliveLabel(item),
@@ -359,43 +406,51 @@ export function buildMissionSessionViewModels(
         nextAction: trimLine(item.nextRecommendedOperatorAction, 78),
         rawRuntimeStatus: item.rawRuntimeStatus,
         sourceOfTruth: item.sourceOfTruth,
+        attentionFlags: attentionFlags(item),
+        isHistorical: item.belongsToHistory,
+        detailHref: `/session/${encodeURIComponent(item.session.id)}`,
+        replayHref: `/session/${encodeURIComponent(item.session.id)}/replay`,
       } satisfies MissionSessionViewModel;
     })
-    .filter((item): item is MissionSessionViewModel => Boolean(item))
     .sort(compareMissionSessions);
 }
 
 export function buildMissionControlBoardViewModel(
   response: MissionControlResponse,
-  options: { laneLimit?: number; focusCategory?: OperationalCategory | null } = {},
 ): MissionControlBoardViewModel {
-  const laneLimit = options.laneLimit ?? 3;
   const sessions = buildMissionSessionViewModels(response.sessions);
-  const focusedSessions = options.focusCategory
-    ? sessions.filter((item) => item.category === options.focusCategory)
-    : sessions;
   const generatedAge = formatSignalAge(null, response.generatedAt);
-
-  const lanes = MISSION_LANES.map((lane) => {
-    const laneSessions = focusedSessions.filter((item) => item.laneId === lane.id);
-    return {
-      ...lane,
-      count: laneSessions.length,
-      isEmpty: laneSessions.length === 0,
-      hasPriority: laneSessions.length > 0 && lane.id !== "live",
-      visibleSessions: laneSessions.slice(0, laneLimit),
-      hiddenCount: Math.max(0, laneSessions.length - laneLimit),
-    };
-  });
+  const sources = response.sources ?? [];
+  const ingestionStatus = response.ingestionStatus ?? {
+    status: "unknown",
+    label: "Agent signal source status is unknown.",
+    message: "Mission Control is online, but source visibility could not be determined.",
+    tone: "unknown",
+    lastSignalAt: null,
+    sourceCount: sources.length,
+    activeSourceCount: 0,
+    staleSourceCount: 0,
+    historicalCount: response.historicalCount ?? response.totals.historical ?? 0,
+  } satisfies AgentSignalIngestionStatus;
 
   return {
     generatedAt: response.generatedAt,
     generatedAge,
     totals: response.totals,
-    operationalTotal: sessions.length,
-    historyCount: response.totals.historical ?? response.sessions.filter((item) => item.category === "historical").length,
-    lanes,
-    visibleSessions: sessions,
+    sessionCount: sessions.length,
+    historyCount: response.historicalCount ?? response.totals.historical ?? response.sessions.filter((item) => item.category === "historical").length,
+    runtimeSummary: summarizeMissionRuntime(sessions, sources),
+    sessions,
+    sources,
+    ingestionStatus,
+    emptyState: sessions.length === 0
+      ? {
+          title: ingestionStatus.label,
+          description: ingestionStatus.message,
+          tone: ingestionStatus.tone,
+          status: ingestionStatus.status,
+        }
+      : null,
   };
 }
 
@@ -430,6 +485,11 @@ export function buildDetailProjectionViewModel(item: MissionControlSession): Det
     id: item.session.id,
     category: item.category,
     presentation: getCategoryPresentation(item.category),
+    primaryStatus: item.primaryStatus,
+    primaryStatusLabel: primaryStatusLabel(item),
+    lifecycleState: item.lifecycleState.replace(/_/g, " "),
+    runtimeSignal: item.runtimeSignal,
+    operatorAttention: item.operatorAttention.replace(/_/g, " "),
     reason: item.reason.replace(/_/g, " "),
     rawRuntimeStatus: item.rawRuntimeStatus,
     derivedOperationalStatus: item.derivedOperationalStatus,

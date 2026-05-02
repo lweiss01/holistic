@@ -1,8 +1,19 @@
 export const RUNTIME_IDS = [
   "local",
   "codex",
+  "chatgpt",
   "claude-code",
+  "claude_code",
+  "cursor",
+  "aider",
   "openharness",
+  "openhands",
+  "jules",
+  "github_copilot",
+  "gsd",
+  "symphony_runner",
+  "local_cli",
+  "file_heartbeat",
   "custom"
 ] as const;
 

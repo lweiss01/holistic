@@ -4,7 +4,7 @@ import type { HolisticRuntimeEvent, RuntimeSession } from "../packages/runtime-c
 import { projectOperationalSession } from "../services/andon-api/src/operational-projection.ts";
 
 const NOW = "2026-04-30T23:30:00.000Z";
-const FRESH = "2026-04-30T23:29:00.000Z";
+const FRESH = "2026-04-30T23:29:45.000Z";
 const STALE = "2026-04-30T23:10:00.000Z";
 const COLD = "2026-04-30T22:00:00.000Z";
 
@@ -84,7 +84,7 @@ const tests: Array<{ name: string; run: () => void }> = [
       assert.equal(projected.category, "historical");
       assert.equal(projected.reason, "parked");
       assert.equal(projected.lifecycleState, "parked");
-      assert.equal(projected.primaryStatus, "parked");
+      assert.equal(projected.primaryStatus, "parked_idle");
       assert.notEqual(projected.category, "live");
     }
   },
@@ -113,7 +113,7 @@ const tests: Array<{ name: string; run: () => void }> = [
       assert.equal(projected.lifecycleState, "parked");
       assert.equal(projected.runtimeSignal, "alive");
       assert.equal(projected.operatorAttention, "none");
-      assert.equal(projected.primaryStatus, "parked");
+      assert.equal(projected.primaryStatus, "parked_idle");
       assert.equal(projected.category, "historical");
       assert.notEqual(projected.category, "live");
     }
@@ -130,7 +130,7 @@ const tests: Array<{ name: string; run: () => void }> = [
 
       assert.equal(projected.category, "review");
       assert.equal(projected.lifecycleState, "review_ready");
-      assert.equal(projected.primaryStatus, "review");
+      assert.equal(projected.primaryStatus, "waiting_for_review");
       assert.equal(projected.derivedOperationalStatus, "awaiting_review");
       assert.notEqual(projected.category, "live");
     }
@@ -171,7 +171,7 @@ const tests: Array<{ name: string; run: () => void }> = [
       assert.equal(projected.category, "needs_action");
       assert.equal(projected.lifecycleState, "waiting_input");
       assert.equal(projected.operatorAttention, "input_needed");
-      assert.equal(projected.primaryStatus, "needs_action");
+      assert.equal(projected.primaryStatus, "waiting_on_human_input");
       assert.equal(projected.derivedOperationalStatus, "needs_input");
       assert.equal(projected.operatorActivity, "waiting");
       assert.notEqual(projected.category, "live");
@@ -238,7 +238,7 @@ const tests: Array<{ name: string; run: () => void }> = [
       assert.equal(projected.reason, "stale_runtime");
       assert.equal(projected.lifecycleState, "stale");
       assert.equal(projected.primaryStatus, "needs_intervention");
-      assert.equal(projected.freshness, "stale");
+      assert.equal(projected.freshness, "cold");
       assert.notEqual(projected.category, "live");
     }
   },

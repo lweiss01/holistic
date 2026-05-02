@@ -119,6 +119,122 @@ function insertLegacySession(database: DatabaseSync, input: {
 
 const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
   {
+    name: "Andon API contract no registered sources reports source configuration gap",
+    run: async () => {
+      const database = createDatabase();
+
+      await withApi(database, async (baseUrl) => {
+        const missionPayload = await (await fetch(`${baseUrl}/mission-control`)).json() as {
+          sessions: unknown[];
+          sources: unknown[];
+          ingestionStatus: { status: string; label: string; tone: string };
+        };
+
+        assert.deepEqual(missionPayload.sessions, []);
+        assert.deepEqual(missionPayload.sources, []);
+        assert.equal(missionPayload.ingestionStatus.status, "no_sources_configured");
+        assert.equal(missionPayload.ingestionStatus.label, "No agent signal sources configured.");
+        assert.notEqual(missionPayload.ingestionStatus.tone, "healthy");
+      });
+    }
+  },
+  {
+    name: "Andon API contract connected idle source is distinct from missing instrumentation",
+    run: async () => {
+      const database = createDatabase();
+      upsertRuntimeSession(database, runtimeSession({
+        id: "source-idle-session",
+        runtimeId: "local_cli",
+        status: "parked",
+        activity: "idle",
+        updatedAt: iso(-10_000),
+        metadata: {
+          sourceId: "local-cli-source",
+          sourceName: "Local CLI source",
+          sourceType: "local_cli",
+          transport: "http_events"
+        }
+      }));
+      addHeartbeat(database, "source-idle-session", iso(-5_000));
+
+      await withApi(database, async (baseUrl) => {
+        const missionPayload = await (await fetch(`${baseUrl}/mission-control`)).json() as {
+          sessions: unknown[];
+          sources: Array<{ sourceType: string; status: string; transport: string }>;
+          ingestionStatus: { status: string; label: string; message: string; tone: string };
+        };
+
+        assert.deepEqual(missionPayload.sessions, []);
+        assert.equal(missionPayload.sources[0]?.sourceType, "local_cli");
+        assert.equal(missionPayload.sources[0]?.status, "idle");
+        assert.equal(missionPayload.sources[0]?.transport, "http_events");
+        assert.equal(missionPayload.ingestionStatus.status, "idle");
+        assert.equal(missionPayload.ingestionStatus.message, "Connected agent sources are idle.");
+        assert.equal(missionPayload.ingestionStatus.tone, "neutral");
+      });
+    }
+  },
+  {
+    name: "Andon API contract stale and uninstrumented sources are not plain idle",
+    run: async () => {
+      const database = createDatabase();
+      upsertRuntimeSession(database, runtimeSession({
+        id: "source-stale-session",
+        runtimeId: "local_cli",
+        status: "running",
+        updatedAt: iso(-5 * 60_000),
+        metadata: {
+          sourceId: "stale-source",
+          sourceName: "Stale local source",
+          sourceType: "local_cli",
+          transport: "http_events"
+        }
+      }));
+      addHeartbeat(database, "source-stale-session", iso(-5 * 60_000));
+
+      await withApi(database, async (baseUrl) => {
+        const stalePayload = await (await fetch(`${baseUrl}/mission-control`)).json() as {
+          sessions: unknown[];
+          sources: Array<{ status: string }>;
+          ingestionStatus: { status: string; label: string; tone: string };
+        };
+        assert.equal(stalePayload.sources[0]?.status, "stale");
+        assert.equal(stalePayload.ingestionStatus.status, "stale");
+        assert.equal(stalePayload.ingestionStatus.label, "Agent signal sources are stale.");
+        assert.notEqual(stalePayload.ingestionStatus.tone, "healthy");
+      });
+
+      const databaseUninstrumented = createDatabase();
+      upsertRuntimeSession(databaseUninstrumented, runtimeSession({
+        id: "source-uninstrumented-session",
+        runtimeId: "cursor",
+        status: "parked",
+        activity: "idle",
+        metadata: {
+          sourceId: "cursor-source",
+          sourceName: "Cursor source",
+          sourceType: "cursor",
+          transport: "unknown",
+          instrumented: false
+        }
+      }));
+
+      await withApi(databaseUninstrumented, async (baseUrl) => {
+        const payload = await (await fetch(`${baseUrl}/mission-control`)).json() as {
+          sessions: unknown[];
+          sources: Array<{ sourceType: string; status: string }>;
+          ingestionStatus: { status: string; label: string; tone: string };
+        };
+        assert.deepEqual(payload.sessions, []);
+        assert.equal(payload.sources[0]?.sourceType, "cursor");
+        assert.equal(payload.sources[0]?.status, "uninstrumented");
+        assert.equal(payload.ingestionStatus.status, "uninstrumented");
+        assert.equal(payload.ingestionStatus.label, "No instrumented agent sessions detected.");
+        assert.notEqual(payload.ingestionStatus.tone, "healthy");
+      });
+    }
+  },
+  {
     name: "Andon API contract mission-control returns one active runtime and history returns fifty terminated",
     run: async () => {
       const database = createDatabase();
@@ -169,11 +285,11 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       upsertRuntimeSession(database, runtimeSession({
         id: "session-stale-active",
         status: "running",
-        updatedAt: iso(-10 * 60_000)
+        updatedAt: iso(-3 * 60_000)
       }));
       addHeartbeat(database, "session-input");
       addHeartbeat(database, "session-review");
-      addHeartbeat(database, "session-stale-active", iso(-10 * 60_000));
+      addHeartbeat(database, "session-stale-active", iso(-3 * 60_000));
 
       await withApi(database, async (baseUrl) => {
         const missionPayload = await (await fetch(`${baseUrl}/mission-control`)).json() as {
@@ -185,15 +301,14 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         const byId = new Map(missionPayload.sessions.map((item) => [item.session.id, item]));
 
         assert.equal(byId.get("session-input")?.category, "needs_action");
-        assert.equal(byId.get("session-input")?.primaryStatus, "needs_action");
+        assert.equal(byId.get("session-input")?.primaryStatus, "waiting_on_human_input");
         assert.equal(byId.get("session-input")?.operatorAttention, "input_needed");
         assert.equal(byId.get("session-input")?.derivedOperationalStatus, "needs_input");
         assert.equal(byId.get("session-review")?.category, "review");
-        assert.equal(byId.get("session-review")?.primaryStatus, "review");
+        assert.equal(byId.get("session-review")?.primaryStatus, "waiting_for_review");
         assert.notEqual(byId.get("session-review")?.category, "live");
-        assert.equal(byId.get("session-stale-active")?.category, "degraded_active");
-        assert.equal(byId.get("session-stale-active")?.primaryStatus, "needs_intervention");
-        assert.notEqual(byId.get("session-stale-active")?.category, "live");
+        assert.equal(byId.get("session-stale-active"), undefined);
+        assert.equal(historyPayload.sessions.some((item) => item.session.id === "session-stale-active"), true);
         assert.equal(missionPayload.sessions.some((item) => item.session.id === "session-completed-acknowledged"), false);
         assert.equal(historyPayload.sessions.some((item) => item.session.id === "session-completed-acknowledged"), true);
       });
@@ -210,7 +325,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         activity: "editing",
         metadata: { source: "andon.runtime-writer" }
       }));
-      addHeartbeat(database, "session-activity");
+      addHeartbeat(database, "session-activity", iso(-5_000));
 
       await withApi(database, async (baseUrl) => {
         const missionPayload = await (await fetch(`${baseUrl}/mission-control`)).json() as {
@@ -234,6 +349,148 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         assert.equal(item?.operatorActivity, "editing");
         assert.equal(item?.session.agentName, "codex");
         assert.equal(item?.sourceOfTruth, "runtime");
+      });
+    }
+  },
+  {
+    name: "Andon API contract generic local_cli source can emit an active Mission Control session",
+    run: async () => {
+      const database = createDatabase();
+
+      await withApi(database, async (baseUrl) => {
+        await fetch(`${baseUrl}/events`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            events: [
+              {
+                id: "local-cli-session-started",
+                sessionId: "local-cli-session",
+                runtime: "local_cli",
+                taskId: null,
+                type: "session.started",
+                phase: "execute",
+                source: "system",
+                timestamp: iso(-60_000),
+                summary: "Local CLI session started.",
+                payload: {
+                  sourceId: "local-cli-source",
+                  sourceName: "Local CLI runner",
+                  sourceType: "local_cli",
+                  transport: "http_events",
+                  agentName: "local-agent",
+                  objective: "Run a local CLI agent",
+                  repoPath: "D:\\Projects\\active\\holistic",
+                  worktreePath: "D:\\Projects\\active\\holistic",
+                  activity: "editing"
+                }
+              },
+              {
+                id: "local-cli-session-heartbeat",
+                sessionId: "local-cli-session",
+                runtime: "local_cli",
+                taskId: null,
+                type: "session.heartbeat",
+                phase: "execute",
+                source: "system",
+                timestamp: iso(-5_000),
+                summary: "Local CLI heartbeat.",
+                payload: {
+                  sourceId: "local-cli-source",
+                  sourceName: "Local CLI runner",
+                  sourceType: "local_cli",
+                  transport: "http_events",
+                  agentName: "local-agent",
+                  activity: "editing"
+                }
+              }
+            ]
+          })
+        });
+
+        const missionPayload = await (await fetch(`${baseUrl}/mission-control`)).json() as {
+          sessions: Array<{ session: { id: string; agentName: string }; primaryStatus: string }>;
+          sources: Array<{ sourceType: string; status: string; transport: string }>;
+          ingestionStatus: { status: string };
+        };
+
+        assert.deepEqual(missionPayload.sessions.map((item) => item.session.id), ["local-cli-session"]);
+        assert.equal(missionPayload.sessions[0]?.session.agentName, "local-agent");
+        assert.equal(missionPayload.sessions[0]?.primaryStatus, "running");
+        assert.equal(missionPayload.sources[0]?.sourceType, "local_cli");
+        assert.equal(missionPayload.sources[0]?.status, "active");
+        assert.equal(missionPayload.ingestionStatus.status, "active");
+      });
+    }
+  },
+  {
+    name: "Andon API contract generic claude_code source can emit an active Mission Control session",
+    run: async () => {
+      const database = createDatabase();
+
+      await withApi(database, async (baseUrl) => {
+        await fetch(`${baseUrl}/events`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            events: [
+              {
+                id: "claude-session-started",
+                sessionId: "claude-session",
+                runtime: "claude_code",
+                taskId: null,
+                type: "session.started",
+                phase: "execute",
+                source: "system",
+                timestamp: iso(-60_000),
+                summary: "Claude Code session started.",
+                payload: {
+                  sourceId: "claude-code-source",
+                  sourceName: "Claude Code adapter",
+                  sourceType: "claude_code",
+                  platform: "claude_code",
+                  transport: "http_events",
+                  agentName: "claude-code",
+                  objective: "Run a Claude Code agent",
+                  repoPath: "D:\\Projects\\active\\holistic",
+                  worktreePath: "D:\\Projects\\active\\holistic",
+                  activity: "editing"
+                }
+              },
+              {
+                id: "claude-session-heartbeat",
+                sessionId: "claude-session",
+                runtime: "claude_code",
+                taskId: null,
+                type: "session.heartbeat",
+                phase: "execute",
+                source: "system",
+                timestamp: iso(-5_000),
+                summary: "Claude Code heartbeat.",
+                payload: {
+                  sourceId: "claude-code-source",
+                  sourceName: "Claude Code adapter",
+                  sourceType: "claude_code",
+                  platform: "claude_code",
+                  transport: "http_events",
+                  agentName: "claude-code",
+                  activity: "editing"
+                }
+              }
+            ]
+          })
+        });
+
+        const missionPayload = await (await fetch(`${baseUrl}/mission-control`)).json() as {
+          sessions: Array<{ session: { id: string; runtime: string }; primaryStatus: string }>;
+          sources: Array<{ sourceType: string; status: string }>;
+        };
+
+        assert.deepEqual(missionPayload.sessions.map((item) => item.session.id), ["claude-session"]);
+        assert.equal(missionPayload.sessions[0]?.session.runtime, "claude_code");
+        assert.equal(missionPayload.sessions[0]?.primaryStatus, "running");
+        assert.equal(missionPayload.sources[0]?.sourceType, "claude_code");
+        assert.equal(missionPayload.sources[0]?.status, "active");
       });
     }
   },
@@ -267,11 +524,11 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           sessionId: "session-live",
           runtime: "codex",
           taskId: null,
-          type: "agent.summary_emitted",
+          type: "session.heartbeat",
           phase: "execute",
           source: "system",
           timestamp: iso(-60_000),
-          summary: "Session started.",
+          summary: "Runtime writer heartbeat.",
           payload: {
             source: "andon.runtime-writer",
             latestStatus: "Session started.",
@@ -410,12 +667,54 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         const historical = historyPayload.sessions.find((item) => item.session.id === "legacy-artifact");
         assert.ok(historical);
         assert.equal(historical?.category, "historical");
-        assert.equal(historical?.primaryStatus, "parked");
+        assert.equal(historical?.primaryStatus, "parked_idle");
       });
     }
   },
   {
-    name: "Andon API contract suppresses housekeeping sessions from top-level Mission Control rows",
+    name: "Andon API contract many artifact sessions do not create many Mission Control cards",
+    run: async () => {
+      const database = createDatabase();
+      upsertRuntimeSession(database, runtimeSession({ id: "real-workflow", updatedAt: iso(-10_000) }));
+      addHeartbeat(database, "real-workflow", iso(-5_000));
+      ingestEvents(database, Array.from({ length: 30 }, (_, index) => ({
+        id: `artifact-${index}`,
+        sessionId: `artifact-session-${index}`,
+        runtime: "codex" as const,
+        type: index % 3 === 0
+          ? "task.completed" as const
+          : index % 3 === 1
+            ? "session.checkpoint_created" as const
+            : "agent.summary_emitted" as const,
+        taskId: index % 3 === 0 ? `artifact-task-${index}` : null,
+        phase: "execute" as const,
+        source: "system" as const,
+        timestamp: iso(-60_000 + index * 1000),
+        summary: `Artifact ${index}`,
+        payload: {
+          agentName: "codex",
+          objective: `Artifact ${index}`,
+          repoPath: "D:\\Projects\\active\\holistic",
+          worktreePath: "D:\\Projects\\active\\holistic",
+          title: `Artifact task ${index}`
+        }
+      })));
+
+      await withApi(database, async (baseUrl) => {
+        const missionPayload = await (await fetch(`${baseUrl}/mission-control`)).json() as {
+          sessions: Array<{ session: { id: string }; primaryStatus: string }>;
+        };
+        const historyPayload = await (await fetch(`${baseUrl}/history`)).json() as {
+          sessions: Array<{ session: { id: string }; primaryStatus: string }>;
+        };
+
+        assert.deepEqual(missionPayload.sessions.map((item) => item.session.id), ["real-workflow"]);
+        assert.equal(historyPayload.sessions.filter((item) => item.session.id.startsWith("artifact-session-")).length, 30);
+      });
+    }
+  },
+  {
+    name: "Andon API contract suppresses child runtime sessions from top-level Mission Control rows structurally",
     run: async () => {
       const database = createDatabase();
       upsertRuntimeSession(database, runtimeSession({ id: "workflow-main" }));
@@ -428,7 +727,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         upsertRuntimeSession(database, runtimeSession({
           id: `housekeeping-${index}`,
           status: "running",
-          metadata: { objective }
+          metadata: { objective, topLevelWorkflow: false, sessionKind: "child_activity" }
         }));
         addHeartbeat(database, `housekeeping-${index}`);
       }
@@ -479,13 +778,14 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           sessionId: "workflow-final",
           runtime: "codex",
           taskId: null,
-          type: "agent.summary_emitted",
+          type: "session.completed",
           phase: "execute",
-          source: "agent",
+          source: "system",
           timestamp: iso(-60_000),
           summary: "Final output returned.",
           payload: {
-            signal: { kind: "natural-breakpoint", source: "agent" },
+            source: "andon.runtime-writer",
+            completionSignal: { kind: "natural-breakpoint", source: "agent" },
             agentName: "codex",
             activity: "reviewing"
           }
@@ -500,10 +800,68 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
         assert.ok(item);
         assert.equal(item?.category, "review");
-        assert.equal(item?.primaryStatus, "review");
+        assert.equal(item?.primaryStatus, "waiting_for_review");
         assert.equal(item?.lifecycleState, "review_ready");
         assert.equal(item?.rawRuntimeStatus, "completed");
         assert.notEqual(item?.category, "live");
+      });
+    }
+  },
+  {
+    name: "Andon API contract parked session with fresh heartbeat is parked not running and detail agrees",
+    run: async () => {
+      const database = createDatabase();
+      upsertRuntimeSession(database, runtimeSession({
+        id: "session-parked-heartbeat",
+        status: "parked",
+        activity: "idle",
+        updatedAt: iso(-10_000)
+      }));
+      addHeartbeat(database, "session-parked-heartbeat", iso(-5_000));
+
+      await withApi(database, async (baseUrl) => {
+        const missionPayload = await (await fetch(`${baseUrl}/mission-control`)).json() as {
+          sessions: Array<{ session: { id: string }; primaryStatus: string }>;
+        };
+        const historyPayload = await (await fetch(`${baseUrl}/history`)).json() as {
+          sessions: Array<{ session: { id: string }; primaryStatus: string; runtimeSignal: string }>;
+        };
+        const detailPayload = await (await fetch(`${baseUrl}/sessions/session-parked-heartbeat`)).json() as {
+          projection: { primaryStatus: string; lifecycleState: string; runtimeSignal: string } | null;
+        };
+
+        assert.equal(missionPayload.sessions.some((item) => item.session.id === "session-parked-heartbeat"), false);
+        const historyItem = historyPayload.sessions.find((item) => item.session.id === "session-parked-heartbeat");
+        assert.equal(historyItem?.primaryStatus, "parked_idle");
+        assert.equal(detailPayload.projection?.primaryStatus, "parked_idle");
+        assert.equal(detailPayload.projection?.lifecycleState, "parked");
+        assert.notEqual(detailPayload.projection?.primaryStatus, "running");
+      });
+    }
+  },
+  {
+    name: "Andon API contract Mission Control and Detail use the same canonical primaryStatus",
+    run: async () => {
+      const database = createDatabase();
+      upsertRuntimeSession(database, runtimeSession({
+        id: "session-consistent",
+        status: "running",
+        updatedAt: iso(-10_000)
+      }));
+      addHeartbeat(database, "session-consistent", iso(-5_000));
+
+      await withApi(database, async (baseUrl) => {
+        const missionPayload = await (await fetch(`${baseUrl}/mission-control`)).json() as {
+          sessions: Array<{ session: { id: string }; primaryStatus: string }>;
+        };
+        const detailPayload = await (await fetch(`${baseUrl}/sessions/session-consistent`)).json() as {
+          projection: { primaryStatus: string } | null;
+        };
+        const missionItem = missionPayload.sessions.find((item) => item.session.id === "session-consistent");
+
+        assert.ok(missionItem);
+        assert.equal(missionItem?.primaryStatus, "running");
+        assert.equal(detailPayload.projection?.primaryStatus, missionItem?.primaryStatus);
       });
     }
   },
@@ -629,14 +987,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         };
         const item = missionPayload.sessions.find((session) => session.session.id === "session-api-refresh-only");
 
-        assert.ok(item);
-        assert.equal(item?.category, "degraded_active");
-        assert.equal(item?.primaryStatus, "needs_intervention");
-        assert.notEqual(item?.category, "live");
-        assert.equal(item?.runtimeProcessAlive, "unknown");
-        assert.equal(item?.runtimeSignal, "unknown");
-        assert.equal(item?.lastAgentSignalTimestamp, null);
-        assert.equal(item?.agentSignalAgeMs, null);
+        assert.equal(item, undefined);
         assert.equal(typeof missionPayload.generatedAt, "string");
       });
     }

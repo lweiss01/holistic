@@ -102,6 +102,24 @@ const tests: Array<{ name: string; run: () => void }> = [
       assert.equal(event.payload.activity, "running_tests");
       assert.equal(event.payload.agentName, "codex");
     }
+  },
+  {
+    name: "Andon runtime writer does not default unknown platform identity to Codex",
+    run: () => {
+      const unknownSession = {
+        ...session,
+        agent: "unknown",
+        runtime: "unknown"
+      };
+      const event = writer.buildHeartbeatEvent(unknownSession, "2026-04-30T23:02:00.000Z");
+
+      assert.equal(event.runtime, "unknown");
+      assert.equal(event.payload.agentName, "unknown");
+      assert.equal(event.payload.sourceType, "file_heartbeat");
+      assert.equal(event.payload.sourceId, "holistic-file-state-writer");
+      assert.equal(event.payload.transport, "cli_writer");
+      assert.notEqual(event.payload.agentName, "codex");
+    }
   }
 ];
 

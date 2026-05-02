@@ -45,6 +45,10 @@ import {
   type OperationalProjection
 } from "./operational-projection.ts";
 
+export interface CanonicalSessionDetailResponse extends SessionDetailResponse {
+  projection: OperationalSessionApiItem | null;
+}
+
 function parseJson(text: string): Record<string, unknown> {
   return JSON.parse(text) as Record<string, unknown>;
 }
@@ -76,54 +80,15 @@ function normalizeAttributedAgentName(value: unknown): string | null {
   return isGenericUnknownAgent(normalized) ? null : normalized;
 }
 
-const MISSION_CONTROL_HOUSEKEEPING_OBJECTIVE_MARKERS = [
-  "passively capture repo activity",
-  "capture work and prepare a clean handoff",
-  "prepare a durable handoff",
-  "prepare durable handoff",
-  "document the current work",
-  "document current work",
-  "document current state",
-  "document current session",
-  "document this work",
-  "document work",
-  "capture current work",
-  "pause at a natural breakpoint",
-  "pause at natural breakpoint",
-  "current work",
-  "searchable old work",
-  "test handoff filtering",
-  "test repo",
-  "track large edit set",
-  "track medium edit set"
-];
-
-function isMissionControlHousekeepingObjective(objective: string): boolean {
-  const normalized = objective.trim().toLowerCase();
-  if (!normalized) {
-    return false;
-  }
-  return MISSION_CONTROL_HOUSEKEEPING_OBJECTIVE_MARKERS.some((marker) => normalized.includes(marker));
-}
-
 function agentNameFromRuntimeSource(value: unknown): string | null {
   const normalized = asNonEmptyString(value)?.toLowerCase();
   if (!normalized) {
     return null;
   }
-  if (normalized === "codex") {
-    return "codex";
-  }
-  if (normalized === "claude-code") {
-    return "claude-code";
-  }
-  if (normalized === "openharness") {
-    return "openharness";
-  }
   if (normalized === "local") {
     return "local runtime";
   }
-  return null;
+  return normalized.replace(/_/g, " ");
 }
 
 function inferAgentName(payload: Record<string, unknown>, existingAgentName: string | undefined, runtime?: unknown): string {
@@ -179,8 +144,27 @@ function resolveRuntimeObjective(metadata: Record<string, unknown> | undefined):
 
 
 function mapRuntimeIdToAgentRuntime(runtimeId: string): AgentRuntime {
-  if (runtimeId === "codex") return "codex";
-  if (runtimeId === "openharness") return "openharness";
+  if (
+    [
+      "codex",
+      "chatgpt",
+      "claude-code",
+      "claude_code",
+      "cursor",
+      "aider",
+      "openharness",
+      "openhands",
+      "jules",
+      "github_copilot",
+      "gsd",
+      "symphony_runner",
+      "local_cli",
+      "file_heartbeat",
+      "custom"
+    ].includes(runtimeId)
+  ) {
+    return runtimeId as AgentRuntime;
+  }
   return "unknown";
 }
 
@@ -516,10 +500,88 @@ export interface OperationalSessionApiItem {
   projection: OperationalProjection;
 }
 
+export type AgentSessionSourceType =
+  | "codex"
+  | "chatgpt"
+  | "claude_code"
+  | "cursor"
+  | "aider"
+  | "openhands"
+  | "jules"
+  | "github_copilot"
+  | "gsd"
+  | "symphony_runner"
+  | "local_cli"
+  | "file_heartbeat"
+  | "http_event_source"
+  | "manual"
+  | "custom"
+  | "unknown";
+
+export type AgentSessionSourceTransport =
+  | "http_events"
+  | "file_state"
+  | "cli_writer"
+  | "websocket"
+  | "webhook"
+  | "database"
+  | "unknown";
+
+export type AgentSessionSourceStatus =
+  | "connected"
+  | "idle"
+  | "active"
+  | "stale"
+  | "disconnected"
+  | "uninstrumented"
+  | "unknown"
+  | "error";
+
+export interface AgentSessionSourceSummary {
+  sourceId: string;
+  sourceName: string;
+  sourceType: AgentSessionSourceType;
+  platform: string | null;
+  transport: AgentSessionSourceTransport;
+  status: AgentSessionSourceStatus;
+  repo: string | null;
+  lastSignalAt: string | null;
+  lastHeartbeatAt: string | null;
+  capabilities: string[];
+  reason: string | null;
+}
+
+export type IngestionStatus =
+  | "active"
+  | "idle"
+  | "stale"
+  | "disconnected"
+  | "uninstrumented"
+  | "unknown"
+  | "error"
+  | "no_sources_configured"
+  | "historical_only";
+
+export interface AgentSignalIngestionStatus {
+  status: IngestionStatus;
+  label: string;
+  message: string;
+  tone: "healthy" | "neutral" | "warning" | "critical" | "unknown";
+  lastSignalAt: string | null;
+  sourceCount: number;
+  activeSourceCount: number;
+  staleSourceCount: number;
+  historicalCount: number;
+}
+
 export interface OperationalSessionsResponse {
   generatedAt: string;
   totals: Record<OperationalProjection["category"] | "total", number>;
   sessions: OperationalSessionApiItem[];
+  sources: AgentSessionSourceSummary[];
+  ingestionStatus: AgentSignalIngestionStatus;
+  historicalCount: number;
+  lastSignalAt: string | null;
 }
 
 export interface ReplayEventItem {
@@ -616,7 +678,7 @@ function runtimeLivenessEvidence(
     process?.lastHeartbeatAt
   ]);
   const age = signalAgeMs(lastRuntimeSignalAt, now);
-  if (age !== null && age <= OPERATIONAL_PROJECTION_FRESH_MS) {
+  if (age !== null && age <= OPERATIONAL_PROJECTION_COLD_MS) {
     return { alive: true, lastRuntimeSignalAt, ageMs: age };
   }
   if (age !== null) {
@@ -629,6 +691,7 @@ function runtimeProjection(
   database: DatabaseSync,
   runtimeSession: RuntimeSession,
   runtimeEvents: HolisticRuntimeEvent[],
+  canonicalStatusHint: SessionStatus | null,
   now: number
 ): OperationalProjection {
   const liveness = runtimeLivenessEvidence(database, runtimeSession, runtimeEvents, now);
@@ -641,6 +704,7 @@ function runtimeProjection(
     runtimeProcessAlive: liveness.alive,
     completedAcknowledged: metadataBoolean(runtimeSession.metadata, "completedAcknowledged")
       || metadataBoolean(runtimeSession.metadata, "acknowledged"),
+    canonicalStatusHint,
     now
   });
 }
@@ -665,6 +729,23 @@ function legacyStatusHint(session: SessionRecord, events: AgentEvent[], now: num
     return "stale_legacy";
   }
   return null;
+}
+
+function legacyEventsCanOverrideRuntimeLifecycle(events: AgentEvent[]): boolean {
+  return events.some((event) => {
+    const payload = event.payload as Record<string, unknown>;
+    if (event.type === "session.ended" || event.type === "session.completed") return true;
+    if (event.type === "session.failed" || event.type === "agent.blocked" || event.type === "command.failed" || event.type === "test.failed") {
+      return true;
+    }
+    if ((event.type === "agent.question_asked" || event.type === "agent.question" || event.type === "input.requested") && payload.resolved === false) {
+      return true;
+    }
+    if ((event.type === "agent.summary_emitted" || event.type === "agent.summary") && (payload.signal || payload.completionSignal)) {
+      return true;
+    }
+    return false;
+  });
 }
 
 function legacyProjection(session: SessionRecord, events: AgentEvent[], now: number): OperationalProjection {
@@ -715,11 +796,24 @@ function operationalItem(session: SessionRecord, projection: OperationalProjecti
 }
 
 function normalizeTopLevelOperationalItem(item: OperationalSessionApiItem): OperationalSessionApiItem {
-  const isHousekeepingObjective = isMissionControlHousekeepingObjective(item.session.objective);
-  const isCompatibilityOrLegacyOnly = item.sourceOfTruth !== "runtime"
-    && !(item.category === "needs_action" && item.reason === "waiting_for_input")
-    && !(item.category === "review" && !isHousekeepingObjective);
-  if (!isHousekeepingObjective && !isCompatibilityOrLegacyOnly) {
+  const hasDirectRuntimeTruth = item.sourceOfTruth === "runtime";
+  const hasRuntimeSignal = item.runtimeSignal !== "unknown" || item.lastAgentSignalTimestamp !== null;
+  const hasExplicitInput = item.category === "needs_action" && item.reason === "waiting_for_input";
+  const hasDirectRuntimeIntervention =
+    hasDirectRuntimeTruth
+    && item.primaryStatus === "needs_intervention"
+    && (
+      hasRuntimeSignal
+      || item.rawRuntimeStatus === "blocked"
+      || item.rawRuntimeStatus === "failed"
+    );
+  const isTopLevelMissionSession =
+    (hasDirectRuntimeTruth && item.primaryStatus === "running" && (item.runtimeSignal === "alive" || item.runtimeSignal === "stale"))
+    || (hasDirectRuntimeTruth && item.primaryStatus === "waiting_for_review")
+    || hasDirectRuntimeIntervention
+    || hasExplicitInput;
+
+  if (isTopLevelMissionSession) {
     return item;
   }
 
@@ -732,16 +826,16 @@ function normalizeTopLevelOperationalItem(item: OperationalSessionApiItem): Oper
     lifecycleState: "parked",
     runtimeSignal: item.projection.runtimeSignal,
     operatorAttention: "none",
-    primaryStatus: "parked",
+    primaryStatus: "parked_idle",
     confidence: "high",
     nextRecommendedOperatorAction: "No live operator action",
     belongsOnMissionControl: false,
     belongsInHistory: true,
     evidence: [
       ...item.projection.evidence,
-      isCompatibilityOrLegacyOnly
-        ? "Compatibility or legacy-only telemetry is plumbing, not a top-level operational workflow."
-        : "Housekeeping objective is an internal artifact, not a top-level operational workflow."
+      hasDirectRuntimeTruth
+        ? "Session does not meet the top-level human-attention eligibility contract."
+        : "Compatibility, legacy, task, checkpoint, and mirror telemetry is child/debug material, not a Mission Control workflow row."
     ]
   };
 
@@ -780,12 +874,252 @@ function operationalCategoryTotals(sessions: OperationalSessionApiItem[]): Opera
   };
 }
 
+function normalizeSourceType(value: unknown): AgentSessionSourceType | null {
+  const normalized = asNonEmptyString(value)?.toLowerCase().replace(/-/g, "_");
+  if (!normalized) return null;
+  if (
+    [
+      "codex",
+      "chatgpt",
+      "claude_code",
+      "cursor",
+      "aider",
+      "openhands",
+      "jules",
+      "github_copilot",
+      "gsd",
+      "symphony_runner",
+      "local_cli",
+      "file_heartbeat",
+      "http_event_source",
+      "manual",
+      "custom",
+      "unknown"
+    ].includes(normalized)
+  ) {
+    return normalized as AgentSessionSourceType;
+  }
+  if (normalized === "local") return "local_cli";
+  if (normalized === "openharness") return "custom";
+  return "custom";
+}
+
+function normalizeTransport(value: unknown): AgentSessionSourceTransport | null {
+  const normalized = asNonEmptyString(value)?.toLowerCase().replace(/-/g, "_");
+  if (!normalized) return null;
+  if (["http_events", "file_state", "cli_writer", "websocket", "webhook", "database", "unknown"].includes(normalized)) {
+    return normalized as AgentSessionSourceTransport;
+  }
+  return "unknown";
+}
+
+function sourceTypeForRuntimeSession(session: RuntimeSession): AgentSessionSourceType {
+  return normalizeSourceType(session.metadata?.sourceType)
+    ?? normalizeSourceType(session.metadata?.platform)
+    ?? normalizeSourceType(session.runtimeId)
+    ?? "unknown";
+}
+
+function transportForRuntimeSession(session: RuntimeSession): AgentSessionSourceTransport {
+  return normalizeTransport(session.metadata?.transport)
+    ?? (session.metadata?.source === "andon.runtime-writer" ? "cli_writer" : null)
+    ?? "http_events";
+}
+
+function sourceIdForRuntimeSession(session: RuntimeSession): string {
+  return asNonEmptyString(session.metadata?.sourceId)
+    ?? asNonEmptyString(session.metadata?.source)
+    ?? `${sourceTypeForRuntimeSession(session)}:${transportForRuntimeSession(session)}`;
+}
+
+function sourceNameForRuntimeSession(session: RuntimeSession): string {
+  return asNonEmptyString(session.metadata?.sourceName)
+    ?? asNonEmptyString(session.metadata?.platform)
+    ?? sourceTypeForRuntimeSession(session).replace(/_/g, " ");
+}
+
+function latestIso(values: Array<string | null | undefined>): string | null {
+  const timestamps = values
+    .map((value) => value ? new Date(value).getTime() : Number.NaN)
+    .filter(Number.isFinite);
+  if (timestamps.length === 0) return null;
+  return new Date(Math.max(...timestamps)).toISOString();
+}
+
+function sourceStatusFor(input: {
+  sourceSessions: RuntimeSession[];
+  sourceItems: OperationalSessionApiItem[];
+  lastSignalAt: string | null;
+  now: number;
+}): AgentSessionSourceStatus {
+  if (input.sourceSessions.some((session) => session.metadata?.instrumented === false)) {
+    return "uninstrumented";
+  }
+  if (input.sourceItems.some((item) => item.belongsToMissionControl)) {
+    return "active";
+  }
+  if (!input.lastSignalAt) {
+    return "unknown";
+  }
+
+  const age = signalAgeMs(input.lastSignalAt, input.now);
+  if (age === null) return "unknown";
+  if (age <= OPERATIONAL_PROJECTION_COLD_MS) return "idle";
+  if (age <= 10 * 60 * 1000) return "stale";
+  return "disconnected";
+}
+
+function sourceReasonFor(status: AgentSessionSourceStatus, lastSignalAt: string | null): string | null {
+  if (status === "active") return "Source is emitting fresh session signals for at least one Mission Control session.";
+  if (status === "idle") return "Source is connected and no top-level session currently needs Mission Control.";
+  if (status === "stale") return "Source has not emitted a recent signal.";
+  if (status === "disconnected") return "Source signal is expired or absent.";
+  if (status === "uninstrumented") return "Source is registered but marked as not emitting Andon session signals.";
+  if (!lastSignalAt) return "No source signal has been recorded.";
+  return null;
+}
+
+function buildAgentSessionSources(
+  runtimeSessions: RuntimeSession[],
+  items: OperationalSessionApiItem[],
+  now: number
+): AgentSessionSourceSummary[] {
+  const itemBySessionId = new Map(items.map((item) => [item.session.id, item]));
+  const groups = new Map<string, RuntimeSession[]>();
+  for (const session of runtimeSessions) {
+    const sourceId = sourceIdForRuntimeSession(session);
+    groups.set(sourceId, [...(groups.get(sourceId) ?? []), session]);
+  }
+
+  return [...groups.entries()].map(([sourceId, sourceSessions]) => {
+    const first = sourceSessions[0]!;
+    const sourceItems = sourceSessions
+      .map((session) => itemBySessionId.get(session.id))
+      .filter((item): item is OperationalSessionApiItem => Boolean(item));
+    const lastSignalAt = latestIso(sourceItems.map((item) => item.lastAgentSignalTimestamp ?? item.lastSignalTimestamp ?? item.session.lastEventAt));
+    const lastHeartbeatAt = latestIso(sourceItems.map((item) => item.projection.lastHeartbeatAt));
+    const status = sourceStatusFor({ sourceSessions, sourceItems, lastSignalAt, now });
+    const capabilities = Array.isArray(first.metadata?.capabilities)
+      ? first.metadata.capabilities.map(String)
+      : [];
+
+    return {
+      sourceId,
+      sourceName: sourceNameForRuntimeSession(first),
+      sourceType: sourceTypeForRuntimeSession(first),
+      platform: asNonEmptyString(first.metadata?.platform),
+      transport: transportForRuntimeSession(first),
+      status,
+      repo: first.repoName || repoName(first.repoPath),
+      lastSignalAt,
+      lastHeartbeatAt,
+      capabilities,
+      reason: sourceReasonFor(status, lastSignalAt)
+    };
+  }).sort((a, b) =>
+    new Date(b.lastSignalAt ?? 0).getTime() - new Date(a.lastSignalAt ?? 0).getTime()
+  );
+}
+
+function sourceVisibilityTone(status: IngestionStatus): AgentSignalIngestionStatus["tone"] {
+  if (status === "active") return "healthy";
+  if (status === "idle" || status === "historical_only") return "neutral";
+  if (status === "stale" || status === "uninstrumented" || status === "no_sources_configured" || status === "unknown") return "warning";
+  return "critical";
+}
+
+function buildIngestionStatus(input: {
+  sources: AgentSessionSourceSummary[];
+  visibleSessionCount: number;
+  historicalCount: number;
+}): AgentSignalIngestionStatus {
+  const lastSignalAt = latestIso(input.sources.map((source) => source.lastSignalAt));
+  const activeSourceCount = input.sources.filter((source) => source.status === "active").length;
+  const staleSourceCount = input.sources.filter((source) => source.status === "stale").length;
+  let status: IngestionStatus;
+  let label: string;
+  let message: string;
+
+  if (input.sources.length === 0 && input.historicalCount > 0) {
+    status = "historical_only";
+    label = "No active agent sessions.";
+    message = "Historical sessions are available in History.";
+  } else if (input.sources.length === 0) {
+    status = "no_sources_configured";
+    label = "No agent signal sources configured.";
+    message = "Connect a runner, heartbeat writer, or platform adapter to show live sessions.";
+  } else if (activeSourceCount > 0 || input.visibleSessionCount > 0) {
+    status = "active";
+    label = input.visibleSessionCount === 1 ? "1 active instrumented session." : `${input.visibleSessionCount} active instrumented sessions.`;
+    message = "Mission Control is receiving agent-session signals.";
+  } else if (input.sources.some((source) => source.status === "idle")) {
+    status = "idle";
+    label = "No active agent sessions.";
+    message = "Connected agent sources are idle.";
+  } else if (staleSourceCount > 0) {
+    status = "stale";
+    label = "Agent signal sources are stale.";
+    message = lastSignalAt
+      ? `Last signal was ${formatSourceAge(lastSignalAt)} ago. Mission Control may not reflect current work.`
+      : "Mission Control may not reflect current work.";
+  } else if (input.sources.some((source) => source.status === "uninstrumented")) {
+    status = "uninstrumented";
+    label = "No instrumented agent sessions detected.";
+    message = "This platform is not currently emitting Andon session signals.";
+  } else if (input.sources.some((source) => source.status === "disconnected")) {
+    status = "disconnected";
+    label = "Agent signal sources are disconnected.";
+    message = lastSignalAt
+      ? `Last signal was ${formatSourceAge(lastSignalAt)} ago. Mission Control may not reflect current work.`
+      : "No current agent source signal is available.";
+  } else {
+    status = "unknown";
+    label = "Agent signal source status is unknown.";
+    message = "Mission Control is online, but source visibility could not be determined.";
+  }
+
+  return {
+    status,
+    label,
+    message,
+    tone: sourceVisibilityTone(status),
+    lastSignalAt,
+    sourceCount: input.sources.length,
+    activeSourceCount,
+    staleSourceCount,
+    historicalCount: input.historicalCount
+  };
+}
+
+function formatSourceAge(timestamp: string): string {
+  const age = signalAgeMs(timestamp, Date.now());
+  if (age === null) return "unknown";
+  const seconds = Math.floor(age / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
 function buildOperationalSessions(database: DatabaseSync, now = Date.now()): OperationalSessionApiItem[] {
   const runtimeSessions = listRuntimeSessions(database);
   const runtimeIds = new Set(runtimeSessions.map((session) => session.id));
   const runtimeItems = runtimeSessions.map((session) => {
     const runtimeEvents = getRuntimeEvents(database, session.id);
-    return operationalItem(runtimeSessionToSessionRecord(session), runtimeProjection(database, session, runtimeEvents, now));
+    const sessionRecord = runtimeSessionToSessionRecord(session);
+    const legacyEvents = getEventsTailForRules(database, session.id, 200);
+    const legacyStatus = legacyEventsCanOverrideRuntimeLifecycle(legacyEvents)
+      ? deriveStatus({ session: sessionRecord, events: legacyEvents, holisticContext: null }).status
+      : null;
+    const canonicalStatusHint = legacyStatus && legacyStatus !== "queued" && legacyStatus !== "running"
+      ? legacyStatus
+      : null;
+    return operationalItem(
+      sessionRecord,
+      runtimeProjection(database, session, runtimeEvents, canonicalStatusHint, now)
+    );
   });
 
   const legacyItems = listAllLegacySessions(database)
@@ -841,17 +1175,26 @@ export function reconcileRuntimeSessionsOnStartup(
   };
 }
 
+function getCanonicalProjectionForSession(
+  database: DatabaseSync,
+  sessionId: string,
+  now = Date.now()
+): OperationalSessionApiItem | null {
+  return buildOperationalSessions(database, now).find((item) => item.session.id === sessionId) ?? null;
+}
+
 async function buildSessionDetail(
   database: DatabaseSync,
   session: SessionRecord,
   holisticBridge: HolisticBridge
-): Promise<SessionDetailResponse> {
+): Promise<CanonicalSessionDetailResponse> {
   const activeTask = getActiveTask(database, session.id);
   const events = getEventsTailForRules(database, session.id, MAX_EVENTS_FOR_RULES);
   const holisticContext = await holisticBridge.getContext(session.id);
   const status = deriveStatus({ session, events, holisticContext });
   const recommendation = deriveRecommendation({ session, events, holisticContext, status });
   const supervision = buildSupervisionSignals(events, status.status, recommendation.urgency);
+  const projection = getCanonicalProjectionForSession(database, session.id);
 
   return {
     session,
@@ -859,7 +1202,8 @@ async function buildSessionDetail(
     status,
     recommendation,
     holisticContext,
-    supervision
+    supervision,
+    projection
   };
 }
 
@@ -899,8 +1243,9 @@ export async function getSessionDetail(
   database: DatabaseSync,
   holisticBridge: HolisticBridge,
   sessionId: string
-): Promise<SessionDetailResponse | null> {
-  const session = getSessionRow(database, sessionId);
+): Promise<CanonicalSessionDetailResponse | null> {
+  const session = getSessionRow(database, sessionId)
+    ?? (getRuntimeSession(database, sessionId) ? runtimeSessionToSessionRecord(getRuntimeSession(database, sessionId)!) : null);
   if (!session) {
     return null;
   }
@@ -1267,25 +1612,49 @@ function sortOperationalSessions(sessions: OperationalSessionApiItem[]): Operati
 
 export function getMissionControl(database: DatabaseSync): OperationalSessionsResponse {
   const now = Date.now();
+  const runtimeSessions = listRuntimeSessions(database);
+  const allSessions = buildOperationalSessions(database, now);
   const sessions = sortOperationalSessions(
-    buildOperationalSessions(database, now).filter((item) => item.belongsToMissionControl)
+    allSessions.filter((item) => item.belongsToMissionControl)
   );
+  const historicalCount = allSessions.filter((item) => item.belongsToHistory).length;
+  const sources = buildAgentSessionSources(runtimeSessions, allSessions, now);
   return {
     generatedAt: new Date(now).toISOString(),
     totals: operationalCategoryTotals(sessions),
-    sessions
+    sessions,
+    sources,
+    ingestionStatus: buildIngestionStatus({
+      sources,
+      visibleSessionCount: sessions.length,
+      historicalCount
+    }),
+    historicalCount,
+    lastSignalAt: latestIso(sources.map((source) => source.lastSignalAt))
   };
 }
 
 export function getHistory(database: DatabaseSync): OperationalSessionsResponse {
   const now = Date.now();
+  const runtimeSessions = listRuntimeSessions(database);
+  const allSessions = buildOperationalSessions(database, now);
   const sessions = sortOperationalSessions(
-    buildOperationalSessions(database, now).filter((item) => item.belongsToHistory)
+    allSessions.filter((item) => item.belongsToHistory)
   );
+  const historicalCount = sessions.length;
+  const sources = buildAgentSessionSources(runtimeSessions, allSessions, now);
   return {
     generatedAt: new Date(now).toISOString(),
     totals: operationalCategoryTotals(sessions),
-    sessions
+    sessions,
+    sources,
+    ingestionStatus: buildIngestionStatus({
+      sources,
+      visibleSessionCount: allSessions.filter((item) => item.belongsToMissionControl).length,
+      historicalCount
+    }),
+    historicalCount,
+    lastSignalAt: latestIso(sources.map((source) => source.lastSignalAt))
   };
 }
 
@@ -1469,7 +1838,7 @@ function ensureSession(database: DatabaseSync, event: AgentEvent): void {
     ? (payloadObjective ?? payloadPrompt ?? NO_RUNTIME_OBJECTIVE_LABEL)
     : (payloadObjective ?? payloadPrompt ?? existing?.objective ?? "Unknown objective");
   const agentName = inferAgentName(payload, existing?.agentName, event.runtime);
-  const runtime = String(payload.runtime ?? event.runtime ?? existing?.runtime ?? "unknown");
+  const runtime = String(payload.runtime ?? event.runtime ?? payload.sourceType ?? existing?.runtime ?? "unknown");
   const repoPath = String(payload.repoPath ?? existing?.repoPath ?? process.cwd());
   const worktreePath = String(payload.worktreePath ?? existing?.worktreePath ?? process.cwd());
   const startedAt = String(payload.startedAt ?? existing?.startedAt ?? event.timestamp);
@@ -1535,9 +1904,10 @@ function phaseToMirrorRuntimeActivity(phase: SessionRecord["currentPhase"]): Run
   return "editing";
 }
 
-function coerceMirrorRuntimeId(session: SessionRecord): RuntimeId {
-  if (session.runtime === "codex" || session.runtime === "openharness") {
-    return session.runtime;
+function coerceMirrorRuntimeId(session: SessionRecord, payload: Record<string, unknown> = {}): RuntimeId {
+  const candidate = normalizeSourceType(payload.runtime ?? payload.sourceType ?? session.runtime);
+  if (candidate && candidate !== "unknown" && candidate !== "http_event_source" && candidate !== "manual") {
+    return candidate === "claude_code" ? "claude_code" : candidate as RuntimeId;
   }
   return "local";
 }
@@ -1651,8 +2021,18 @@ function maybeUpsertMirrorRuntimeFromLegacyEvent(database: DatabaseSync, event: 
   const isRuntimeWriterEvent = eventPayload.source === "andon.runtime-writer"
     || event.id.startsWith("runtime-writer-start-")
     || event.id.startsWith("runtime-writer-heartbeat-");
+  const isDirectAgentSourceEvent = Boolean(
+    asNonEmptyString(eventPayload.sourceId)
+    || asNonEmptyString(eventPayload.sourceType)
+    || asNonEmptyString(eventPayload.transport)
+  );
   const existingRuntimeWriter = existingRt?.metadata?.source === "andon.runtime-writer";
-  if (existingRt && existingRt.metadata?.andonIngestMirror !== true && !existingRuntimeWriter) {
+  const sameDirectSource = isDirectAgentSourceEvent
+    && (
+      asNonEmptyString(existingRt?.metadata?.sourceId) === asNonEmptyString(eventPayload.sourceId)
+      || asNonEmptyString(existingRt?.metadata?.sourceType) === asNonEmptyString(eventPayload.sourceType)
+    );
+  if (existingRt && existingRt.metadata?.andonIngestMirror !== true && !existingRuntimeWriter && !sameDirectSource) {
     return;
   }
   const status = legacyAgentEventToMirrorRuntimeStatus(event, existingRt);
@@ -1661,8 +2041,18 @@ function maybeUpsertMirrorRuntimeFromLegacyEvent(database: DatabaseSync, event: 
   const completedAt = status === "completed" ? event.timestamp : undefined;
 
   const metadata: Record<string, unknown> = {
-    andonIngestMirror: !isRuntimeWriterEvent,
-    source: isRuntimeWriterEvent ? "andon.runtime-writer" : "andon.ingest.mirror",
+    andonIngestMirror: !isRuntimeWriterEvent && !isDirectAgentSourceEvent,
+    source: isRuntimeWriterEvent
+      ? "andon.runtime-writer"
+      : isDirectAgentSourceEvent
+        ? (asNonEmptyString(eventPayload.source) ?? asNonEmptyString(eventPayload.sourceId) ?? "andon.http-events")
+        : "andon.ingest.mirror",
+    sourceId: asNonEmptyString(eventPayload.sourceId) ?? (isRuntimeWriterEvent ? "holistic-file-state-writer" : "andon-http-events"),
+    sourceName: asNonEmptyString(eventPayload.sourceName) ?? (isRuntimeWriterEvent ? "Holistic file-state writer" : "Andon HTTP event source"),
+    sourceType: normalizeSourceType(eventPayload.sourceType ?? eventPayload.runtime ?? event.runtime ?? sessionRow.runtime) ?? "http_event_source",
+    platform: asNonEmptyString(eventPayload.platform) ?? normalizeSourceType(eventPayload.runtime ?? event.runtime ?? sessionRow.runtime),
+    transport: normalizeTransport(eventPayload.transport) ?? (isRuntimeWriterEvent ? "cli_writer" : "http_events"),
+    capabilities: Array.isArray(eventPayload.capabilities) ? eventPayload.capabilities.map(String) : ["session.started", "session.heartbeat"],
     objective: sessionRow.objective,
     prompt: sessionRow.objective,
     agentName: sessionRow.agentName,
@@ -1671,7 +2061,7 @@ function maybeUpsertMirrorRuntimeFromLegacyEvent(database: DatabaseSync, event: 
 
   const runtimeSession: RuntimeSession = {
     id: sessionRow.id,
-    runtimeId: coerceMirrorRuntimeId(sessionRow),
+    runtimeId: coerceMirrorRuntimeId(sessionRow, eventPayload),
     agentName: sessionRow.agentName,
     repoName: repoName(sessionRow.repoPath),
     repoPath: sessionRow.repoPath,
@@ -1699,8 +2089,8 @@ function maybeUpsertMirrorRuntimeFromLegacyEvent(database: DatabaseSync, event: 
       legacyEventId: event.id,
       legacyEventType: event.type,
       replayKind: classifyReplayEventType(event.type),
-      compatibilityMirror: true,
-      plumbing: true
+      compatibilityMirror: !isDirectAgentSourceEvent,
+      plumbing: !isDirectAgentSourceEvent
     }
   };
   insertRuntimeEvent(database, rtEvent);
