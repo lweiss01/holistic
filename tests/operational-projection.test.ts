@@ -60,6 +60,10 @@ const tests: Array<{ name: string; run: () => void }> = [
       );
 
       assert.equal(active.category, "live");
+      assert.equal(active.lifecycleState, "running");
+      assert.equal(active.runtimeSignal, "alive");
+      assert.equal(active.operatorAttention, "none");
+      assert.equal(active.primaryStatus, "running");
       assert.equal(active.belongsOnMissionControl, true);
       assert.equal(active.belongsInHistory, false);
       assert.equal(terminated.every((item) => item.category === "historical"), true);
@@ -79,6 +83,38 @@ const tests: Array<{ name: string; run: () => void }> = [
 
       assert.equal(projected.category, "historical");
       assert.equal(projected.reason, "parked");
+      assert.equal(projected.lifecycleState, "parked");
+      assert.equal(projected.primaryStatus, "parked");
+      assert.notEqual(projected.category, "live");
+    }
+  },
+  {
+    name: "operational projection parked session with fresh heartbeat remains parked not live",
+    run: () => {
+      const projected = projectOperationalSession({
+        sessionId: "session-parked-heartbeat",
+        runtimeSession: runtimeSession({
+          id: "session-parked-heartbeat",
+          status: "parked",
+          lastHeartbeatAt: FRESH
+        }),
+        runtimeEvents: [
+          event({
+            id: "heartbeat-parked",
+            sessionId: "session-parked-heartbeat",
+            type: "session.heartbeat",
+            timestamp: FRESH
+          })
+        ],
+        runtimeProcessAlive: true,
+        now: NOW
+      });
+
+      assert.equal(projected.lifecycleState, "parked");
+      assert.equal(projected.runtimeSignal, "alive");
+      assert.equal(projected.operatorAttention, "none");
+      assert.equal(projected.primaryStatus, "parked");
+      assert.equal(projected.category, "historical");
       assert.notEqual(projected.category, "live");
     }
   },
@@ -93,6 +129,8 @@ const tests: Array<{ name: string; run: () => void }> = [
       });
 
       assert.equal(projected.category, "review");
+      assert.equal(projected.lifecycleState, "review_ready");
+      assert.equal(projected.primaryStatus, "review");
       assert.equal(projected.derivedOperationalStatus, "awaiting_review");
       assert.notEqual(projected.category, "live");
     }
@@ -131,6 +169,9 @@ const tests: Array<{ name: string; run: () => void }> = [
       });
 
       assert.equal(projected.category, "needs_action");
+      assert.equal(projected.lifecycleState, "waiting_input");
+      assert.equal(projected.operatorAttention, "input_needed");
+      assert.equal(projected.primaryStatus, "needs_action");
       assert.equal(projected.derivedOperationalStatus, "needs_input");
       assert.equal(projected.operatorActivity, "waiting");
       assert.notEqual(projected.category, "live");
@@ -149,6 +190,9 @@ const tests: Array<{ name: string; run: () => void }> = [
 
         assert.equal(projected.category, "degraded_active");
         assert.equal(projected.reason, "blocked_or_failed");
+        assert.equal(projected.lifecycleState, "blocked");
+        assert.equal(projected.operatorAttention, "intervention_needed");
+        assert.equal(projected.primaryStatus, "needs_intervention");
         assert.equal(projected.operatorActivity, "blocked");
         assert.notEqual(projected.category, "live");
       }
@@ -192,6 +236,8 @@ const tests: Array<{ name: string; run: () => void }> = [
 
       assert.equal(projected.category, "degraded_active");
       assert.equal(projected.reason, "stale_runtime");
+      assert.equal(projected.lifecycleState, "stale");
+      assert.equal(projected.primaryStatus, "needs_intervention");
       assert.equal(projected.freshness, "stale");
       assert.notEqual(projected.category, "live");
     }

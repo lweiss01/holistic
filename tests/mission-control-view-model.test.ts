@@ -41,6 +41,13 @@ function makeMissionSession(
     freshness: category === "unknown" ? "unknown" : "fresh",
     lastSignalTimestamp: "2026-04-29T12:10:00.000Z",
     signalAgeMs: 30_000,
+    lastAgentSignalTimestamp: "2026-04-29T12:10:00.000Z",
+    agentSignalAgeMs: 30_000,
+    runtimeProcessAlive: category === "live" ? true : category === "historical" ? false : "unknown",
+    lifecycleState: category === "live" ? "running" : category === "review" ? "review_ready" : category === "needs_action" ? "waiting_input" : category === "historical" ? "parked" : "stale",
+    runtimeSignal: category === "live" ? "alive" : category === "historical" ? "dead" : "unknown",
+    operatorAttention: category === "needs_action" ? "input_needed" : category === "review" ? "review_needed" : category === "degraded_active" ? "intervention_needed" : "none",
+    primaryStatus: category === "live" ? "running" : category === "needs_action" ? "needs_action" : category === "review" ? "review" : category === "degraded_active" ? "needs_intervention" : category === "historical" ? "parked" : "unknown",
     confidence: category === "unknown" ? "low" : "high",
     operatorActivity: category === "review" ? "review-ready" : category === "needs_action" ? "waiting" : "editing",
     nextRecommendedOperatorAction: category === "needs_action" ? "Answer the agent prompt." : "Inspect when ready.",
@@ -103,7 +110,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     },
   },
   {
-    name: "Andon Mission Control orders needs_action before degraded, review, and live",
+    name: "Andon Mission Control orders needs_action before intervention, review, and running",
     run: () => {
       const board = buildMissionControlBoardViewModel(makeResponse([
         makeMissionSession("live", { session: { id: "live" } }),
@@ -135,14 +142,16 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
       assert.ok(viewModel);
       assert.equal(viewModel.category, "review");
-      assert.equal(viewModel.presentation.label, "Review");
-      assert.doesNotMatch(viewModel.presentation.label, /flowing|running/i);
+      assert.equal(viewModel.primaryStatusLabel, "Review");
+      assert.doesNotMatch(viewModel.primaryStatusLabel, /flowing|running/i);
     },
   },
   {
     name: "Andon Mission Control presents degraded and unknown as non-healthy states",
     run: () => {
       assert.equal(getCategoryPresentation("degraded_active").tone, "warning");
+      assert.equal(getCategoryPresentation("degraded_active").label, "Needs Intervention");
+      assert.equal(getCategoryPresentation("live").label, "Running");
       assert.equal(getCategoryPresentation("unknown").tone, "unknown");
       assert.notEqual(getCategoryPresentation("degraded_active").tone, "healthy");
       assert.notEqual(getCategoryPresentation("unknown").tone, "healthy");
@@ -173,9 +182,30 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
       assert.ok(viewModel);
       assert.equal(viewModel.category, "needs_action");
+      assert.equal(viewModel.primaryStatusLabel, "Needs Action");
       assert.equal(viewModel.rawRuntimeStatus, "running");
       assert.equal(viewModel.reason, "waiting for input");
       assert.equal(viewModel.operatorActivity, "waiting");
+    },
+  },
+  {
+    name: "Andon Mission Control separates agent signal age from API refresh and runtime liveness",
+    run: () => {
+      const [viewModel] = buildMissionSessionViewModels([
+        makeMissionSession("degraded_active", {
+          runtimeProcessAlive: false,
+          runtimeSignal: "dead",
+          lastAgentSignalTimestamp: "2026-04-29T10:10:00.000Z",
+          agentSignalAgeMs: 2 * 60 * 60_000,
+          signalAgeMs: 30_000,
+          reason: "missing_runtime_signal",
+        }),
+      ]);
+
+      assert.ok(viewModel);
+      assert.equal(viewModel.lastAgentSignalAge, "agent 2h");
+      assert.equal(viewModel.runtimeAliveLabel, "runtime disconnected");
+      assert.notEqual(viewModel.lastAgentSignalAge, viewModel.lastSignalAge);
     },
   },
   {
@@ -235,6 +265,15 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.match(apiSource, /getHistory/);
       assert.match(apiSource, /getSessionReplay/);
       assert.match(apiSource, /getAndonHealth/);
+    },
+  },
+  {
+    name: "Andon Mission Control card primary target is detail and replay remains secondary",
+    run: () => {
+      const appSource = fs.readFileSync("apps/andon-dashboard/src/App.tsx", "utf8");
+
+      assert.match(appSource, /className="session-row-main" href=\{`\/session\/\$\{encodeURIComponent\(item\.id\)\}`\}/);
+      assert.match(appSource, /className="row-link" href=\{`\/session\/\$\{encodeURIComponent\(item\.id\)\}\/replay`\}/);
     },
   },
   {

@@ -161,6 +161,15 @@ function CategoryBadge({ category }: { category: OperationalCategory }) {
   );
 }
 
+function DecisionBadge({ item }: { item: MissionSessionViewModel }) {
+  return (
+    <span className={`category-badge tone-${item.presentation.tone}`}>
+      <span className={`badge-shape marker-${item.presentation.marker}`} aria-hidden="true" />
+      {item.primaryStatusLabel}
+    </span>
+  );
+}
+
 function SignalStrip({
   data,
   historyCount,
@@ -200,7 +209,7 @@ function SessionRow({ item }: { item: MissionSessionViewModel }) {
     <article className={`session-row tone-${item.presentation.tone}`} data-category={item.category}>
       <div className="session-row-state">
         <StatusMarker item={item} />
-        <CategoryBadge category={item.category} />
+        <DecisionBadge item={item} />
       </div>
       <a className="session-row-main" href={`/session/${encodeURIComponent(item.id)}`}>
         <strong>{item.agentName}</strong>
@@ -208,9 +217,8 @@ function SessionRow({ item }: { item: MissionSessionViewModel }) {
         <p>{item.objective}</p>
       </a>
       <div className="session-row-meta">
-        <span>{item.operatorActivity}</span>
-        <span>{item.lastSignalAge}</span>
-        <span>{item.freshness}</span>
+        <span>{item.lastAgentSignalAge}</span>
+        <span>{item.runtimeAliveLabel}</span>
         {item.confidenceLabel && <span>{item.confidenceLabel}</span>}
       </div>
       <div className="session-row-action">
@@ -467,6 +475,8 @@ function ProjectionFacts({ projection }: { projection: DetailProjectionViewModel
         <div><span>Derived status</span><strong>{normalizeLabel(projection.derivedOperationalStatus)}</strong></div>
         <div><span>Freshness</span><strong>{projection.freshness}</strong></div>
         <div><span>Signal age</span><strong>{projection.lastSignalAge}</strong></div>
+        <div><span>Agent signal</span><strong>{projection.lastAgentSignalAge}</strong></div>
+        <div><span>Runtime alive</span><strong>{projection.runtimeAliveLabel}</strong></div>
         <div><span>Confidence</span><strong>{projection.confidence}</strong></div>
       </div>
       <p className="next-action"><b>Next action</b>{projection.nextAction}</p>

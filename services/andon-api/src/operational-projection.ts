@@ -22,6 +22,26 @@ export const OPERATIONAL_PROJECTION_REVIEW_STALE_MS = 24 * 60 * 60 * 1000;
 
 export type OperationalSourceOfTruth = "runtime" | "legacy" | "mixed" | "missing";
 export type OperationalConfidence = "high" | "medium" | "low";
+export type LifecycleState =
+  | "running"
+  | "waiting_input"
+  | "review_ready"
+  | "blocked"
+  | "parked"
+  | "completed"
+  | "stale"
+  | "unknown";
+export type RuntimeSignalState = "alive" | "stale" | "dead" | "unknown";
+export type OperatorAttention = "none" | "review_needed" | "input_needed" | "intervention_needed";
+export type MissionPrimaryStatus =
+  | "running"
+  | "needs_action"
+  | "needs_intervention"
+  | "review"
+  | "parked"
+  | "completed"
+  | "stale"
+  | "unknown";
 export type OperatorActivityInsight =
   | "editing"
   | "planning"
@@ -96,6 +116,13 @@ export interface OperationalProjection {
   heartbeatAgeMs: number | null;
   lastMeaningfulActivityAt: string | null;
   meaningfulActivityAgeMs: number | null;
+  lastAgentSignalTimestamp: string | null;
+  agentSignalAgeMs: number | null;
+  runtimeProcessAlive: boolean | "unknown";
+  lifecycleState: LifecycleState;
+  runtimeSignal: RuntimeSignalState;
+  operatorAttention: OperatorAttention;
+  primaryStatus: MissionPrimaryStatus;
   hasMeaningfulActivity: boolean;
   operatorActivity: OperatorActivityInsight;
   confidence: OperationalConfidence;
@@ -219,6 +246,15 @@ function projection(
     "review",
     "unknown"
   ];
+  const lifecycleState = lifecycleStateFor(fields.category, fields.reason, fields.rawRuntimeStatus);
+  const runtimeSignal = runtimeSignalFor(fields.freshness, input.runtimeProcessAlive);
+  const operatorAttention = operatorAttentionFor(fields.category, lifecycleState);
+  const primaryStatus = primaryStatusFor(lifecycleState, operatorAttention);
+  const lastAgentSignalTimestamp = latestTimestamp([
+    fields.lastHeartbeatAt,
+    fields.lastMeaningfulActivityAt,
+    fields.lastSignalTimestamp
+  ]);
   return {
     sessionId: input.sessionId,
     category: fields.category,
@@ -233,6 +269,13 @@ function projection(
     heartbeatAgeMs: ageMs(fields.lastHeartbeatAt, fields.now),
     lastMeaningfulActivityAt: fields.lastMeaningfulActivityAt,
     meaningfulActivityAgeMs: ageMs(fields.lastMeaningfulActivityAt, fields.now),
+    lastAgentSignalTimestamp,
+    agentSignalAgeMs: ageMs(lastAgentSignalTimestamp, fields.now),
+    runtimeProcessAlive: input.runtimeProcessAlive ?? "unknown",
+    lifecycleState,
+    runtimeSignal,
+    operatorAttention,
+    primaryStatus,
     hasMeaningfulActivity: fields.lastMeaningfulActivityAt !== null,
     operatorActivity: fields.operatorActivity ?? operatorActivityFor(input, fields.rawRuntimeStatus, fields.category),
     confidence: fields.confidence ?? confidenceFor(fields.category, fields.reason),
@@ -299,6 +342,59 @@ function confidenceFor(category: RuntimeOperationalCategory, reason: Operational
     return "medium";
   }
   return "high";
+}
+
+function lifecycleStateFor(
+  category: RuntimeOperationalCategory,
+  reason: OperationalProjectionReason,
+  rawRuntimeStatus: RuntimeStatus | "missing"
+): LifecycleState {
+  if (category === "needs_action") return "waiting_input";
+  if (category === "review") return "review_ready";
+  if (rawRuntimeStatus === "waiting_for_input") return "waiting_input";
+  if (rawRuntimeStatus === "waiting_for_approval" || rawRuntimeStatus === "awaiting_review") return "review_ready";
+  if (rawRuntimeStatus === "blocked" || rawRuntimeStatus === "failed") return "blocked";
+  if (rawRuntimeStatus === "parked" || rawRuntimeStatus === "paused") return "parked";
+  if (rawRuntimeStatus === "completed" || rawRuntimeStatus === "cancelled" || rawRuntimeStatus === "terminated") return "completed";
+  if (reason === "stale_runtime" || reason === "missing_runtime_signal" || reason === "runtime_db_mismatch") return "stale";
+  if (category === "live") return "running";
+  if (category === "historical") return reason === "parked" ? "parked" : "completed";
+  return "unknown";
+}
+
+function runtimeSignalFor(
+  freshness: RuntimeFreshness,
+  runtimeProcessAlive: boolean | "unknown" | undefined
+): RuntimeSignalState {
+  if (runtimeProcessAlive === false) return "dead";
+  if (runtimeProcessAlive === true) {
+    return freshness === "fresh" ? "alive" : "stale";
+  }
+  if (freshness === "stale" || freshness === "cold") return "stale";
+  return "unknown";
+}
+
+function operatorAttentionFor(
+  category: RuntimeOperationalCategory,
+  lifecycleState: LifecycleState
+): OperatorAttention {
+  if (lifecycleState === "waiting_input" || category === "needs_action") return "input_needed";
+  if (lifecycleState === "review_ready" || category === "review") return "review_needed";
+  if (lifecycleState === "blocked" || lifecycleState === "stale" || category === "degraded_active") {
+    return "intervention_needed";
+  }
+  return "none";
+}
+
+function primaryStatusFor(lifecycleState: LifecycleState, operatorAttention: OperatorAttention): MissionPrimaryStatus {
+  if (operatorAttention === "input_needed") return "needs_action";
+  if (operatorAttention === "intervention_needed") return "needs_intervention";
+  if (operatorAttention === "review_needed") return "review";
+  if (lifecycleState === "running") return "running";
+  if (lifecycleState === "parked") return "parked";
+  if (lifecycleState === "completed") return "completed";
+  if (lifecycleState === "stale") return "stale";
+  return "unknown";
 }
 
 function recommendedActionFor(category: RuntimeOperationalCategory, reason: OperationalProjectionReason): string {
@@ -434,13 +530,14 @@ export function projectOperationalSession(input: OperationalProjectionInput): Op
   const rawRuntimeStatus = input.runtimeSession.status;
   const lastHeartbeatAt = heartbeatTimestamp(input.runtimeSession, runtimeEvents);
   const lastMeaningfulActivityAt = meaningfulActivityTimestamp(input.runtimeSession, runtimeEvents);
-  const lastSignalTimestamp = latestTimestamp([
+  const lastRuntimeSignalTimestamp = latestTimestamp([
     lastHeartbeatAt,
     lastMeaningfulActivityAt,
     input.runtimeSession.terminatedAt,
-    input.runtimeSession.completedAt,
-    input.runtimeSession.updatedAt
+    input.runtimeSession.completedAt
   ]);
+  const lastSignalTimestamp = lastRuntimeSignalTimestamp
+    ?? (isRuntimeRunningStatus(rawRuntimeStatus) ? null : input.runtimeSession.updatedAt);
   const freshness = freshnessFor(
     lastHeartbeatAt,
     now,

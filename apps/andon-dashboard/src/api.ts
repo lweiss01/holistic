@@ -41,6 +41,29 @@ export interface MissionControlSession {
   freshness: SignalFreshnessState;
   lastSignalTimestamp: string | null;
   signalAgeMs: number | null;
+  lastAgentSignalTimestamp: string | null;
+  agentSignalAgeMs: number | null;
+  runtimeProcessAlive: boolean | "unknown";
+  lifecycleState:
+    | "running"
+    | "waiting_input"
+    | "review_ready"
+    | "blocked"
+    | "parked"
+    | "completed"
+    | "stale"
+    | "unknown";
+  runtimeSignal: "alive" | "stale" | "dead" | "unknown";
+  operatorAttention: "none" | "review_needed" | "input_needed" | "intervention_needed";
+  primaryStatus:
+    | "running"
+    | "needs_action"
+    | "needs_intervention"
+    | "review"
+    | "parked"
+    | "completed"
+    | "stale"
+    | "unknown";
   confidence: "high" | "medium" | "low";
   operatorActivity:
     | "editing"

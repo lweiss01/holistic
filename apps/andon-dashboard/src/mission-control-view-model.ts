@@ -18,8 +18,8 @@ export const CATEGORY_PRESENTATION: Record<OperationalCategory, CategoryPresenta
     marker: "octagon",
   },
   degraded_active: {
-    label: "Degraded",
-    shortLabel: "Degraded",
+    label: "Needs Intervention",
+    shortLabel: "Intervention",
     tone: "warning",
     marker: "triangle",
   },
@@ -30,8 +30,8 @@ export const CATEGORY_PRESENTATION: Record<OperationalCategory, CategoryPresenta
     marker: "diamond",
   },
   live: {
-    label: "Live",
-    shortLabel: "Live",
+    label: "Running",
+    shortLabel: "Running",
     tone: "healthy",
     marker: "circle",
   },
@@ -42,8 +42,8 @@ export const CATEGORY_PRESENTATION: Record<OperationalCategory, CategoryPresenta
     marker: "outline",
   },
   historical: {
-    label: "Historical",
-    shortLabel: "History",
+    label: "Parked / Done",
+    shortLabel: "Parked",
     tone: "history",
     marker: "outline",
   },
@@ -72,8 +72,8 @@ export const MISSION_LANES: Array<{
   },
   {
     id: "degraded_unknown",
-    label: "Degraded / Unknown",
-    description: "Telemetry, blocker, or confidence problem",
+    label: "Needs Intervention",
+    description: "Blocked, stale, or missing runtime truth",
     categories: ["degraded_active", "unknown"],
   },
   {
@@ -84,8 +84,8 @@ export const MISSION_LANES: Array<{
   },
   {
     id: "live",
-    label: "Live",
-    description: "Fresh runtime truth confirms active work",
+    label: "Running",
+    description: "Agent is actively running now",
     categories: ["live"],
   },
 ];
@@ -103,6 +103,9 @@ export interface MissionSessionViewModel {
   operatorActivity: string;
   freshness: string;
   lastSignalAge: string;
+  lastAgentSignalAge: string;
+  runtimeAliveLabel: string;
+  primaryStatusLabel: string;
   confidenceLabel: string | null;
   nextAction: string;
   rawRuntimeStatus: string | null;
@@ -142,6 +145,8 @@ export interface HistorySessionViewModel {
   rawRuntimeStatus: string | null;
   sourceOfTruth: string;
   freshness: string;
+  lastAgentSignalAge: string;
+  runtimeAliveLabel: string;
   confidence: string;
   endedAtLabel: string;
   durationLabel: string;
@@ -160,6 +165,8 @@ export interface DetailProjectionViewModel {
   sourceOfTruth: string;
   freshness: string;
   lastSignalAge: string;
+  lastAgentSignalAge: string;
+  runtimeAliveLabel: string;
   confidence: string;
   operatorActivity: string;
   nextAction: string;
@@ -292,6 +299,34 @@ function operationalFreshnessLabel(item: MissionControlSession): string {
   return `${item.freshness} signal`;
 }
 
+function runtimeAliveLabel(item: MissionControlSession): string {
+  if (item.runtimeSignal === "alive") return "runtime connected";
+  if (item.runtimeSignal === "dead") return "runtime disconnected";
+  if (item.runtimeSignal === "stale") return "runtime stale";
+  return "runtime unknown";
+}
+
+function primaryStatusLabel(item: MissionControlSession): string {
+  switch (item.primaryStatus) {
+    case "running":
+      return "Running";
+    case "needs_action":
+      return "Needs Action";
+    case "needs_intervention":
+      return "Needs Intervention";
+    case "review":
+      return "Review";
+    case "parked":
+      return "Parked";
+    case "completed":
+      return "Done";
+    case "stale":
+      return "Stale";
+    default:
+      return "Unknown";
+  }
+}
+
 export function buildMissionSessionViewModels(
   sessions: MissionControlSession[],
 ): MissionSessionViewModel[] {
@@ -317,6 +352,9 @@ export function buildMissionSessionViewModels(
         operatorActivity: item.operatorActivity.replace(/-/g, " "),
         freshness: operationalFreshnessLabel(item),
         lastSignalAge: formatSignalAge(item.signalAgeMs, item.lastSignalTimestamp ?? item.session.lastEventAt),
+        lastAgentSignalAge: `agent ${formatSignalAge(item.agentSignalAgeMs, item.lastAgentSignalTimestamp)}`,
+        runtimeAliveLabel: runtimeAliveLabel(item),
+        primaryStatusLabel: primaryStatusLabel(item),
         confidenceLabel: item.confidence === "high" ? null : `${item.confidence} confidence`,
         nextAction: trimLine(item.nextRecommendedOperatorAction, 78),
         rawRuntimeStatus: item.rawRuntimeStatus,
@@ -376,6 +414,8 @@ export function buildHistorySessionViewModels(response: MissionControlResponse):
       rawRuntimeStatus: item.rawRuntimeStatus,
       sourceOfTruth: item.sourceOfTruth,
       freshness: item.freshness,
+      lastAgentSignalAge: formatSignalAge(item.agentSignalAgeMs, item.lastAgentSignalTimestamp),
+      runtimeAliveLabel: runtimeAliveLabel(item),
       confidence: item.confidence,
       endedAtLabel: formatDateTime(item.session.endedAt ?? item.lastSignalTimestamp ?? item.session.lastEventAt),
       durationLabel: formatDuration(item.session.startedAt, item.session.endedAt),
@@ -396,6 +436,8 @@ export function buildDetailProjectionViewModel(item: MissionControlSession): Det
     sourceOfTruth: item.sourceOfTruth,
     freshness: item.freshness,
     lastSignalAge: formatSignalAge(item.signalAgeMs, item.lastSignalTimestamp ?? item.session.lastEventAt),
+    lastAgentSignalAge: formatSignalAge(item.agentSignalAgeMs, item.lastAgentSignalTimestamp),
+    runtimeAliveLabel: runtimeAliveLabel(item),
     confidence: item.confidence,
     operatorActivity: item.operatorActivity.replace(/-/g, " "),
     nextAction: item.nextRecommendedOperatorAction,

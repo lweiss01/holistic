@@ -25,6 +25,7 @@ import type { HolisticBridge } from "../../../packages/holistic-bridge-types/src
 import type { HolisticRuntimeEvent } from "../../../packages/runtime-core/src/index.ts";
 import {
   getRuntimeEvents,
+  getRuntimeProcess,
   getRuntimeSession,
   insertRuntimeEvent,
   listRuntimeSessions,
@@ -38,6 +39,8 @@ import {
   replayDeduplicationKey
 } from "./event-integrity.ts";
 import {
+  OPERATIONAL_PROJECTION_COLD_MS,
+  OPERATIONAL_PROJECTION_FRESH_MS,
   projectOperationalSession,
   type OperationalProjection
 } from "./operational-projection.ts";
@@ -77,8 +80,22 @@ const MISSION_CONTROL_HOUSEKEEPING_OBJECTIVE_MARKERS = [
   "passively capture repo activity",
   "capture work and prepare a clean handoff",
   "prepare a durable handoff",
+  "prepare durable handoff",
   "document the current work",
-  "pause at a natural breakpoint"
+  "document current work",
+  "document current state",
+  "document current session",
+  "document this work",
+  "document work",
+  "capture current work",
+  "pause at a natural breakpoint",
+  "pause at natural breakpoint",
+  "current work",
+  "searchable old work",
+  "test handoff filtering",
+  "test repo",
+  "track large edit set",
+  "track medium edit set"
 ];
 
 function isMissionControlHousekeepingObjective(objective: string): boolean {
@@ -484,6 +501,13 @@ export interface OperationalSessionApiItem {
   freshness: OperationalProjection["freshness"];
   lastSignalTimestamp: string | null;
   signalAgeMs: number | null;
+  lastAgentSignalTimestamp: string | null;
+  agentSignalAgeMs: number | null;
+  runtimeProcessAlive: boolean | "unknown";
+  lifecycleState: OperationalProjection["lifecycleState"];
+  runtimeSignal: OperationalProjection["runtimeSignal"];
+  operatorAttention: OperationalProjection["operatorAttention"];
+  primaryStatus: OperationalProjection["primaryStatus"];
   confidence: OperationalProjection["confidence"];
   operatorActivity: OperationalProjection["operatorActivity"];
   nextRecommendedOperatorAction: string;
@@ -555,19 +579,66 @@ function metadataBoolean(metadata: Record<string, unknown> | undefined, key: str
   return metadata?.[key] === true;
 }
 
+function timestampMs(value: string | null | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function newestTimestamp(values: Array<string | null | undefined>): string | null {
+  let newest: { value: string; time: number } | null = null;
+  for (const value of values) {
+    const time = timestampMs(value);
+    if (value && time !== null && (!newest || time > newest.time)) {
+      newest = { value, time };
+    }
+  }
+  return newest?.value ?? null;
+}
+
+function runtimeLivenessEvidence(
+  database: DatabaseSync,
+  runtimeSession: RuntimeSession,
+  runtimeEvents: HolisticRuntimeEvent[],
+  now: number
+): { alive: boolean | "unknown"; lastRuntimeSignalAt: string | null; ageMs: number | null } {
+  const lastRuntimeHeartbeatAt = newestTimestamp(
+    runtimeEvents
+      .filter((event) => event.type === "session.heartbeat")
+      .map((event) => event.timestamp)
+  );
+  const process = getRuntimeProcess(database, runtimeSession.id);
+  const lastRuntimeSignalAt = newestTimestamp([
+    lastRuntimeHeartbeatAt,
+    runtimeSession.lastHeartbeatAt,
+    process?.lastHeartbeatAt
+  ]);
+  const age = signalAgeMs(lastRuntimeSignalAt, now);
+  if (age !== null && age <= OPERATIONAL_PROJECTION_FRESH_MS) {
+    return { alive: true, lastRuntimeSignalAt, ageMs: age };
+  }
+  if (age !== null) {
+    return { alive: false, lastRuntimeSignalAt, ageMs: age };
+  }
+  return { alive: "unknown", lastRuntimeSignalAt: null, ageMs: null };
+}
+
 function runtimeProjection(
+  database: DatabaseSync,
   runtimeSession: RuntimeSession,
   runtimeEvents: HolisticRuntimeEvent[],
   now: number
 ): OperationalProjection {
-  const hasHeartbeat = runtimeEvents.some((event) => event.type === "session.heartbeat");
+  const liveness = runtimeLivenessEvidence(database, runtimeSession, runtimeEvents, now);
   const isMirror = isAndonIngestMirrorSession(runtimeSession);
   return projectOperationalSession({
     sessionId: runtimeSession.id,
     runtimeSession,
     runtimeEvents,
     sourceOfTruth: isMirror ? "mixed" : "runtime",
-    runtimeProcessAlive: hasHeartbeat ? true : "unknown",
+    runtimeProcessAlive: liveness.alive,
     completedAcknowledged: metadataBoolean(runtimeSession.metadata, "completedAcknowledged")
       || metadataBoolean(runtimeSession.metadata, "acknowledged"),
     now
@@ -615,7 +686,7 @@ function legacyProjection(session: SessionRecord, events: AgentEvent[], now: num
 }
 
 function operationalItem(session: SessionRecord, projection: OperationalProjection): OperationalSessionApiItem {
-  return {
+  const item = {
     session,
     category: projection.category,
     reason: projection.reason,
@@ -625,6 +696,69 @@ function operationalItem(session: SessionRecord, projection: OperationalProjecti
     freshness: projection.freshness,
     lastSignalTimestamp: projection.lastSignalTimestamp,
     signalAgeMs: projection.signalAgeMs,
+    lastAgentSignalTimestamp: projection.lastAgentSignalTimestamp,
+    agentSignalAgeMs: projection.agentSignalAgeMs,
+    runtimeProcessAlive: projection.runtimeProcessAlive,
+    lifecycleState: projection.lifecycleState,
+    runtimeSignal: projection.runtimeSignal,
+    operatorAttention: projection.operatorAttention,
+    primaryStatus: projection.primaryStatus,
+    confidence: projection.confidence,
+    operatorActivity: projection.operatorActivity,
+    nextRecommendedOperatorAction: projection.nextRecommendedOperatorAction,
+    belongsToMissionControl: projection.belongsOnMissionControl,
+    belongsToHistory: projection.belongsInHistory,
+    projection
+  };
+
+  return normalizeTopLevelOperationalItem(item);
+}
+
+function normalizeTopLevelOperationalItem(item: OperationalSessionApiItem): OperationalSessionApiItem {
+  const isHousekeepingObjective = isMissionControlHousekeepingObjective(item.session.objective);
+  const isCompatibilityOrLegacyOnly = item.sourceOfTruth !== "runtime"
+    && !(item.category === "needs_action" && item.reason === "waiting_for_input")
+    && !(item.category === "review" && !isHousekeepingObjective);
+  if (!isHousekeepingObjective && !isCompatibilityOrLegacyOnly) {
+    return item;
+  }
+
+  const projection: OperationalProjection = {
+    ...item.projection,
+    category: "historical",
+    reason: "parked",
+    derivedOperationalStatus: "historical",
+    operatorActivity: "idle",
+    lifecycleState: "parked",
+    runtimeSignal: item.projection.runtimeSignal,
+    operatorAttention: "none",
+    primaryStatus: "parked",
+    confidence: "high",
+    nextRecommendedOperatorAction: "No live operator action",
+    belongsOnMissionControl: false,
+    belongsInHistory: true,
+    evidence: [
+      ...item.projection.evidence,
+      isCompatibilityOrLegacyOnly
+        ? "Compatibility or legacy-only telemetry is plumbing, not a top-level operational workflow."
+        : "Housekeeping objective is an internal artifact, not a top-level operational workflow."
+    ]
+  };
+
+  return {
+    ...item,
+    category: projection.category,
+    reason: projection.reason,
+    derivedOperationalStatus: projection.derivedOperationalStatus,
+    lastSignalTimestamp: projection.lastSignalTimestamp,
+    signalAgeMs: projection.signalAgeMs,
+    lastAgentSignalTimestamp: projection.lastAgentSignalTimestamp,
+    agentSignalAgeMs: projection.agentSignalAgeMs,
+    runtimeProcessAlive: projection.runtimeProcessAlive,
+    lifecycleState: projection.lifecycleState,
+    runtimeSignal: projection.runtimeSignal,
+    operatorAttention: projection.operatorAttention,
+    primaryStatus: projection.primaryStatus,
     confidence: projection.confidence,
     operatorActivity: projection.operatorActivity,
     nextRecommendedOperatorAction: projection.nextRecommendedOperatorAction,
@@ -651,7 +785,7 @@ function buildOperationalSessions(database: DatabaseSync, now = Date.now()): Ope
   const runtimeIds = new Set(runtimeSessions.map((session) => session.id));
   const runtimeItems = runtimeSessions.map((session) => {
     const runtimeEvents = getRuntimeEvents(database, session.id);
-    return operationalItem(runtimeSessionToSessionRecord(session), runtimeProjection(session, runtimeEvents, now));
+    return operationalItem(runtimeSessionToSessionRecord(session), runtimeProjection(database, session, runtimeEvents, now));
   });
 
   const legacyItems = listAllLegacySessions(database)
@@ -659,6 +793,52 @@ function buildOperationalSessions(database: DatabaseSync, now = Date.now()): Ope
     .map((session) => operationalItem(session, legacyProjection(session, getEventsTailForRules(database, session.id, 200), now)));
 
   return [...runtimeItems, ...legacyItems];
+}
+
+export interface RuntimeStartupReconciliationResult {
+  inspected: number;
+  parked: number;
+  parkedSessionIds: string[];
+}
+
+export function reconcileRuntimeSessionsOnStartup(
+  database: DatabaseSync,
+  now = Date.now()
+): RuntimeStartupReconciliationResult {
+  const parkedSessionIds: string[] = [];
+  const sessions = listRuntimeSessions(database);
+
+  for (const session of sessions) {
+    if (session.status !== "running" && session.status !== "starting") {
+      continue;
+    }
+
+    const runtimeEvents = getRuntimeEvents(database, session.id);
+    const liveness = runtimeLivenessEvidence(database, session, runtimeEvents, now);
+    const sessionUpdateAge = signalAgeMs(session.updatedAt, now);
+    const staleAge = liveness.ageMs ?? sessionUpdateAge;
+    if (liveness.alive === true || staleAge === null || staleAge <= OPERATIONAL_PROJECTION_COLD_MS) {
+      continue;
+    }
+
+    upsertRuntimeSession(database, {
+      ...session,
+      status: "parked",
+      activity: "idle",
+      metadata: {
+        ...session.metadata,
+        lifecycleReconciledAt: new Date(now).toISOString(),
+        lifecycleReconciliationReason: "stale_runtime_after_restart"
+      }
+    });
+    parkedSessionIds.push(session.id);
+  }
+
+  return {
+    inspected: sessions.length,
+    parked: parkedSessionIds.length,
+    parkedSessionIds
+  };
 }
 
 async function buildSessionDetail(
@@ -1367,6 +1547,12 @@ function legacyAgentEventToMirrorRuntimeStatus(
   existingRuntime: RuntimeSession | null
 ): RuntimeSession["status"] {
   if (event.type === "session.ended" || event.type === "session.completed") {
+    return "completed";
+  }
+  if (
+    (event.type === "agent.summary_emitted" || event.type === "agent.summary")
+    && ((event.payload as Record<string, unknown>).signal || (event.payload as Record<string, unknown>).completionSignal)
+  ) {
     return "completed";
   }
   if (event.type === "agent.question_asked" || event.type === "agent.question" || event.type === "input.requested") {

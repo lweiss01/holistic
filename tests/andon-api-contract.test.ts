@@ -135,7 +135,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
       await withApi(database, async (baseUrl) => {
         const mission = await fetch(`${baseUrl}/mission-control`);
-        const missionPayload = await mission.json() as { sessions: Array<{ session: { id: string }; category: string; rawRuntimeStatus: string }> };
+        const missionPayload = await mission.json() as { sessions: Array<{ session: { id: string }; category: string; rawRuntimeStatus: string; lifecycleState: string; primaryStatus: string }> };
         const history = await fetch(`${baseUrl}/history`);
         const historyPayload = await history.json() as { sessions: Array<{ session: { id: string }; category: string }> };
         const fleet = await fetch(`${baseUrl}/fleet`);
@@ -144,6 +144,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         assert.equal(mission.status, 200);
         assert.deepEqual(missionPayload.sessions.map((item) => item.session.id), ["session-active"]);
         assert.equal(missionPayload.sessions[0]?.category, "live");
+        assert.equal(missionPayload.sessions[0]?.lifecycleState, "running");
+        assert.equal(missionPayload.sessions[0]?.primaryStatus, "running");
         assert.equal(fleetPayload.sessions.length, 1);
         assert.equal(fleetPayload.sessions[0]?.category, "live");
         assert.equal(history.status, 200);
@@ -175,7 +177,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
       await withApi(database, async (baseUrl) => {
         const missionPayload = await (await fetch(`${baseUrl}/mission-control`)).json() as {
-          sessions: Array<{ session: { id: string }; category: string; rawRuntimeStatus: string; derivedOperationalStatus: string }>;
+          sessions: Array<{ session: { id: string }; category: string; rawRuntimeStatus: string; derivedOperationalStatus: string; primaryStatus: string; operatorAttention: string }>;
         };
         const historyPayload = await (await fetch(`${baseUrl}/history`)).json() as {
           sessions: Array<{ session: { id: string }; category: string }>;
@@ -183,10 +185,14 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         const byId = new Map(missionPayload.sessions.map((item) => [item.session.id, item]));
 
         assert.equal(byId.get("session-input")?.category, "needs_action");
+        assert.equal(byId.get("session-input")?.primaryStatus, "needs_action");
+        assert.equal(byId.get("session-input")?.operatorAttention, "input_needed");
         assert.equal(byId.get("session-input")?.derivedOperationalStatus, "needs_input");
         assert.equal(byId.get("session-review")?.category, "review");
+        assert.equal(byId.get("session-review")?.primaryStatus, "review");
         assert.notEqual(byId.get("session-review")?.category, "live");
         assert.equal(byId.get("session-stale-active")?.category, "degraded_active");
+        assert.equal(byId.get("session-stale-active")?.primaryStatus, "needs_intervention");
         assert.notEqual(byId.get("session-stale-active")?.category, "live");
         assert.equal(missionPayload.sessions.some((item) => item.session.id === "session-completed-acknowledged"), false);
         assert.equal(historyPayload.sessions.some((item) => item.session.id === "session-completed-acknowledged"), true);
@@ -212,6 +218,9 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
             session: { id: string; agentName: string };
             category: string;
             operatorActivity: string;
+            lifecycleState: string;
+            runtimeSignal: string;
+            primaryStatus: string;
             sourceOfTruth: string;
           }>;
         };
@@ -219,6 +228,9 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
         assert.ok(item);
         assert.equal(item?.category, "live");
+        assert.equal(item?.lifecycleState, "running");
+        assert.equal(item?.runtimeSignal, "alive");
+        assert.equal(item?.primaryStatus, "running");
         assert.equal(item?.operatorActivity, "editing");
         assert.equal(item?.session.agentName, "codex");
         assert.equal(item?.sourceOfTruth, "runtime");
@@ -274,6 +286,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
             session: { id: string; agentName: string };
             category: string;
             operatorActivity: string;
+            primaryStatus: string;
             reason: string;
           }>;
         };
@@ -289,10 +302,208 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         );
 
         assert.equal(item?.category, "live");
+        assert.equal(item?.primaryStatus, "running");
         assert.equal(item?.operatorActivity, "editing");
         assert.equal(item?.session.agentName, "codex");
         assert.equal(primary.some((event) => event.summary === "Session started."), false);
         assert.equal(replayPayload.events.some((event) => event.type === "agent.summary_emitted"), false);
+      });
+    }
+  },
+  {
+    name: "Andon API contract consolidates one workflow with twenty tasks and ten checkpoints into one Mission Control row",
+    run: async () => {
+      const database = createDatabase();
+      upsertRuntimeSession(database, runtimeSession({ id: "workflow-main", activity: "editing" }));
+      addHeartbeat(database, "workflow-main");
+      ingestEvents(database, [
+        {
+          id: "workflow-main-start",
+          sessionId: "workflow-main",
+          runtime: "codex",
+          taskId: null,
+          type: "session.started",
+          phase: "execute",
+          source: "system",
+          timestamp: iso(-10 * 60_000),
+          summary: "Workflow started.",
+          payload: {
+            agentName: "codex",
+            objective: "Implement lifecycle truth",
+            repoPath: "D:\\Projects\\active\\holistic",
+            worktreePath: "D:\\Projects\\active\\holistic",
+            startedAt: iso(-10 * 60_000)
+          }
+        },
+        ...Array.from({ length: 10 }, (_, index) => ({
+          id: `workflow-checkpoint-${index}`,
+          sessionId: "workflow-main",
+          runtime: "codex",
+          taskId: null,
+          type: "session.checkpoint_created" as const,
+          phase: "execute" as const,
+          source: "system" as const,
+          timestamp: iso((-9 * 60_000) + index * 1000),
+          summary: `Checkpoint ${index}`,
+          payload: { checkpointCount: index + 1 }
+        })),
+        ...Array.from({ length: 20 }, (_, index) => ({
+          id: `workflow-task-${index}`,
+          sessionId: "workflow-main",
+          runtime: "codex",
+          taskId: `task-${index}`,
+          type: "task.completed" as const,
+          phase: "execute" as const,
+          source: "agent" as const,
+          timestamp: iso((-8 * 60_000) + index * 1000),
+          summary: `Internal task ${index} completed.`,
+          payload: { title: `Internal task ${index}`, phase: "execute" }
+        }))
+      ]);
+
+      await withApi(database, async (baseUrl) => {
+        const missionPayload = await (await fetch(`${baseUrl}/mission-control`)).json() as {
+          sessions: Array<{ session: { id: string }; category: string }>;
+        };
+        const replayPayload = await (await fetch(`${baseUrl}/sessions/workflow-main/replay`)).json() as {
+          events: Array<{ type: string; kind: string }>;
+        };
+
+        assert.deepEqual(missionPayload.sessions.map((item) => item.session.id), ["workflow-main"]);
+        assert.equal(replayPayload.events.filter((event) => event.type === "holistic.checkpoint").length, 10);
+      });
+    }
+  },
+  {
+    name: "Andon API contract compatibility mirror events do not create top-level Mission Control sessions",
+    run: async () => {
+      const database = createDatabase();
+      ingestEvents(database, [
+        {
+          id: "legacy-summary-artifact",
+          sessionId: "legacy-artifact",
+          runtime: "codex",
+          taskId: null,
+          type: "agent.summary_emitted",
+          phase: "execute",
+          source: "system",
+          timestamp: iso(-4 * 60_000),
+          summary: "Legacy ingest checkpoint artifact.",
+          payload: {
+            agentName: "codex",
+            objective: "Searchable old work",
+            repoPath: "D:\\Projects\\active\\holistic",
+            worktreePath: "D:\\Projects\\active\\holistic"
+          }
+        }
+      ]);
+
+      await withApi(database, async (baseUrl) => {
+        const missionPayload = await (await fetch(`${baseUrl}/mission-control`)).json() as {
+          sessions: Array<{ session: { id: string }; category: string }>;
+        };
+        const historyPayload = await (await fetch(`${baseUrl}/history`)).json() as {
+          sessions: Array<{ session: { id: string }; category: string; primaryStatus: string }>;
+        };
+
+        assert.equal(missionPayload.sessions.some((item) => item.session.id === "legacy-artifact"), false);
+        const historical = historyPayload.sessions.find((item) => item.session.id === "legacy-artifact");
+        assert.ok(historical);
+        assert.equal(historical?.category, "historical");
+        assert.equal(historical?.primaryStatus, "parked");
+      });
+    }
+  },
+  {
+    name: "Andon API contract suppresses housekeeping sessions from top-level Mission Control rows",
+    run: async () => {
+      const database = createDatabase();
+      upsertRuntimeSession(database, runtimeSession({ id: "workflow-main" }));
+      addHeartbeat(database, "workflow-main");
+      for (const [index, objective] of [
+        "Prepare durable handoff",
+        "Document current work",
+        "Pause at natural breakpoint"
+      ].entries()) {
+        upsertRuntimeSession(database, runtimeSession({
+          id: `housekeeping-${index}`,
+          status: "running",
+          metadata: { objective }
+        }));
+        addHeartbeat(database, `housekeeping-${index}`);
+      }
+
+      await withApi(database, async (baseUrl) => {
+        const missionPayload = await (await fetch(`${baseUrl}/mission-control`)).json() as {
+          sessions: Array<{ session: { id: string }; category: string }>;
+        };
+        const historyPayload = await (await fetch(`${baseUrl}/history`)).json() as {
+          sessions: Array<{ session: { id: string }; category: string; reason: string }>;
+        };
+
+        assert.deepEqual(missionPayload.sessions.map((item) => item.session.id), ["workflow-main"]);
+        for (const id of ["housekeeping-0", "housekeeping-1", "housekeeping-2"]) {
+          assert.equal(missionPayload.sessions.some((item) => item.session.id === id), false);
+          assert.equal(historyPayload.sessions.some((item) => item.session.id === id && item.category === "historical"), true);
+        }
+      });
+    }
+  },
+  {
+    name: "Andon API contract final agent response transitions current workflow out of live",
+    run: async () => {
+      const database = createDatabase();
+      ingestEvents(database, [
+        {
+          id: "workflow-final-start",
+          sessionId: "workflow-final",
+          runtime: "codex",
+          taskId: null,
+          type: "session.started",
+          phase: "execute",
+          source: "system",
+          timestamp: iso(-10 * 60_000),
+          summary: "Workflow started.",
+          payload: {
+            source: "andon.runtime-writer",
+            agentName: "codex",
+            objective: "Complete the workflow",
+            repoPath: "D:\\Projects\\active\\holistic",
+            worktreePath: "D:\\Projects\\active\\holistic",
+            startedAt: iso(-10 * 60_000),
+            activity: "editing"
+          }
+        },
+        {
+          id: "workflow-final-complete",
+          sessionId: "workflow-final",
+          runtime: "codex",
+          taskId: null,
+          type: "agent.summary_emitted",
+          phase: "execute",
+          source: "agent",
+          timestamp: iso(-60_000),
+          summary: "Final output returned.",
+          payload: {
+            signal: { kind: "natural-breakpoint", source: "agent" },
+            agentName: "codex",
+            activity: "reviewing"
+          }
+        }
+      ]);
+
+      await withApi(database, async (baseUrl) => {
+        const missionPayload = await (await fetch(`${baseUrl}/mission-control`)).json() as {
+          sessions: Array<{ session: { id: string }; category: string; rawRuntimeStatus: string; primaryStatus: string; lifecycleState: string }>;
+        };
+        const item = missionPayload.sessions.find((session) => session.session.id === "workflow-final");
+
+        assert.ok(item);
+        assert.equal(item?.category, "review");
+        assert.equal(item?.primaryStatus, "review");
+        assert.equal(item?.lifecycleState, "review_ready");
+        assert.equal(item?.rawRuntimeStatus, "completed");
+        assert.notEqual(item?.category, "live");
       });
     }
   },
@@ -321,6 +532,112 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         assert.ok(historical);
         assert.equal(historical?.category, "historical");
         assert.equal(historical?.reason, "stale_review");
+      });
+    }
+  },
+  {
+    name: "Andon API contract shutdown restart with no fresh heartbeat does not leave zombie Live",
+    run: async () => {
+      const database = createDatabase();
+      const oldSignal = iso(-41 * 60 * 60_000);
+      upsertRuntimeSession(database, runtimeSession({
+        id: "session-zombie",
+        status: "running",
+        updatedAt: oldSignal
+      }));
+      addHeartbeat(database, "session-zombie", oldSignal);
+
+      await withApi(database, async (baseUrl) => {
+        const missionPayload = await (await fetch(`${baseUrl}/mission-control`)).json() as {
+          sessions: Array<{
+            session: { id: string };
+            category: string;
+            runtimeProcessAlive: boolean | "unknown";
+          }>;
+        };
+        const historyPayload = await (await fetch(`${baseUrl}/history`)).json() as {
+          sessions: Array<{ session: { id: string }; category: string; rawRuntimeStatus: string; reason: string }>;
+        };
+
+        assert.equal(missionPayload.sessions.some((item) => item.session.id === "session-zombie"), false);
+        const historical = historyPayload.sessions.find((item) => item.session.id === "session-zombie");
+        assert.ok(historical);
+        assert.equal(historical?.category, "historical");
+        assert.equal(historical?.rawRuntimeStatus, "parked");
+        assert.equal(historical?.reason, "parked");
+      });
+    }
+  },
+  {
+    name: "Andon API contract fresh heartbeat after restart remains Live with runtime liveness proof",
+    run: async () => {
+      const database = createDatabase();
+      upsertRuntimeSession(database, runtimeSession({
+        id: "session-fresh-after-restart",
+        status: "running",
+        activity: "editing",
+        updatedAt: iso(-30_000)
+      }));
+      addHeartbeat(database, "session-fresh-after-restart", iso(-20_000));
+
+      await withApi(database, async (baseUrl) => {
+        const missionPayload = await (await fetch(`${baseUrl}/mission-control`)).json() as {
+          sessions: Array<{
+            session: { id: string };
+            category: string;
+            operatorActivity: string;
+            runtimeProcessAlive: boolean | "unknown";
+            runtimeSignal: string;
+            primaryStatus: string;
+            agentSignalAgeMs: number | null;
+          }>;
+        };
+        const item = missionPayload.sessions.find((session) => session.session.id === "session-fresh-after-restart");
+
+        assert.ok(item);
+        assert.equal(item?.category, "live");
+        assert.equal(item?.primaryStatus, "running");
+        assert.equal(item?.runtimeSignal, "alive");
+        assert.equal(item?.operatorActivity, "editing");
+        assert.equal(item?.runtimeProcessAlive, true);
+        assert.equal(typeof item?.agentSignalAgeMs, "number");
+      });
+    }
+  },
+  {
+    name: "Andon API contract API refresh alone does not make a running session Live",
+    run: async () => {
+      const database = createDatabase();
+      upsertRuntimeSession(database, runtimeSession({
+        id: "session-api-refresh-only",
+        status: "running",
+        updatedAt: iso(-10_000)
+      }));
+
+      await withApi(database, async (baseUrl) => {
+        const missionPayload = await (await fetch(`${baseUrl}/mission-control`)).json() as {
+          generatedAt: string;
+          sessions: Array<{
+            session: { id: string };
+            category: string;
+            runtimeProcessAlive: boolean | "unknown";
+            runtimeSignal: string;
+            primaryStatus: string;
+            lastAgentSignalTimestamp: string | null;
+            agentSignalAgeMs: number | null;
+          }>;
+        };
+        const item = missionPayload.sessions.find((session) => session.session.id === "session-api-refresh-only");
+
+        assert.ok(item);
+        assert.equal(item?.category, "degraded_active");
+        assert.equal(item?.primaryStatus, "needs_intervention");
+        assert.notEqual(item?.category, "live");
+        assert.equal(item?.runtimeProcessAlive, "unknown");
+        assert.equal(item?.runtimeSignal, "unknown");
+        assert.equal(item?.lastAgentSignalTimestamp, null);
+        assert.equal(item?.agentSignalAgeMs, null);
+        assert.equal(typeof missionPayload.generatedAt, "string");
       });
     }
   },

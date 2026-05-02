@@ -22,6 +22,7 @@ import {
   getSessionsList,
   getSessionTimeline,
   ingestEvents,
+  reconcileRuntimeSessionsOnStartup,
   type TimelinePageOptions
 } from "./repository.ts";
 
@@ -130,6 +131,7 @@ export function createAndonHandler(
   database = getDatabase(),
   holisticBridge: HolisticBridge = mockHolisticBridge
 ): (request: IncomingMessage, response: ServerResponse) => Promise<void> {
+  reconcileRuntimeSessionsOnStartup(database);
   const clients = new Set<ServerResponse>();
   let streamBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
 

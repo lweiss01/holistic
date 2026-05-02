@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 const apiBaseUrl = (process.env.ANDON_API_BASE_URL ?? "http://127.0.0.1:4318").replace(/\/$/, "");
 const repoRoot = process.env.HOLISTIC_REPO ?? process.cwd();
 const intervalMs = Number(process.env.ANDON_RUNTIME_WRITER_INTERVAL_MS ?? "10000");
+const staleSessionMs = Number(process.env.ANDON_RUNTIME_WRITER_STALE_SESSION_MS ?? String(20 * 60 * 1000));
 const runOnce = process.argv.includes("--once");
 
 function parseState(text) {
@@ -53,6 +54,34 @@ function asAgentName(session) {
   return candidate && candidate.toLowerCase() !== "unknown" ? candidate : "codex";
 }
 
+function parseTimestampMs(value) {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return null;
+  }
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : null;
+}
+
+function lastSessionSignalMs(session) {
+  return parseTimestampMs(session?.updatedAt)
+    ?? parseTimestampMs(session?.lastUpdatedAt)
+    ?? parseTimestampMs(session?.lastEventAt)
+    ?? parseTimestampMs(session?.lastSignalAt)
+    ?? parseTimestampMs(session?.endedAt)
+    ?? parseTimestampMs(session?.startedAt);
+}
+
+export function isSessionFreshEnoughForRuntimeWriter(session, nowMs, maxAgeMs = staleSessionMs) {
+  if (session?.completionSignal) {
+    return true;
+  }
+  const lastSignal = lastSessionSignalMs(session);
+  if (lastSignal === null) {
+    return false;
+  }
+  return nowMs - lastSignal <= maxAgeMs;
+}
+
 export function buildStartedEvent(session, nowIso) {
   const startedAt = session.startedAt || nowIso;
   return {
@@ -94,6 +123,31 @@ export function buildHeartbeatEvent(session, nowIso) {
       checkpointCount: session.checkpointCount ?? 0,
       activity: asActivity(session),
       latestStatus: session.latestStatus || null,
+      sessionUpdatedAt: session.updatedAt || session.lastUpdatedAt || session.lastEventAt || null,
+      source: "andon.runtime-writer"
+    }
+  };
+}
+
+export function buildCompletedEvent(session, nowIso) {
+  return {
+    id: `runtime-writer-completed-${session.id}`,
+    sessionId: session.id,
+    runtime: "codex",
+    type: "session.completed",
+    phase: asPhase(session),
+    source: "system",
+    timestamp: nowIso,
+    summary: session.latestStatus || "Agent returned final output.",
+    payload: {
+      objective: session.currentGoal || session.title || "Unknown objective",
+      agentName: asAgentName(session),
+      startedAt: session.startedAt || nowIso,
+      completedAt: nowIso,
+      activity: "reviewing",
+      latestStatus: session.latestStatus || null,
+      sessionUpdatedAt: session.updatedAt || session.lastUpdatedAt || session.lastEventAt || null,
+      completionSignal: session.completionSignal ?? null,
       source: "andon.runtime-writer"
     }
   };
@@ -115,7 +169,8 @@ function loadWriterState() {
   const parsed = parseState(fs.readFileSync(stateFile, "utf8"));
   return {
     lastStartedSessionId: typeof parsed?.lastStartedSessionId === "string" ? parsed.lastStartedSessionId : null,
-    lastHeartbeatAtMs: Number.isFinite(Number(parsed?.lastHeartbeatAtMs)) ? Number(parsed.lastHeartbeatAtMs) : 0
+    lastHeartbeatAtMs: Number.isFinite(Number(parsed?.lastHeartbeatAtMs)) ? Number(parsed.lastHeartbeatAtMs) : 0,
+    lastCompletedSessionId: typeof parsed?.lastCompletedSessionId === "string" ? parsed.lastCompletedSessionId : null
   };
 }
 
@@ -128,12 +183,29 @@ function saveWriterState(writerState) {
 export function buildRuntimeWriterEvents(session, nowMs, writerState, heartbeatIntervalMs = intervalMs) {
   const nowIso = new Date(nowMs).toISOString();
   const events = [];
+  const sessionIsFresh = isSessionFreshEnoughForRuntimeWriter(session, nowMs);
+  const shouldEmitComplete = Boolean(session.completionSignal) && writerState.lastCompletedSessionId !== session.id;
+
+  if (!sessionIsFresh && !shouldEmitComplete) {
+    return {
+      events,
+      shouldEmitStart: false,
+      shouldEmitHeartbeat: false,
+      shouldEmitComplete: false,
+      skippedStaleSession: true
+    };
+  }
+
   const shouldEmitStart = writerState.lastStartedSessionId !== session.id;
   if (shouldEmitStart) {
     events.push(buildStartedEvent(session, nowIso));
   }
 
-  const shouldEmitHeartbeat = nowMs - writerState.lastHeartbeatAtMs >= heartbeatIntervalMs;
+  if (shouldEmitComplete) {
+    events.push(buildCompletedEvent(session, nowIso));
+  }
+
+  const shouldEmitHeartbeat = !session.completionSignal && nowMs - writerState.lastHeartbeatAtMs >= heartbeatIntervalMs;
   if (shouldEmitHeartbeat) {
     events.push(buildHeartbeatEvent(session, nowIso));
   }
@@ -141,7 +213,9 @@ export function buildRuntimeWriterEvents(session, nowMs, writerState, heartbeatI
   return {
     events,
     shouldEmitStart,
-    shouldEmitHeartbeat
+    shouldEmitHeartbeat,
+    shouldEmitComplete,
+    skippedStaleSession: false
   };
 }
 
@@ -181,7 +255,7 @@ async function tick() {
   const session = state.activeSession;
   const nowMs = Date.now();
   const writerState = loadWriterState();
-  const { events, shouldEmitStart, shouldEmitHeartbeat } = buildRuntimeWriterEvents(session, nowMs, writerState, intervalMs);
+  const { events, shouldEmitStart, shouldEmitHeartbeat, shouldEmitComplete } = buildRuntimeWriterEvents(session, nowMs, writerState, intervalMs);
 
   const posted = await postEvents(events);
   if (!posted) {
@@ -192,6 +266,9 @@ async function tick() {
   }
   if (shouldEmitHeartbeat) {
     writerState.lastHeartbeatAtMs = nowMs;
+  }
+  if (shouldEmitComplete) {
+    writerState.lastCompletedSessionId = session.id;
   }
   saveWriterState(writerState);
 }

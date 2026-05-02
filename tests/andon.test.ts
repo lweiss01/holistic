@@ -704,17 +704,10 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
           heatmap: Array<{ hourStart: string; count: number }>;
         };
         assert.ok(Boolean(fleetPayload.generatedAt));
-        assert.equal(fleetPayload.totals.totalSessions, 1);
+        assert.equal(fleetPayload.totals.totalSessions, 0);
         assert.equal(fleetPayload.totals.activeAgents, 0);
         assert.ok(Array.isArray(fleetPayload.riskReasons));
-        assert.equal(fleetPayload.sessions[0]?.session.id, "session-andon-mvp");
-        assert.equal(typeof fleetPayload.sessions[0]?.attentionRank, "number");
-        assert.equal(typeof fleetPayload.sessions[0]?.attentionBreakdown.status, "number");
-        assert.equal(typeof fleetPayload.sessions[0]?.attentionBreakdown.urgency, "number");
-        assert.equal(typeof fleetPayload.sessions[0]?.attentionBreakdown.freshness, "number");
-        assert.equal(typeof fleetPayload.sessions[0]?.recommendedAction, "string");
-        assert.ok(Array.isArray(fleetPayload.sessions[0]?.availableActions));
-        assert.ok(fleetPayload.sessions[0]?.availableActions.includes("inspect"));
+        assert.equal(fleetPayload.sessions.some((item) => item.session.id === "session-andon-mvp"), false);
         assert.ok(Array.isArray(fleetPayload.recentEvents));
 
         const collectorEvent: AgentEvent = {
@@ -1185,7 +1178,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
-    name: "Andon fleet shows mirrored runtime card after legacy summary ingest",
+    name: "Andon fleet keeps legacy summary mirror out of Mission Control cards",
     run: async () => {
       const tempDir = makeTempDir("andon-fleet-legacy-runtime-missing");
       const databasePath = path.join(tempDir, "andon.sqlite");
@@ -1252,12 +1245,8 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         };
 
         const item = fleetPayload.sessions.find((session) => session.session.id === "session-runtime-missing");
-        assert.ok(item);
-        assert.equal(item?.category, "degraded_active");
-        assert.equal(item?.categoryReason, "missing_runtime_signal");
-        assert.equal(item?.status.status, "blocked");
-        assert.match(item?.status.explanation ?? "", /Runtime status is running|runtime truth/i);
-        assert.ok(item?.status.evidence.some((line) => /runtime truth|Runtime status is running/i.test(line)));
+        assert.equal(item, undefined);
+        assert.equal(fleetPayload.totals.totalSessions, 0);
         assert.equal(fleetPayload.totals.activeAgents, 0);
       } finally {
         database.close();
