@@ -11,23 +11,7 @@
 Your agents switch. Your repo remembers.
 ```
 
-[
-
-![npm version](https://img.shields.io/npm/v/holistic.svg)
-
-](https://www.npmjs.com/package/holistic) [
-
-![Tests](https://img.shields.io/github/actions/workflow/status/lweiss01/holistic/test.yml?branch=main&label=tests)
-
-](https://github.com/lweiss01/holistic/actions) [
-
-![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
-
-](./LICENSE) [
-
-![Node.js](https://img.shields.io/badge/node-%3E%3D24-339933.svg)
-
-](./package.json)
+[![npm version](https://img.shields.io/npm/v/holistic.svg)](https://www.npmjs.com/package/holistic) [![Tests](https://img.shields.io/github/actions/workflow/status/lweiss01/holistic/test.yml?branch=main&label=tests)](https://github.com/lweiss01/holistic/actions) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE) [![Node.js](https://img.shields.io/badge/node-%3E%3D24-339933.svg)](./package.json)
 
 ### One command. Every agent. Zero re-explaining. ✨  
 ### Checkpoints, not transcripts.
