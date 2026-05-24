@@ -11,25 +11,41 @@
 Your agents switch. Your repo remembers.
 ```
 
-[![npm version](https://img.shields.io/npm/v/holistic.svg)](https://www.npmjs.com/package/holistic)
-[![Tests](https://img.shields.io/github/actions/workflow/status/lweiss01/holistic/test.yml?branch=main&label=tests)](https://github.com/lweiss01/holistic/actions)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D24-339933.svg)](./package.json)
+[
+
+![npm version](https://img.shields.io/npm/v/holistic.svg)
+
+](https://www.npmjs.com/package/holistic)
+[
+
+![Tests](https://img.shields.io/github/actions/workflow/status/lweiss01/holistic/test.yml?branch=main&label=tests)
+
+](https://github.com/lweiss01/holistic/actions)
+[
+
+![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
+
+](./LICENSE)
+[
+
+![Node.js](https://img.shields.io/badge/node-%3E%3D24-339933.svg)
+
+](./package.json)
 
 ### One command. Every agent. Zero re-explaining. ✨  
 ### Checkpoints, not transcripts.
 
-HOLISTIC gives AI coding agents durable continuity inside the repository itself.
+Holistic gives AI coding agents durable continuity inside the repository itself.
 
 Context windows fill up.  
 Sessions compact.  
 Agents forget.
 
-HOLISTIC is built around a different idea:
+Holistic is built around a different idea:
 
 > The repository should be the source of truth, not the chat window.
 
-Instead of relying on giant transcripts or fragile prompt history, HOLISTIC stores durable project continuity as structured repo-native artifacts:
+Instead of relying on giant transcripts or fragile prompt history, Holistic stores durable project continuity as structured repo-native artifacts:
 - checkpoints
 - handoffs
 - decisions
@@ -46,7 +62,7 @@ The result:
 
 ---
 
-# Why HOLISTIC Exists 😵
+# Why Holistic Exists 😵
 
 Modern AI coding workflows are fragile.
 
@@ -58,7 +74,11 @@ An agent works for hours, the context window fills up, compaction happens, and s
 - the next session starts from partial understanding
 - humans re-explain the same context repeatedly
 
-HOLISTIC treats LLM sessions as disposable execution surfaces, not durable memory systems.
+This is the context tax. Every compaction, every new session, every agent switch costs you time you already spent.
+
+The fix is not a bigger context window. It is deciding the context window was never the right place to store memory in the first place.
+
+Holistic treats LLM sessions as disposable execution surfaces, not durable memory systems.
 
 The durable memory lives in the repo.
 
@@ -66,7 +86,7 @@ The durable memory lives in the repo.
 
 # Checkpoints, Not Transcripts 🧭
 
-HOLISTIC does not try to preserve entire conversations forever.
+Holistic does not try to preserve entire conversations forever.
 
 Instead, agents periodically create structured checkpoints at meaningful moments:
 - end of a session
@@ -89,7 +109,7 @@ The live context window becomes disposable working memory.
 
 ---
 
-# What it feels like with HOLISTIC 🌿
+# What it feels like with Holistic 🌿
 
 Run one setup command:
 
@@ -102,7 +122,7 @@ Then daily use is mostly:
 1. Open the repo in Codex, Claude, Gemini, Cursor, or another supported app
 2. Start a fresh session
 3. Ask the agent to read `AGENTS.md` and `HOLISTIC.md`
-4. Let HOLISTIC carry continuity through checkpoints, handoffs, and repo memory
+4. Let Holistic carry continuity through checkpoints, handoffs, and repo memory
 
 Most days, you do not need to keep a terminal process open or manually re-brief the agent.
 
@@ -128,9 +148,9 @@ The repo remembers, not the window.
 
 ---
 
-# Why trust HOLISTIC? 🔒
+# Why trust Holistic? 🔒
 
-HOLISTIC is designed to be safe to install, inspectable, and predictable.
+Holistic is designed to be safe to install, inspectable, and predictable.
 
 - 🛡️ Security-hardened repository containment and integrity protections
 - 🧪 Broad automated test coverage for core flows and Andon paths
@@ -159,7 +179,7 @@ After that, open the repo in your agent app and use this startup prompt:
 Before doing any other work, read AGENTS.md and HOLISTIC.md, recap the current state briefly, and ask me exactly one question: continue as planned, tweak the plan, or start something new.
 ```
 
-That is enough to get the core HOLISTIC workflow running.
+That is enough to get the core Holistic workflow running.
 
 ---
 
@@ -211,7 +231,7 @@ git add .holistic/context/
 git commit -m "feat: add holistic"
 ```
 
-By default, HOLISTIC syncs portable continuity state through a hidden git ref (`refs/holistic/state`) to avoid GitHub branch noise.
+By default, Holistic syncs portable continuity state through a hidden git ref (`refs/holistic/state`) to avoid GitHub branch noise.
 
 Advanced overrides:
 
@@ -276,7 +296,7 @@ Future agents will see the warning before touching risky areas again.
 
 # Works with multiple agent apps 🤝
 
-HOLISTIC is model-agnostic.
+Holistic is model-agnostic.
 
 Claude can hand work to Codex.  
 Codex can hand work to Gemini.  
@@ -344,9 +364,53 @@ Machine-local helpers under `.holistic/system/` remain local and are already git
 
 ---
 
-# Andon (Experimental) 🚦
+# Architecture 🏗️
 
-Andon is HOLISTIC's operational awareness layer for long-running agentic workflows.
+Holistic is intentionally repo-first, not machine-first.
+
+| Layer | Purpose | Portable? |
+|---|---|---|
+| Repo memory | Shared continuity and cognitive state | Yes |
+| State ref | Cross-device continuity distribution | Yes |
+| Local daemon | Passive capture on one machine | No |
+| Andon | Operational awareness and supervision | Optional |
+
+This split is what allows Holistic to work across tools, sessions, and devices instead of being tied to a single machine or model.
+
+---
+
+# What Holistic is NOT ❌
+
+Holistic is not:
+- a vector database
+- a hosted memory SaaS
+- transcript replay
+- prompt stuffing middleware
+- infinite context
+- chat archival
+
+Holistic is repo-native continuity infrastructure.
+
+---
+
+# Why this matters 🌎
+
+If you already use more than one AI coding assistant, you already have the continuity problem.
+
+Holistic gives you:
+- less repeated explanation
+- fewer accidental regressions
+- clearer handoffs
+- durable architectural memory
+- resumable sessions
+- interchangeable agents
+- continuity across compaction events
+
+---
+
+# Experimental: Andon 🚦
+
+Andon (named for the Toyota production system signal that something needs attention) is Holistic's operational awareness layer for long-running agentic workflows.
 
 Think of it as Mission Control for agent workflows.
 
@@ -380,53 +444,9 @@ Andon is experimental and evolving rapidly.
 
 ---
 
-# Architecture 🏗️
-
-HOLISTIC is intentionally repo-first, not machine-first.
-
-| Layer | Purpose | Portable? |
-|---|---|---|
-| Repo memory | Shared continuity and cognitive state | Yes |
-| State ref | Cross-device continuity distribution | Yes |
-| Local daemon | Passive capture on one machine | No |
-| Andon | Operational awareness and supervision | Optional |
-
-This split is what allows HOLISTIC to work across tools, sessions, and devices instead of being tied to a single machine or model.
-
----
-
-# What HOLISTIC is NOT ❌
-
-HOLISTIC is not:
-- a vector database
-- a hosted memory SaaS
-- transcript replay
-- prompt stuffing middleware
-- infinite context
-- chat archival
-
-HOLISTIC is repo-native continuity infrastructure.
-
----
-
-# Why this matters 🌎
-
-If you already use more than one AI coding assistant, you already have the continuity problem.
-
-HOLISTIC gives you:
-- less repeated explanation
-- fewer accidental regressions
-- clearer handoffs
-- durable architectural memory
-- resumable sessions
-- interchangeable agents
-- continuity across compaction events
-
----
-
 # Current Status 🚧
 
-HOLISTIC is under active development.
+Holistic is under active development.
 
 The architecture is evolving quickly, especially around:
 - Andon
@@ -444,7 +464,7 @@ The implementation is still evolving.
 
 Issues, experiments, critiques, and architectural discussions are all welcome.
 
-This space is evolving rapidly, and HOLISTIC is intentionally exploring new patterns for durable agentic software workflows.
+This space is evolving rapidly, and Holistic is intentionally exploring new patterns for durable agentic software workflows.
 
 - [Issues](https://github.com/lweiss01/holistic/issues)
 - [Security](./SECURITY.md)
