@@ -1,15 +1,14 @@
 # Holistic
 
-```
+```text
 ██╗  ██╗ ██████╗ ██╗     ██╗███████╗████████╗██╗ ██████╗
 ██║  ██║██╔═══██╗██║     ██║██╔════╝╚══██╔══╝██║██╔════╝
-███████║██║   ██║██║     ██║███████╗   ██║   ██║██║     
-██╔══██║██║   ██║██║     ██║╚════██║   ██║   ██║██║     
+███████║██║   ██║██║     ██║███████╗   ██║   ██║██║
+██╔══██║██║   ██║██║     ██║╚════██║   ██║   ██║██║
 ██║  ██║╚██████╔╝███████╗██║███████║   ██║   ██║╚██████╗
 ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝╚══════╝   ╚═╝   ╚═╝ ╚═════╝
 
-Your repo remembers, so your next agent doesn't have to guess.
-Shared memory for AI agents, built into your repo.
+Your agents switch. Your repo remembers.
 ```
 
 [![npm version](https://img.shields.io/npm/v/holistic.svg)](https://www.npmjs.com/package/holistic)
@@ -18,27 +17,134 @@ Shared memory for AI agents, built into your repo.
 [![Node.js](https://img.shields.io/badge/node-%3E%3D24-339933.svg)](./package.json)
 
 ### One command. Every agent. Zero re-explaining. ✨  
-No context loss. No fragile handoffs.
+### Checkpoints, not transcripts.
 
-Holistic gives your AI agents shared memory inside the repo itself. When you switch from Claude to Codex to Gemini, the next agent can see what happened last time, what not to break, and what should happen next.
+HOLISTIC gives AI coding agents durable continuity inside the repository itself.
+
+Context windows fill up.  
+Sessions compact.  
+Agents forget.
+
+HOLISTIC is built around a different idea:
+
+> The repository should be the source of truth, not the chat window.
+
+Instead of relying on giant transcripts or fragile prompt history, HOLISTIC stores durable project continuity as structured repo-native artifacts:
+- checkpoints
+- handoffs
+- decisions
+- operational state
+- active work context
+- unresolved threads
+
+The result:
+- agents can switch
+- sessions can end
+- context can compact
+
+…and the project still remembers where it was.
 
 ---
 
-## Why trust Holistic? 🔒
+# Why HOLISTIC Exists 😵
 
-Holistic is designed to be **safe to install, inspectable, and predictable**.
+Modern AI coding workflows are fragile.
 
-- 🛡️ **Security-hardened** — enforced repository containment and state integrity checks (v0.6.4+)
-- 🧪 Broad automated test suite (`npm test`) covering core flows, security boundaries, and Andon MVP paths
-- 🛠️ Actively maintained (frequent releases)
+An agent works for hours, the context window fills up, compaction happens, and suddenly:
+- architectural reasoning disappears
+- unresolved work gets forgotten
+- bugs reappear
+- handoffs become messy
+- the next session starts from partial understanding
+- humans re-explain the same context repeatedly
+
+HOLISTIC treats LLM sessions as disposable execution surfaces, not durable memory systems.
+
+The durable memory lives in the repo.
+
+---
+
+# Checkpoints, Not Transcripts 🧭
+
+HOLISTIC does not try to preserve entire conversations forever.
+
+Instead, agents periodically create structured checkpoints at meaningful moments:
+- end of a session
+- before a context switch
+- after important decisions
+- before handing work to another agent
+
+Each checkpoint captures:
+- current state
+- active work
+- unresolved threads
+- decisions and reasoning
+- gotchas
+- next recommended actions
+
+A future agent resumes from the checkpoint instead of trying to reconstruct meaning from a compacted transcript.
+
+The checkpoint becomes the durable source of truth.  
+The live context window becomes disposable working memory.
+
+---
+
+# What it feels like with HOLISTIC 🌿
+
+Run one setup command:
+
+```bash
+holistic bootstrap
+```
+
+Then daily use is mostly:
+
+1. Open the repo in Codex, Claude, Gemini, Cursor, or another supported app
+2. Start a fresh session
+3. Ask the agent to read `AGENTS.md` and `HOLISTIC.md`
+4. Let HOLISTIC carry continuity through checkpoints, handoffs, and repo memory
+
+Most days, you do not need to keep a terminal process open or manually re-brief the agent.
+
+---
+
+# How it works 🧠
+
+```text
+Agent session starts
+        ↓
+Reads HOLISTIC.md + repo continuity artifacts
+        ↓
+Performs work
+        ↓
+Creates checkpoint + handoff
+        ↓
+Session ends / compacts
+        ↓
+Future agent resumes from checkpoint
+```
+
+The repo remembers, not the window.
+
+---
+
+# Why trust HOLISTIC? 🔒
+
+HOLISTIC is designed to be safe to install, inspectable, and predictable.
+
+- 🛡️ Security-hardened repository containment and integrity protections
+- 🧪 Broad automated test coverage for core flows and Andon paths
+- 🧭 Transparent repo-first architecture
+- 🔍 Human-readable repo-native state
+- 🛠️ Actively maintained with rapid iteration
 
 > See [SECURITY.md](./SECURITY.md) for full technical details.
 
 ---
 
-## Get started in 30 seconds ⚡
+# Get started in 30 seconds ⚡
 
-Open your project repo in PowerShell, Terminal, Command Prompt, or whatever shell you normally use.
+Open your project repo in PowerShell, Terminal, Command Prompt, or your preferred shell.
 
 Requires Node.js 24+.
 
@@ -53,84 +159,13 @@ After that, open the repo in your agent app and use this startup prompt:
 Before doing any other work, read AGENTS.md and HOLISTIC.md, recap the current state briefly, and ask me exactly one question: continue as planned, tweak the plan, or start something new.
 ```
 
-That is enough to get the basic Holistic workflow working.
-
-If you want the fuller install and setup details, jump to [Quick start](#quick-start-).
+That is enough to get the core HOLISTIC workflow running.
 
 ---
 
-## The problem 😵
+# Quick start 🚀
 
-If you use more than one AI coding assistant, the workflow usually falls apart:
-
-- 🔁 You re-explain the project every session  
-- 🐞 Bugs come back because the next agent does not know what was already fixed  
-- 🧠 Progress gets lost when context windows end  
-- 💥 Agents undo each other because there is no durable handoff  
-- 🌫️ It is hard to tell what is actually done  
-
-Holistic fixes that by making the repo the source of truth.
-
----
-
-## What it feels like with HOLISTIC 🌿
-
-Run one setup command on a machine:
-
-```bash
-holistic bootstrap
-```
-
-Then daily use is mostly:
-
-1. Open the repo in Codex, Claude, or another supported app  
-2. Start a fresh session  
-3. Ask the agent to read `AGENTS.md` and `HOLISTIC.md`  
-4. Let Holistic carry continuity through checkpoints, handoffs, and repo memory  
-
-Most days, you do not need to keep a terminal process open or manually re-brief the agent.
-
----
-
-## How it works 🧭
-
-```text
-holistic bootstrap
-      ->
-You open a repo in your agent app
-      ->
-The agent reads HOLISTIC.md and AGENTS.md
-      ->
-"Here's where we left off. Here's what's next. Continue as planned, tweak the plan, or start something new?"
-      ->
-Work happens
-      ->
-Holistic checkpoints and handoffs keep repo memory current
-      ->
-The next agent picks up without a long re-explanation
-```
-
----
-
-## 🔒 Security & Trust Model
-
-Holistic is designed to be **transparent, audit-safe, and consent-first**.
-
-The current version of Holistic (**v0.6.5**) includes:
-
-- **Repository Path Containment**: Enforced boundaries for all repo-configured output paths.
-- **State Integrity Protection**: Corrupted `state.json` files are preserved as `.corrupt-*.json` and surfaced as a **Degraded Mode** diagnostic instead of being silently lost.
-- **Safe Mode**: A minimal-instruction mode for privacy-conscious or highly-constrained environments.
-- **Non-Mutating Build**: The build pipeline now stages sources, ensuring `src/` remains immutable.
-- **Read-Only MCP Server**: The server startup and client connection routines are strictly non-mutating (warning-only staleness checks).
-
-For full details, see [SECURITY.md](./SECURITY.md).
-
----
-
-## Quick start 🚀
-
-### Install 📦
+## Install 📦
 
 Requires Node.js 24+.
 
@@ -138,7 +173,7 @@ Requires Node.js 24+.
 npm install -g holistic
 ```
 
-Then verify the CLI is available:
+Verify the CLI:
 
 ```bash
 holistic --help
@@ -155,25 +190,28 @@ npm pack
 npm install -g ./holistic-*.tgz
 ```
 
-For local development without a packaged tarball:
+For local development without packaging:
 
 ```bash
 npm install
 npm link
 ```
 
-### Set up a repo 🛠️
+---
+
+## Set up a repo 🛠️
 
 ```bash
 cd my-project
 holistic bootstrap --remote origin --yes
+
 git add .gitattributes HOLISTIC.md AGENTS.md CLAUDE.md GEMINI.md
 git add .holistic/config.json .holistic/state.json
 git add .holistic/context/
 git commit -m "feat: add holistic"
 ```
 
-By default, Holistic now syncs portable state through a hidden git ref (`refs/holistic/state`) to avoid GitHub branch noise. That sync mirrors Holistic state only - it does not auto-push your working branch.
+By default, HOLISTIC syncs portable continuity state through a hidden git ref (`refs/holistic/state`) to avoid GitHub branch noise.
 
 Advanced overrides:
 
@@ -183,43 +221,28 @@ holistic bootstrap --state-branch holistic/state
 holistic bootstrap --portable
 ```
 
-If you want repo scaffolding without changing local desktop integrations or daemon startup on the current machine, you can use granular flags to be surgical:
+Granular bootstrap flags:
 
 ```bash
-# Only install Git hooks and managed attributes
 holistic bootstrap --yes-hooks --yes-attr
 ```
 
-**What to commit:**
-- `.gitattributes` - Holistic-managed line-ending rules for portable files
-- `.holistic/config.json` - repo configuration
-- `.holistic/state.json` - current session state  
-- `.holistic/context/` - generated docs (history, regression watch, adapters)
-- `.holistic/sessions/` - session history files
-
-**What NOT to commit:**
-- `.holistic/system/` - machine-local helper scripts and wrappers with absolute paths (already in `.gitignore`)
-
-The portable repo memory is meant to be committed and synced. Machine-local helper scripts are generated for each machine and stay local.
-
-
 ---
 
+# Daily workflow 🔄
 
-## Daily workflow 🔄
+One-time setup:
 
-One-time machine setup:
-
-- Run `holistic bootstrap`.
-- By default it scaffolds repo files, installs hooks, sets up daemon startup, and configures supported integrations such as Claude Desktop MCP on the current machine.
-- To be surgical about what is applied, use granular flags like `--yes-hooks`, `--yes-daemon`, or `--yes-mcp`.
+- Run `holistic bootstrap`
+- Configure integrations if desired
+- Commit the generated continuity files
 
 Normal use:
 
-- Start a session in Codex, Claude, or another supported app.
-- Let the agent read the repo instructions and current handoff state.
-- Work normally.
-- Use explicit CLI commands only when you want to inspect state manually or force a checkpoint or handoff yourself.
+- Start a session in Claude, Codex, Cursor, Gemini, or another supported app
+- Let the agent read repo instructions and continuity state
+- Work normally
+- Use explicit commands only when needed
 
 Useful manual commands:
 
@@ -229,16 +252,14 @@ holistic checkpoint --reason "..."
 holistic handoff
 ```
 
-If `holistic` is not on `PATH` in a given shell, every bootstrapped repo also has a repo-local fallback:
+If `holistic` is not on PATH:
 
 - Windows: `.\.holistic\system\holistic.cmd <command>`
 - macOS/Linux: `./.holistic/system/holistic <command>`
 
-
 ---
 
-
-## Regression protection 🛡️
+# Regression protection 🛡️
 
 When an agent fixes something delicate, lock it in:
 
@@ -249,38 +270,33 @@ holistic checkpoint \
   --fix-risk "changing redirect logic will re-introduce this"
 ```
 
-Future agents will see that warning in the repo docs before they touch the risky area again.
-
+Future agents will see the warning before touching risky areas again.
 
 ---
 
+# Works with multiple agent apps 🤝
 
-## Works with multiple agent apps 🤝
+HOLISTIC is model-agnostic.
 
-Holistic is model-agnostic. It works through repo files first, and can expose a thin MCP server where supported.
+Claude can hand work to Codex.  
+Codex can hand work to Gemini.  
+A human can resume from all of them.
 
-### Startup parity matrix
-
-Use this table to decide whether startup should be automatic (MCP/tooling hook) or manual (`/holistic` / `holistic_resume`).
+The continuity survives because the repo holds the state, not the model session.
 
 | App / Surface | Reads | MCP auto-start | Startup action |
 |---|---|---|---|
-| Claude Desktop / Cowork | `CLAUDE.md` and repo docs | ✅ Yes | Usually automatic after `holistic bootstrap`; if context is stale, run `holistic_resume` |
-| Codex | `AGENTS.md` and repo docs | ❌ No | Run `/holistic` (or repo-local `holistic resume --continue`) at conversation start |
-| Antigravity | `GEMINI.md` and repo docs | ❌ No | Run `/holistic` at conversation start |
+| Claude Desktop / Cowork | `CLAUDE.md` and repo docs | ✅ Yes | Usually automatic after bootstrap |
+| Codex | `AGENTS.md` and repo docs | ❌ No | Run `/holistic` at conversation start |
 | Gemini | `GEMINI.md` and repo docs | ❌ No | Run `/holistic` at conversation start |
-| Cursor | `.cursorrules` and repo docs | ❌ No | Run `/holistic` at conversation start for deterministic recap |
-| GitHub Copilot | `.github/copilot-instructions.md` and repo docs | ❌ No | Run `/holistic` at conversation start |
-| Goose | `AGENTS.md` and repo docs | ❌ No | Run repo-local `holistic resume --continue` in the shell session |
-| GSD / GSD2 | `AGENTS.md` and repo docs | ❌ No | Run `/holistic` or `holistic_resume` before first implementation step |
-| Other VS Code forks | `AGENTS.md` and repo docs | ❌ No | Treat as manual-start and run `/holistic` |
-| Web tools | repo docs pasted manually | ❌ No | Manual copy/paste recap from Holistic docs |
-
+| Cursor | `.cursorrules` and repo docs | ❌ No | Run `/holistic` manually |
+| GitHub Copilot | `.github/copilot-instructions.md` | ❌ No | Run `/holistic` manually |
+| Goose | `AGENTS.md` and repo docs | ❌ No | Run `holistic resume --continue` |
+| Other VS Code forks | `AGENTS.md` and repo docs | ❌ No | Treat as manual-start |
 
 ---
 
-
-## What lives in your repo 🗂️
+# What lives in your repo 🗂️
 
 ```text
 my-project/
@@ -289,7 +305,6 @@ my-project/
 |- CLAUDE.md
 |- GEMINI.md
 |- .cursorrules
-|- .windsurfrules
 |- .gitattributes
 |- .github/
 |  `- copilot-instructions.md
@@ -303,186 +318,147 @@ my-project/
       `- adapters/
 ```
 
-The portable repo memory (config, state, context, sessions) is meant to be committed and synced. Machine-local helper scripts and repo-local CLI fallbacks under `.holistic/system/` are generated for each machine and stay local (already in `.gitignore`).
+Portable repo memory is meant to be committed and synced.
 
+Machine-local helpers under `.holistic/system/` remain local and are already gitignored.
 
 ---
 
-
-## Commands
+# Commands ⚙️
 
 | Command | Description |
 | :--- | :--- |
 | `holistic init` | Base repo setup and scaffolding |
-| `holistic bootstrap` | One-step machine setup. Required `--yes` for Core Setup, or granular `--yes-*` flags. |
-| `holistic doctor` | Health check & config diagnostics (supports `--json`) |
-| `holistic repair` | Regenerates `.holistic/system/` local helpers |
-| `holistic resume / start` | Loads project recap and prints state **(Read-only)** |
+| `holistic bootstrap` | One-step machine setup |
+| `holistic doctor` | Health check & diagnostics |
+| `holistic repair` | Regenerates local helpers |
+| `holistic resume / start` | Loads project recap |
 | `holistic start-new` | Starts a fresh session |
-| `holistic checkpoint` | Saves progress and context **(Stateful)** |
-| `holistic handoff` | Ends a session with a handoff message **(Stateful)** |
-| `holistic status` | Shows current state and sync activity **(Read-only)** |
-| `holistic diff` | Compares two session IDs **(Read-only)** |
-| `holistic search` | Finds and retrieves session state **(Read-only)** |
-| `holistic serve` | Strictly read-only MCP server (stdio) |
-| `holistic watch` | Foreground daemon; automatically creates checkpoints **(Mutating)** |
-
-### Slash command helper text (agent-facing)
-
-When your agent UI supports slash shortcuts, use these helper mappings:
-
-| Slash | Helper text | CLI equivalent |
-|---|---|---|
-| `/holistic` | Load repo recap and confirm: continue, tweak, or start new. | `holistic resume --continue` |
-| `/checkpoint` | Save a structured checkpoint at a natural breakpoint. | `holistic checkpoint --reason "..."` |
-| `/handoff` | Finalize session handoff with summary, next steps, blockers, and regression risks. | `holistic handoff` |
-
-
-```bash
-holistic handoff \
-  --summary "Implemented OAuth flow and token storage" \
-  --next "Wire up the refresh token endpoint" \
-  --blocker "Need refresh token endpoint from backend team"
-```
-
+| `holistic checkpoint` | Saves progress and context |
+| `holistic handoff` | Ends a session with a handoff |
+| `holistic status` | Shows current state |
+| `holistic diff` | Compares two session IDs |
+| `holistic search` | Finds prior session state |
+| `holistic serve` | Read-only MCP server |
+| `holistic watch` | Automatic checkpoint daemon |
 
 ---
 
+# Andon (Experimental) 🚦
 
-## Andon developer flow
+Andon is HOLISTIC's operational awareness layer for long-running agentic workflows.
 
-Andon is Holistic's operational supervision surface for agent runtime truth.
+Think of it as Mission Control for agent workflows.
 
-For local development, run the API/runtime services with a shared SQLite database, then run the dashboard app:
+Andon surfaces:
+- active sessions
+- stale work
+- action-required states
+- pending input
+- intervention conditions
+- operational repo status
+
+The goal is not just memory, but operational cognition for agentic software development.
+
+Current dashboard routes:
+
+| UI route | API source | Purpose |
+| :--- | :--- | :--- |
+| `/` | `GET /mission-control` | Live operational board |
+| `/history` | `GET /history` | Historical sessions |
+| `/session/:id/replay` | `GET /sessions/:id/replay` | Session replay |
+| `/health` | `GET /health/andon` | Runtime diagnostics |
+
+Run locally:
 
 ```bash
 npm run andon:dev
 npm --prefix apps/andon-dashboard run dev
 ```
 
-Current dashboard routes use the clean operational API contracts:
-
-| UI route | API source | Purpose |
-| :--- | :--- | :--- |
-| `/` | `GET /mission-control` | Live operational board only: `needs_action`, `degraded_active`, `review`, `live`, and relevant `unknown` sessions |
-| `/history` | `GET /history` | Historical sessions only |
-| `/session/:id/replay` | `GET /sessions/:id/replay` | Meaningful replay first, heartbeat/no-op/context telemetry grouped away from the primary timeline |
-| `/health` | `GET /health/andon` | DB path, runtime/legacy counts, and runtime alignment diagnostics |
-
-Runtime truth is authoritative. The dashboard must not infer live/review/stale state in React, and historical data is intentionally excluded from Mission Control.
-
+Andon is experimental and evolving rapidly.
 
 ---
 
+# Architecture 🏗️
 
-## Architecture
-
-Holistic is intentionally repo-first, not machine-first.
+HOLISTIC is intentionally repo-first, not machine-first.
 
 | Layer | Purpose | Portable? |
 |---|---|---|
-| Repo memory | Shared handoff, history, regression, and session state | Yes |
-| State ref | Cross-device distribution of Holistic state via git | Yes |
+| Repo memory | Shared continuity and cognitive state | Yes |
+| State ref | Cross-device continuity distribution | Yes |
 | Local daemon | Passive capture on one machine | No |
+| Andon | Operational awareness and supervision | Optional |
 
-That split is what makes Holistic work across tools and devices instead of only on one laptop.
-
-### MCP server mode
-
-Holistic can run as a thin MCP server for agent-native workflows:
-
-```bash
-holistic serve
-```
-
-In normal use, Claude Desktop can launch this automatically after `holistic bootstrap` configures the MCP entry. You usually only run it manually for debugging.
-
-When you do run `holistic serve` manually in a terminal, Holistic prints its ASCII startup banner to `stderr` so you get visible confirmation without corrupting the MCP `stdout` transport.
-
-```json
-{
-  "mcpServers": {
-    "holistic": {
-      "command": "holistic",
-      "args": ["serve"],
-      "env": {
-        "HOLISTIC_REPO": "/path/to/your/project"
-      }
-    }
-  }
-}
-```
-
+This split is what allows HOLISTIC to work across tools, sessions, and devices instead of being tied to a single machine or model.
 
 ---
 
+# What HOLISTIC is NOT ❌
 
-## Why this matters
+HOLISTIC is not:
+- a vector database
+- a hosted memory SaaS
+- transcript replay
+- prompt stuffing middleware
+- infinite context
+- chat archival
 
-If you are already using more than one AI coding assistant, you already have the continuity problem.
-
-Holistic gives you:
-
-- Less repeated explanation
-- Fewer accidental regressions
-- Clearer handoffs across apps and devices
-- A durable record of what changed and why
-- Agents that can get to work quickly
-
+HOLISTIC is repo-native continuity infrastructure.
 
 ---
 
+# Why this matters 🌎
 
-## Beta Feedback Welcome 🙏
+If you already use more than one AI coding assistant, you already have the continuity problem.
 
-Holistic is in early beta. If you hit rough edges, unexpected behavior, or have ideas for improvement, please [open an issue](https://github.com/lweiss01/holistic/issues). Early adopter feedback directly shapes the direction of the project.
-
-For support and troubleshooting, see [SUPPORT.md](./SUPPORT.md).
-
-
----
-
-
-Holistic is designed to be **transparent, audit-safe, and consent-first**. It is a shared memory layer that stays in your repo, not a cloud service that watches your screen.
-
-### Trust Architecture:
-- **Read-Only by Default**: Routine commands (`status`, `resume`, `diff`) are strictly non-mutating. They will only **warn** you if git hooks are missing or outdated, rather than fixing them silently.
-- **Granular Consent**: `holistic bootstrap` uses a "Consent-First" model. It displays a summary of system-modifying actions and requires an explicit `--yes` for the Core Setup (hooks, daemon, MCP, attributes).
-- **Surgical Control**: Use granular flags (`--yes-hooks`, `--yes-daemon`, `--yes-mcp`, `--yes-attr`, `--yes-claude`) to apply only the specific integrations you want.
-- **Privacy Mode Enforcement**: When `portableState` is disabled (the default), all generated sync scripts and git hooks contain early-exit guards to prevent any accidental remote traffic.
-- **MCP Logging Privacy**: Control what Holistic reports to your agent UI. Set `mcpLogging` to `"off"`, `"minimal"` (default), or `"default"` in `.holistic/config.json`.
-- **Advanced Redaction**: Holistic automatically scrubs JWTs, Bearer tokens, AWS keys, and PEM blocks from all generated session metadata to prevent context leakage.
-- **Traceable Activity**: Background sync operations (PowerShell/Bash) are visible and logged with timestamps to `.holistic/system/sync.log`.
-- **Git-Native Snapshotting**: The repo snapshot logic uses native `git ls-files`, ensuring that your `.gitignore` rules are perfectly respected and performance stays $O(\text{repo size})$.
-
-### What it does:
-- Writes session state into `.holistic/` inside your repo (committed files you control)
-- Installs a daemon via standard OS autostart (Windows Startup folder, macOS LaunchAgents, Linux systemd user)
-- Can push Holistic state to a hidden git ref on your configured remote (opt-in, your repo only)
-
-### What it does NOT do:
-- Does not read or transmit file contents outside your repo
-- Does not access credentials or tokens
-- Does not phone home to any external service
-- Does not use obfuscated scripts or hidden windows
-
-For the full technical disclosure, see [SECURITY.md](./SECURITY.md).
-
+HOLISTIC gives you:
+- less repeated explanation
+- fewer accidental regressions
+- clearer handoffs
+- durable architectural memory
+- resumable sessions
+- interchangeable agents
+- continuity across compaction events
 
 ---
 
+# Current Status 🚧
 
-## Quick links
+HOLISTIC is under active development.
 
-- [Walkthrough](./docs/handoff-walkthrough.md)
-- [Security & Privacy](./SECURITY.md)
-- [Changelog](./CHANGELOG.md)
+The architecture is evolving quickly, especially around:
+- Andon
+- runtime telemetry
+- continuity workflows
+- operational semantics
+- multi-agent coordination
+
+The core philosophy is stable.  
+The implementation is still evolving.
+
+---
+
+# Beta Feedback Welcome 🙏
+
+Issues, experiments, critiques, and architectural discussions are all welcome.
+
+This space is evolving rapidly, and HOLISTIC is intentionally exploring new patterns for durable agentic software workflows.
+
+- [Issues](https://github.com/lweiss01/holistic/issues)
+- [Security](./SECURITY.md)
 - [Contributing](./CONTRIBUTING.md)
-- [License](./LICENSE)
-
-
+- [Changelog](./CHANGELOG.md)
 
 ---
 
+# License
 
-<p align="center"><em>Built for people who use more than one AI assistant and are tired of paying the context tax.</em></p>
+MIT
+
+---
+
+<p align="center">
+  <em>Built for people who use more than one AI assistant and are tired of paying the context tax.</em>
+</p>
