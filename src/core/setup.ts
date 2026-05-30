@@ -935,9 +935,7 @@ function renderAndonHookPs1(): string {
     "}",
     "$body = @{ events = @($event) } | ConvertTo-Json -Depth 5 -Compress",
     "try {",
-    "    Invoke-RestMethod -Uri \"http://127.0.0.1:4318/events\" ``",
-    "        -Method POST -Body $body -ContentType \"application/json\" ``",
-    "        -TimeoutSec 1 | Out-Null",
+    "    Invoke-RestMethod -Uri \"http://127.0.0.1:4318/events\" -Method POST -Body $body -ContentType \"application/json\" -TimeoutSec 1 | Out-Null",
     "} catch { }",
     "exit 0",
   ].join("\n");
