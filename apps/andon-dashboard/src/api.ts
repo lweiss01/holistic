@@ -1,9 +1,12 @@
 import type {
+  AgentEvent,
   OperationalCategory,
   SessionDetailResponse,
   SignalFreshnessState,
-  SessionRecord
+  SessionRecord,
 } from "../../../packages/andon-core/src/index.ts";
+
+export type { AgentEvent };
 
 const apiBaseUrl = import.meta.env.VITE_ANDON_API_BASE_URL ?? "http://127.0.0.1:4318";
 const DEFAULT_FETCH_MS = 15_000;
@@ -182,6 +185,27 @@ export interface SessionReplayResponse {
 
 export function getSessionReplay(sessionId: string): Promise<SessionReplayResponse> {
   return fetchJson<SessionReplayResponse>(`/sessions/${encodeURIComponent(sessionId)}/replay`);
+}
+
+export interface TimelineResponse {
+  sessionId: string;
+  items: AgentEvent[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+}
+
+export function getTimeline(
+  sessionId: string,
+  options: { tail?: number } = {},
+): Promise<TimelineResponse> {
+  const params = new URLSearchParams();
+  if (options.tail !== undefined) params.set("tail", String(options.tail));
+  const query = params.toString();
+  return fetchJson<TimelineResponse>(
+    `/sessions/${encodeURIComponent(sessionId)}/timeline${query ? `?${query}` : ""}`,
+  );
 }
 
 export interface AndonHealthResponse {
