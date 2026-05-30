@@ -40,8 +40,23 @@ Mission Control must not show a healthy/green empty state unless fresh source tr
 The current repo has these ingestion paths:
 
 - `POST /events`: platform-neutral HTTP event ingestion.
+- `scripts/andon-session-beacon.mjs`: generic session beacon for any agent, runner, script, or platform adapter that can emit telemetry such as start, heartbeat, work-completed, input/review requests, validation failures, completion, park, and error events.
 - `scripts/andon-runtime-writer.mjs`: a file-state/CLI writer that reads Holistic local state and emits Andon events. It is one source, not the source model.
 - `services/runtime-service`: adapter-driven runtime service for runtime sessions.
 - Legacy `sessions` / `events`: compatibility and history, not authoritative live session truth.
 
 No instrumentation means no live visibility. If a platform cannot emit events or heartbeats yet, Mission Control should say so instead of guessing.
+
+## Generic Beacon
+
+Use the beacon when a platform has no native adapter yet:
+
+```bash
+npm run andon:session -- start --source local_cli --agent "Local Agent" --repo holistic --objective "Repair Mission Control"
+npm run andon:session -- heartbeat --message "Working"
+npm run andon:session -- work-completed --message "Work is complete; awaiting next assignment"
+npm run andon:session -- begin --message "Working on the next assignment"
+npm run andon:session -- complete --message "Work complete"
+```
+
+The beacon stores its active session id in `.holistic-local/andon-session.json`, which is ignored in this public repo. See [`AGENT_SESSION_BEACON.md`](./AGENT_SESSION_BEACON.md) for the full copy/paste flow.

@@ -44,6 +44,7 @@
     "andon:health": "node scripts/andon-health.mjs",
     "andon:runtime": "node --experimental-strip-types services/runtime-service/src/server.ts",
     "andon:runtime-writer": "node scripts/andon-runtime-writer.mjs",
+    "andon:session": "node scripts/andon-session-beacon.mjs",
     "andon:db:migrate": "node scripts/andon-migrate.mjs",
     "andon:db:seed": "node scripts/andon-seed.mjs",
     "andon:build": "npm --prefix apps/andon-dashboard run build",

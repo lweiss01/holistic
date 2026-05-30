@@ -41,6 +41,10 @@ Use these helper labels where an agent UI supports slash aliases:
 
 If slash aliases are not available, use CLI equivalents (`holistic resume --continue`, `holistic checkpoint --reason "..."`, `holistic handoff`).
 
+## Andon Session Beacon
+
+Before meaningful Andon work, run `npm run andon:session -- begin --message "<current task>"` or start a beacon session if none exists. Heartbeat during work. When the current work is done but the session remains open, run `npm run andon:session -- work-completed --message "<summary>"`; complete or park only when appropriate. Use input/review/intervention commands only for real operator action gates. Local beacon state lives under `.holistic-local/` and must not be committed. See [docs/AGENT_SESSION_BEACON.md](./docs/AGENT_SESSION_BEACON.md).
+
 ## Troubleshooting
 
 If repo-local CLI helpers (`.holistic/system/holistic.cmd` or `.holistic/system/holistic`) fail or point at a wrong path, run:
