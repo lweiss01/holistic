@@ -6,7 +6,9 @@ import {
   getMissionControl,
   getSessionDetail,
   getSessionReplay,
+  getTimeline,
   subscribeToStream,
+  type AgentEvent,
   type AndonHealthResponse,
   type CanonicalSessionDetailResponse,
   type MissionControlResponse,
@@ -83,6 +85,65 @@ function trimLine(value: string | null | undefined, max = 110): string {
 
 function normalizeLabel(value: string | null | undefined): string {
   return formatValue(value).replace(/_/g, " ");
+}
+
+function eventTone(type: string): string {
+  if (type.includes("failed") || type.includes("blocked")) return "critical";
+  if (type.includes("risk") || type.includes("scope") || type.includes("retry")) return "warning";
+  if (type.includes("checkpoint") || type.includes("session")) return "memory";
+  if (type.includes("test")) return "test";
+  return "neutral";
+}
+
+const eventTypeLabels: Record<string, string> = {
+  "session.started": "Session started",
+  "session.ended": "Session ended",
+  "command.finished": "Command finished",
+  "command.failed": "Command failed",
+  "file.changed": "File changed",
+  "test.finished": "Test finished",
+  "test.failed": "Test failed",
+  "agent.summary_emitted": "Agent summary",
+  "user.resumed": "User resumed",
+};
+
+function formatTime(value: string | null | undefined): string {
+  if (!value) return "-";
+  return new Date(value).toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function TimelinePanel({ events }: { events: AgentEvent[] }) {
+  return (
+    <section className="detail-panel timeline-panel">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Live event feed</p>
+          <h2>Live timeline</h2>
+        </div>
+      </div>
+      {events.length === 0 ? (
+        <p className="muted">No events yet.</p>
+      ) : (
+        <ul className="timeline-list">
+          {events.map((event) => {
+            const tone = eventTone(event.type);
+            const label = eventTypeLabels[event.type] ?? event.type;
+            return (
+              <li key={event.id} className={`timeline-row tone-${tone}`}>
+                <time className="timeline-time">{formatTime(event.timestamp)}</time>
+                <span className={`timeline-badge tone-${tone}`}>{label}</span>
+                <p className="timeline-summary">{event.summary ?? "-"}</p>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
 }
 
 function Navigation({
@@ -456,6 +517,7 @@ function ContextList({ title, items }: { title: string; items: string[] }) {
 function DetailPage({ sessionId }: { sessionId: string }) {
   const [data, setData] = useState<DetailPageData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [timeline, setTimeline] = useState<AgentEvent[]>([]);
 
   const loadData = useCallback(() => {
     setError(null);
@@ -466,13 +528,18 @@ function DetailPage({ sessionId }: { sessionId: string }) {
         (detail) => detail,
         () => null,
       ),
+      getTimeline(sessionId, { tail: 200 }).then(
+        (t) => [...t.items].reverse(),
+        () => [] as AgentEvent[],
+      ),
     ])
-      .then(([missionControl, history, detail]) => {
+      .then(([missionControl, history, detail, timelineItems]) => {
         const projection = detail?.projection ?? findProjectionSession(sessionId, missionControl, history);
         if (!projection && !detail) {
           throw new Error("Session was not found in detail, Mission Control, or History.");
         }
         setData({ projection, detail });
+        setTimeline(timelineItems);
       })
       .catch((reason: Error) => setError(reason.message));
   }, [sessionId]);
@@ -530,6 +597,8 @@ function DetailPage({ sessionId }: { sessionId: string }) {
           </div>
         </details>
       )}
+
+      <TimelinePanel events={timeline} />
 
       <section className="detail-panel action-panel">
         <a className="button secondary" href={`/session/${encodeURIComponent(sessionId)}/replay`}>Open replay</a>
