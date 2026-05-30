@@ -2078,7 +2078,10 @@ function legacyAgentEventToMirrorRuntimeStatus(
     (event.type === "agent.summary_emitted" || event.type === "agent.summary")
     && (payload.signal || payload.completionSignal)
   ) {
-    return "completed";
+    // A turn-completion summary is a TURN boundary, not a session end. The
+    // agent finished its output and is waiting for the human. Only an explicit
+    // session.ended/session.completed (with endedAt) marks the session done.
+    return "waiting_for_input";
   }
   if (event.type === "agent.question_asked" || event.type === "agent.question" || event.type === "input.requested") {
     if (payload.resolved === false) {

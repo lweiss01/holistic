@@ -373,6 +373,26 @@ async function startAndonServices(rootDir: string): Promise<ChildProcess[]> {
     process.stdout.write("Holistic: Andon dashboard starting on port 5173.\n");
   }
 
+  // Agent-agnostic liveness forwarder. Reads .holistic-local/state.json and
+  // POSTs session.started/heartbeat/needs_input/completed to the Andon API for
+  // WHATEVER agent owns the active session (claude, codex, cursor, gsd, ...).
+  // This is the single agent-agnostic source of Mission Control liveness — it
+  // replaces per-agent tool hooks, which only ever worked for Claude Code and
+  // broke in worktrees. Started unconditionally because the daemon is the sole
+  // owner per repo (pidFile guard) and the writer retries while the API warms up.
+  const writer = spawn(
+    process.execPath,
+    [path.join(rootDir, "scripts/andon-runtime-writer.mjs")],
+    { cwd: rootDir, env: { ...process.env, HOLISTIC_REPO: rootDir }, stdio: "ignore" }
+  );
+  writer.once("exit", (code) => {
+    if (code !== 0 && code !== null) {
+      process.stderr.write(`Andon runtime-writer exited with code ${code}.\n`);
+    }
+  });
+  owned.push(writer);
+  process.stdout.write("Holistic: Andon runtime-writer forwarding session liveness.\n");
+
   return owned;
 }
 

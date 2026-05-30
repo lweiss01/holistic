@@ -123,9 +123,10 @@ function lastSessionSignalMs(session) {
 }
 
 export function isSessionFreshEnoughForRuntimeWriter(session, nowMs, maxAgeMs = staleSessionMs) {
-  if (session?.completionSignal) {
-    return true;
-  }
+  // Freshness is purely a function of how recently state.json was updated.
+  // A completion signal no longer forces "fresh forever" — a turn-complete
+  // signal means the agent is WAITING for the human, not that the session is
+  // immortal. If state.json stops updating, liveness must decay naturally.
   const lastSignal = lastSessionSignalMs(session);
   if (lastSignal === null) {
     return false;
@@ -204,6 +205,56 @@ export function buildCompletedEvent(session, nowIso) {
   };
 }
 
+// Emitted when the active session carries a turn-completion signal but has NOT
+// ended (endedAt is null). The agent finished its turn and is waiting for the
+// human. Agent-agnostic: any agent that records a completion checkpoint lands
+// here regardless of which tool it runs in.
+export function buildNeedsInputEvent(session, nowIso) {
+  return {
+    id: `runtime-writer-needs-input-${session.id}-${Date.now()}`,
+    sessionId: session.id,
+    runtime: asRuntimeName(session),
+    type: "session.needs_input",
+    phase: asPhase(session),
+    source: "system",
+    timestamp: nowIso,
+    summary: session.latestStatus || "Agent finished its turn and is waiting for input.",
+    payload: {
+      objective: session.currentGoal || session.title || "Unknown objective",
+      agentName: asAgentName(session),
+      startedAt: session.startedAt || nowIso,
+      activity: "waiting",
+      latestStatus: session.latestStatus || null,
+      sessionUpdatedAt: session.updatedAt || session.lastUpdatedAt || session.lastEventAt || null,
+      ...sourcePayload(session)
+    }
+  };
+}
+
+// Emitted on the transition back into active work (waiting -> running, or to
+// clear a stale non-running status) so Mission Control flips off "waiting".
+export function buildWorkStartedEvent(session, nowIso) {
+  return {
+    id: `runtime-writer-work-started-${session.id}-${Date.now()}`,
+    sessionId: session.id,
+    runtime: asRuntimeName(session),
+    type: "work.started",
+    phase: asPhase(session),
+    source: "system",
+    timestamp: nowIso,
+    summary: session.latestStatus || "Agent resumed active work.",
+    payload: {
+      objective: session.currentGoal || session.title || "Unknown objective",
+      agentName: asAgentName(session),
+      startedAt: session.startedAt || nowIso,
+      activity: asActivity(session),
+      latestStatus: session.latestStatus || null,
+      sessionUpdatedAt: session.updatedAt || session.lastUpdatedAt || session.lastEventAt || null,
+      ...sourcePayload(session)
+    }
+  };
+}
+
 function resolveWriterStateFile() {
   const explicit = process.env.ANDON_RUNTIME_WRITER_STATE_FILE?.trim();
   if (explicit) {
@@ -215,13 +266,16 @@ function resolveWriterStateFile() {
 function loadWriterState() {
   const stateFile = resolveWriterStateFile();
   if (!fs.existsSync(stateFile)) {
-    return { lastStartedSessionId: null, lastHeartbeatAtMs: 0 };
+    return { lastStartedSessionId: null, lastHeartbeatAtMs: 0, lastCompletedSessionId: null, lastLifecycle: null };
   }
   const parsed = parseState(fs.readFileSync(stateFile, "utf8"));
   return {
     lastStartedSessionId: typeof parsed?.lastStartedSessionId === "string" ? parsed.lastStartedSessionId : null,
     lastHeartbeatAtMs: Number.isFinite(Number(parsed?.lastHeartbeatAtMs)) ? Number(parsed.lastHeartbeatAtMs) : 0,
-    lastCompletedSessionId: typeof parsed?.lastCompletedSessionId === "string" ? parsed.lastCompletedSessionId : null
+    lastCompletedSessionId: typeof parsed?.lastCompletedSessionId === "string" ? parsed.lastCompletedSessionId : null,
+    lastLifecycle: parsed?.lastLifecycle === "running" || parsed?.lastLifecycle === "waiting" || parsed?.lastLifecycle === "completed"
+      ? parsed.lastLifecycle
+      : null
   };
 }
 
@@ -234,16 +288,35 @@ function saveWriterState(writerState) {
 export function buildRuntimeWriterEvents(session, nowMs, writerState, heartbeatIntervalMs = intervalMs) {
   const nowIso = new Date(nowMs).toISOString();
   const events = [];
-  const sessionIsFresh = isSessionFreshEnoughForRuntimeWriter(session, nowMs);
-  const shouldEmitComplete = Boolean(session.completionSignal) && writerState.lastCompletedSessionId !== session.id;
+  const sessionEnded = Boolean(session.endedAt);
 
-  if (!sessionIsFresh && !shouldEmitComplete) {
+  // A truly-ended session (endedAt set) emits session.completed exactly once,
+  // regardless of freshness, then goes quiet. This is the ONLY path to
+  // "completed" — a turn-completion signal on an active session does not end it.
+  if (sessionEnded) {
+    const shouldEmitComplete = writerState.lastCompletedSessionId !== session.id;
+    if (shouldEmitComplete) {
+      events.push(buildCompletedEvent(session, nowIso));
+    }
+    return {
+      events,
+      shouldEmitStart: false,
+      shouldEmitHeartbeat: false,
+      shouldEmitComplete,
+      skippedStaleSession: false,
+      lifecycle: "completed"
+    };
+  }
+
+  const sessionIsFresh = isSessionFreshEnoughForRuntimeWriter(session, nowMs);
+  if (!sessionIsFresh) {
     return {
       events,
       shouldEmitStart: false,
       shouldEmitHeartbeat: false,
       shouldEmitComplete: false,
-      skippedStaleSession: true
+      skippedStaleSession: true,
+      lifecycle: writerState.lastLifecycle ?? null
     };
   }
 
@@ -252,11 +325,28 @@ export function buildRuntimeWriterEvents(session, nowMs, writerState, heartbeatI
     events.push(buildStartedEvent(session, nowIso));
   }
 
-  if (shouldEmitComplete) {
-    events.push(buildCompletedEvent(session, nowIso));
+  // Lifecycle: a turn-completion signal (without endedAt) means the agent
+  // finished its turn and is WAITING for the human. Otherwise it is running.
+  const desiredLifecycle = session.completionSignal ? "waiting" : "running";
+  const priorLifecycle = writerState.lastLifecycle ?? (shouldEmitStart ? "running" : null);
+
+  let emittedTransition = false;
+  if (desiredLifecycle === "waiting" && priorLifecycle !== "waiting") {
+    events.push(buildNeedsInputEvent(session, nowIso));
+    emittedTransition = true;
+  } else if (desiredLifecycle === "running" && priorLifecycle !== "running") {
+    // Emit work.started on every running transition (including first start).
+    // The API's runtime status hint only registers "running" from work.started
+    // (session.started/heartbeat do not count), so without this the hint falls
+    // back to the legacy "parked" derivation and the session reads historical.
+    events.push(buildWorkStartedEvent(session, nowIso));
+    emittedTransition = true;
   }
 
-  const shouldEmitHeartbeat = !session.completionSignal && nowMs - writerState.lastHeartbeatAtMs >= heartbeatIntervalMs;
+  // Heartbeat preserves the current status and keeps liveness fresh. Always
+  // heartbeat on the interval, including while waiting, so the session stays
+  // visible (as needs_action) rather than decaying to disconnected.
+  const shouldEmitHeartbeat = nowMs - writerState.lastHeartbeatAtMs >= heartbeatIntervalMs;
   if (shouldEmitHeartbeat) {
     events.push(buildHeartbeatEvent(session, nowIso));
   }
@@ -265,8 +355,10 @@ export function buildRuntimeWriterEvents(session, nowMs, writerState, heartbeatI
     events,
     shouldEmitStart,
     shouldEmitHeartbeat,
-    shouldEmitComplete,
-    skippedStaleSession: false
+    shouldEmitComplete: false,
+    emittedTransition,
+    skippedStaleSession: false,
+    lifecycle: desiredLifecycle
   };
 }
 
@@ -299,14 +391,17 @@ async function tick() {
 
   const raw = fs.readFileSync(stateFile, "utf8");
   const state = parseState(raw);
-  if (!state || !state.activeSession || state.activeSession.endedAt) {
+  // Process ended sessions too (so the final session.completed fires once);
+  // only bail when there is no active session at all.
+  if (!state || !state.activeSession) {
     return;
   }
 
   const session = state.activeSession;
   const nowMs = Date.now();
   const writerState = loadWriterState();
-  const { events, shouldEmitStart, shouldEmitHeartbeat, shouldEmitComplete } = buildRuntimeWriterEvents(session, nowMs, writerState, intervalMs);
+  const { events, shouldEmitStart, shouldEmitHeartbeat, shouldEmitComplete, lifecycle } =
+    buildRuntimeWriterEvents(session, nowMs, writerState, intervalMs);
 
   const posted = await postEvents(events);
   if (!posted) {
@@ -320,6 +415,9 @@ async function tick() {
   }
   if (shouldEmitComplete) {
     writerState.lastCompletedSessionId = session.id;
+  }
+  if (lifecycle) {
+    writerState.lastLifecycle = lifecycle;
   }
   saveWriterState(writerState);
 }

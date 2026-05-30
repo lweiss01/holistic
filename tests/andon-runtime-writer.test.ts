@@ -31,9 +31,12 @@ const tests: Array<{ name: string; run: () => void }> = [
     }
   },
   {
-    name: "Andon runtime writer emits completion once and suppresses heartbeat after final output",
+    name: "Andon runtime writer treats a turn-completion signal as waiting-for-input, not session end",
     run: () => {
-      const completedSession = {
+      // An active session (no endedAt) that carries a completion signal means
+      // the agent finished its TURN and is waiting for the human — it must NOT
+      // be marked completed/historical.
+      const waitingSession = {
         ...session,
         completionSignal: {
           kind: "natural-breakpoint",
@@ -45,17 +48,65 @@ const tests: Array<{ name: string; run: () => void }> = [
       const state = {
         lastStartedSessionId: session.id,
         lastHeartbeatAtMs: Date.parse("2026-04-30T23:01:00.000Z"),
-        lastCompletedSessionId: null
+        lastCompletedSessionId: null,
+        lastLifecycle: "running"
       };
-      const first = writer.buildRuntimeWriterEvents(completedSession, Date.parse("2026-04-30T23:05:00.000Z"), state, 10_000);
+      const first = writer.buildRuntimeWriterEvents(waitingSession, Date.parse("2026-04-30T23:05:00.000Z"), state, 10_000);
 
+      assert.equal(first.events.some((event) => event.type === "session.completed"), false);
+      assert.equal(first.events.some((event) => event.type === "session.needs_input"), true);
+      assert.equal(first.lifecycle, "waiting");
+
+      // Once waiting has been signalled, the writer keeps heartbeating (to hold
+      // liveness) but does not re-emit needs_input every tick.
+      state.lastLifecycle = "waiting";
+      state.lastHeartbeatAtMs = Date.parse("2026-04-30T23:05:00.000Z");
+      const second = writer.buildRuntimeWriterEvents(waitingSession, Date.parse("2026-04-30T23:05:11.000Z"), state, 10_000);
+      assert.equal(second.events.some((event) => event.type === "session.needs_input"), false);
+      assert.equal(second.events.some((event) => event.type === "session.heartbeat"), true);
+    }
+  },
+  {
+    name: "Andon runtime writer emits session.completed exactly once only when the session has ended",
+    run: () => {
+      const endedSession = {
+        ...session,
+        endedAt: "2026-04-30T23:05:00.000Z",
+        latestStatus: "Session ended."
+      };
+      const state = {
+        lastStartedSessionId: session.id,
+        lastHeartbeatAtMs: Date.parse("2026-04-30T23:01:00.000Z"),
+        lastCompletedSessionId: null,
+        lastLifecycle: "running"
+      };
+      const first = writer.buildRuntimeWriterEvents(endedSession, Date.parse("2026-04-30T23:05:30.000Z"), state, 10_000);
       assert.equal(first.events.some((event) => event.type === "session.completed"), true);
       assert.equal(first.events.some((event) => event.type === "session.heartbeat"), false);
+      assert.equal(first.lifecycle, "completed");
 
       state.lastCompletedSessionId = session.id;
-      const second = writer.buildRuntimeWriterEvents(completedSession, Date.parse("2026-04-30T23:06:00.000Z"), state, 10_000);
+      const second = writer.buildRuntimeWriterEvents(endedSession, Date.parse("2026-04-30T23:06:00.000Z"), state, 10_000);
       assert.equal(second.events.some((event) => event.type === "session.completed"), false);
-      assert.equal(second.events.some((event) => event.type === "session.heartbeat"), false);
+    }
+  },
+  {
+    name: "Andon runtime writer flips back to running (work.started) when work resumes after waiting",
+    run: () => {
+      const resumedSession = {
+        ...session,
+        updatedAt: "2026-04-30T23:04:58.000Z",
+        completionSignal: null
+      };
+      const state = {
+        lastStartedSessionId: session.id,
+        lastHeartbeatAtMs: Date.parse("2026-04-30T23:05:00.000Z"),
+        lastCompletedSessionId: null,
+        lastLifecycle: "waiting"
+      };
+      const result = writer.buildRuntimeWriterEvents(resumedSession, Date.parse("2026-04-30T23:05:00.000Z"), state, 10_000);
+      assert.equal(result.events.some((event) => event.type === "work.started"), true);
+      assert.equal(result.lifecycle, "running");
     }
   },
   {

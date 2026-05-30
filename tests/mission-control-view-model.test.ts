@@ -717,11 +717,14 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     run: () => {
       const apiSource = fs.readFileSync("apps/andon-dashboard/src/api.ts", "utf8");
 
-      assert.doesNotMatch(apiSource, /getFleet|FleetResponse|getActiveSession|getSessionsList|getTimeline|postCallback/);
+      assert.doesNotMatch(apiSource, /getFleet|FleetResponse|getActiveSession|getSessionsList|postCallback/);
       assert.match(apiSource, /getMissionControl/);
       assert.match(apiSource, /getHistory/);
       assert.match(apiSource, /getSessionReplay/);
       assert.match(apiSource, /getAndonHealth/);
+      // getTimeline is the M007 timeline panel fetcher (new {tail} contract),
+      // not one of the removed legacy fleet-UI fetchers.
+      assert.match(apiSource, /getTimeline/);
     },
   },
   {
