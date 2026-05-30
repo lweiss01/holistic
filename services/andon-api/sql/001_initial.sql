@@ -1,3 +1,8 @@
+-- WAL mode and synchronous=NORMAL are set at connection time in db.ts for all databases.
+-- These statements document the intent for new databases; the db.ts application is authoritative.
+PRAGMA journal_mode = WAL;
+PRAGMA synchronous = NORMAL;
+
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS sessions (
