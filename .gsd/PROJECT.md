@@ -96,4 +96,14 @@ See `.gsd/REQUIREMENTS.md` for the explicit capability contract, requirement sta
 - [ ] M004: Reliability Bug Hunt - Planned/partial (commit execution, sync portability, daemon reliability, repo snapshot performance)
 - [ ] M005-M010: Andon runtime/Mission Control docs - Superseded for execution by `docs/andon-recovery-plan.md`; retain as historical context until cleanup
 
+### Decision + Drift Milestone Track (from SPEC-decisions-capture-andon + addendum)
+
+- [ ] M011: Decision Records & Supersession Lifecycle (Holistic) — schema, storage, fold logic, `holistic decide` / `holistic supersede` commands
+- [ ] M012: Trust Provenance Documentation (Holistic) — `SECURITY.md` trust precondition, `docs/FUTURE-cross-operator-trust.md` stub; can land alongside M011
+- [ ] M013: Automatic Capture & Escalation Predicate (Holistic) — invisible-by-default capture, agent instruction layer, escalation predicate, daemon backstop; depends M011
+- [ ] M014: Path Normalization Utility (Andon) — normalizes all Windows path forms to repo-relative forward-slash before scope check; can run in parallel with M011-M013
+- [ ] M015: Collector SourceAdapter Interface + Native Claude Code Adapter (Andon) — `SourceAdapter` interface, PostToolUse → `AgentEvent`, scope-expansion and retry/thrash detectors end-to-end; depends M014
+- [ ] M016: OTel Adapter / Broad Tier (Andon) — OTel span → `AgentEvent`, AGT feed-not-compete seam; depends M015
+- [ ] M017: Decision-Aware Drift (Andon) — bridge exposes active decisions read-only, contradiction rule, recommendation surface; depends M011 + M015
+
 
