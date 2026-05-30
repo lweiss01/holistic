@@ -49,7 +49,8 @@ const tests: Array<{ name: string; run: () => void }> = [
         lastStartedSessionId: session.id,
         lastHeartbeatAtMs: Date.parse("2026-04-30T23:01:00.000Z"),
         lastCompletedSessionId: null,
-        lastLifecycle: "running"
+        lastLifecycle: "running",
+        lastLifecycleAssertAtMs: Date.parse("2026-04-30T23:04:59.000Z")
       };
       const first = writer.buildRuntimeWriterEvents(waitingSession, Date.parse("2026-04-30T23:05:00.000Z"), state, 10_000);
 
@@ -58,12 +59,19 @@ const tests: Array<{ name: string; run: () => void }> = [
       assert.equal(first.lifecycle, "waiting");
 
       // Once waiting has been signalled, the writer keeps heartbeating (to hold
-      // liveness) but does not re-emit needs_input every tick.
+      // liveness) but does not re-emit needs_input every tick (until the
+      // periodic re-assert interval elapses).
       state.lastLifecycle = "waiting";
       state.lastHeartbeatAtMs = Date.parse("2026-04-30T23:05:00.000Z");
+      state.lastLifecycleAssertAtMs = Date.parse("2026-04-30T23:05:00.000Z");
       const second = writer.buildRuntimeWriterEvents(waitingSession, Date.parse("2026-04-30T23:05:11.000Z"), state, 10_000);
       assert.equal(second.events.some((event) => event.type === "session.needs_input"), false);
       assert.equal(second.events.some((event) => event.type === "session.heartbeat"), true);
+
+      // After the re-assert interval, the writer re-emits needs_input to
+      // self-heal in case the stored status drifted (e.g. a restart sweep).
+      const third = writer.buildRuntimeWriterEvents(waitingSession, Date.parse("2026-04-30T23:06:30.000Z"), state, 10_000);
+      assert.equal(third.events.some((event) => event.type === "session.needs_input"), true);
     }
   },
   {

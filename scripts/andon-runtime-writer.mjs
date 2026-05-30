@@ -7,6 +7,11 @@ const apiBaseUrl = (process.env.ANDON_API_BASE_URL ?? "http://127.0.0.1:4318").r
 const repoRoot = process.env.HOLISTIC_REPO ?? process.cwd();
 const intervalMs = Number(process.env.ANDON_RUNTIME_WRITER_INTERVAL_MS ?? "10000");
 const staleSessionMs = Number(process.env.ANDON_RUNTIME_WRITER_STALE_SESSION_MS ?? String(20 * 60 * 1000));
+// How often to RE-ASSERT the lifecycle status (running/waiting) even without a
+// transition. Heartbeats only preserve status, so if the API independently
+// changes the stored status (e.g. a restart reconciliation sweep parks a
+// "running" row), the writer must re-assert to self-heal.
+const lifecycleReassertMs = Number(process.env.ANDON_RUNTIME_WRITER_REASSERT_MS ?? "60000");
 const runOnce = process.argv.includes("--once");
 
 function parseState(text) {
@@ -72,12 +77,34 @@ const sourceRuntimeTypes = new Set([
   "openharness"
 ]);
 
+// Map Holistic agent names to Andon Mission Control sourceType. Agent-agnostic:
+// every supported agent resolves to the correct source identity so Mission
+// Control shows the real agent, not a generic "file_heartbeat". Mirrors the
+// agent->sourceType contract used elsewhere in Holistic.
+const agentSourceTypeAliases = {
+  claude: "claude_code",
+  "claude-code": "claude_code",
+  claude_code: "claude_code",
+  codex: "codex",
+  cursor: "cursor",
+  copilot: "github_copilot",
+  github_copilot: "github_copilot",
+  gemini: "custom",
+  antigravity: "custom",
+  goose: "custom",
+  gsd: "gsd",
+  gsd2: "gsd",
+  local: "local_cli"
+};
+
 function normalizedSourceType(value) {
   const candidate = String(value || "").trim().toLowerCase();
   if (!candidate || candidate === "unknown") {
     return null;
   }
   const normalized = candidate.replace(/-/g, "_");
+  if (agentSourceTypeAliases[candidate]) return agentSourceTypeAliases[candidate];
+  if (agentSourceTypeAliases[normalized]) return agentSourceTypeAliases[normalized];
   if (sourceRuntimeTypes.has(candidate)) return candidate;
   if (sourceRuntimeTypes.has(normalized)) return normalized;
   if (normalized === "local") return "local_cli";
@@ -275,7 +302,8 @@ function loadWriterState() {
     lastCompletedSessionId: typeof parsed?.lastCompletedSessionId === "string" ? parsed.lastCompletedSessionId : null,
     lastLifecycle: parsed?.lastLifecycle === "running" || parsed?.lastLifecycle === "waiting" || parsed?.lastLifecycle === "completed"
       ? parsed.lastLifecycle
-      : null
+      : null,
+    lastLifecycleAssertAtMs: Number.isFinite(Number(parsed?.lastLifecycleAssertAtMs)) ? Number(parsed.lastLifecycleAssertAtMs) : 0
   };
 }
 
@@ -329,18 +357,22 @@ export function buildRuntimeWriterEvents(session, nowMs, writerState, heartbeatI
   // finished its turn and is WAITING for the human. Otherwise it is running.
   const desiredLifecycle = session.completionSignal ? "waiting" : "running";
   const priorLifecycle = writerState.lastLifecycle ?? (shouldEmitStart ? "running" : null);
+  const transitioned = desiredLifecycle !== priorLifecycle;
 
-  let emittedTransition = false;
-  if (desiredLifecycle === "waiting" && priorLifecycle !== "waiting") {
-    events.push(buildNeedsInputEvent(session, nowIso));
-    emittedTransition = true;
-  } else if (desiredLifecycle === "running" && priorLifecycle !== "running") {
-    // Emit work.started on every running transition (including first start).
-    // The API's runtime status hint only registers "running" from work.started
-    // (session.started/heartbeat do not count), so without this the hint falls
-    // back to the legacy "parked" derivation and the session reads historical.
-    events.push(buildWorkStartedEvent(session, nowIso));
-    emittedTransition = true;
+  // Assert the lifecycle status on a transition OR on a periodic re-assert
+  // interval. The API's runtime status hint only registers "running" from
+  // work.started and "waiting" from session.needs_input (session.started and
+  // heartbeats do not count), so the writer must actively assert — and keep
+  // asserting — the true status so it survives independent status changes.
+  const reassertDue = nowMs - (writerState.lastLifecycleAssertAtMs ?? 0) >= lifecycleReassertMs;
+  let assertedLifecycle = false;
+  if (transitioned || reassertDue) {
+    if (desiredLifecycle === "waiting") {
+      events.push(buildNeedsInputEvent(session, nowIso));
+    } else {
+      events.push(buildWorkStartedEvent(session, nowIso));
+    }
+    assertedLifecycle = true;
   }
 
   // Heartbeat preserves the current status and keeps liveness fresh. Always
@@ -356,7 +388,8 @@ export function buildRuntimeWriterEvents(session, nowMs, writerState, heartbeatI
     shouldEmitStart,
     shouldEmitHeartbeat,
     shouldEmitComplete: false,
-    emittedTransition,
+    assertedLifecycle,
+    transitioned,
     skippedStaleSession: false,
     lifecycle: desiredLifecycle
   };
@@ -400,7 +433,7 @@ async function tick() {
   const session = state.activeSession;
   const nowMs = Date.now();
   const writerState = loadWriterState();
-  const { events, shouldEmitStart, shouldEmitHeartbeat, shouldEmitComplete, lifecycle } =
+  const { events, shouldEmitStart, shouldEmitHeartbeat, shouldEmitComplete, assertedLifecycle, lifecycle } =
     buildRuntimeWriterEvents(session, nowMs, writerState, intervalMs);
 
   const posted = await postEvents(events);
@@ -418,6 +451,9 @@ async function tick() {
   }
   if (lifecycle) {
     writerState.lastLifecycle = lifecycle;
+  }
+  if (assertedLifecycle) {
+    writerState.lastLifecycleAssertAtMs = nowMs;
   }
   saveWriterState(writerState);
 }

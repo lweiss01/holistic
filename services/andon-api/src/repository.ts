@@ -2210,7 +2210,18 @@ function maybeUpsertMirrorRuntimeFromLegacyEvent(database: DatabaseSync, event: 
       asNonEmptyString(existingRt?.metadata?.sourceId) === asNonEmptyString(eventPayload.sourceId)
       || asNonEmptyString(existingRt?.metadata?.sourceType) === asNonEmptyString(eventPayload.sourceType)
     );
-  if (existingRt && existingRt.metadata?.andonIngestMirror !== true && !existingRuntimeWriter && !sameDirectSource) {
+  // The runtime-writer is Holistic's canonical agent-agnostic liveness source
+  // (derived directly from state.json). It is allowed to take over a session's
+  // mirror row even if a prior direct source (e.g. the retired per-agent hook)
+  // created it — otherwise a stale hook-owned row blocks all writer updates and
+  // the session freezes in whatever status it was last left in.
+  if (
+    existingRt
+    && existingRt.metadata?.andonIngestMirror !== true
+    && !existingRuntimeWriter
+    && !sameDirectSource
+    && !isRuntimeWriterEvent
+  ) {
     return;
   }
   const existingUpdatedAtMs = Date.parse(existingRt?.updatedAt ?? "");
