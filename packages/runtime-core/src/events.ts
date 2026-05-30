@@ -3,12 +3,20 @@ import type { RuntimeActivity } from "./types.ts";
 export const HOLISTIC_RUNTIME_EVENT_TYPES = [
   "session.started",
   "session.heartbeat",
+  "session.status_changed",
+  "session.needs_input",
+  "session.needs_review",
+  "session.failed_proof",
   "session.paused",
   "session.resumed",
+  "session.parked",
+  "session.error",
   "session.completed",
   "session.failed",
   "session.cancelled",
   "session.terminated",
+  "work.started",
+  "work.completed",
   "task.started",
   "task.updated",
   "task.completed",
@@ -25,6 +33,8 @@ export const HOLISTIC_RUNTIME_EVENT_TYPES = [
   "test.failed",
   "input.requested",
   "input.resolved",
+  "validation.passed",
+  "validation.failed",
   "git.branch_created",
   "context.branch_changed",
   "context.environment_changed",
@@ -41,6 +51,7 @@ export const HOLISTIC_RUNTIME_EVENT_TYPES = [
   "approval.granted",
   "approval.denied",
   "review.requested",
+  "review.resolved",
   "review.acknowledged"
 ] as const;
 
@@ -138,12 +149,20 @@ const REVIEW_STATE_EVENTS: ReadonlySet<HolisticRuntimeEventType> = new Set([
 
 const MEANINGFUL_ACTIVITY_EVENTS: ReadonlySet<HolisticRuntimeEventType> = new Set([
   "session.started",
+  "session.status_changed",
+  "session.needs_input",
+  "session.needs_review",
+  "session.failed_proof",
   "session.paused",
   "session.resumed",
+  "session.parked",
+  "session.error",
   "session.completed",
   "session.failed",
   "session.cancelled",
   "session.terminated",
+  "work.started",
+  "work.completed",
   "task.started",
   "task.updated",
   "task.completed",
@@ -160,6 +179,8 @@ const MEANINGFUL_ACTIVITY_EVENTS: ReadonlySet<HolisticRuntimeEventType> = new Se
   "test.failed",
   "input.requested",
   "input.resolved",
+  "validation.passed",
+  "validation.failed",
   "agent.question",
   "agent.warning",
   "agent.blocked"
@@ -179,17 +200,19 @@ export function runtimeEventSignificance(type: HolisticRuntimeEventType): Runtim
 
 export function runtimeEventFamily(type: HolisticRuntimeEventType): RuntimeEventFamily {
   if (type === "session.heartbeat") return "heartbeat";
-  if (type === "session.failed" || type === "agent.blocked" || type === "agent.warning") return "error_blocker";
+  if (type === "session.failed" || type === "session.failed_proof" || type === "session.error" || type === "validation.failed" || type === "agent.blocked" || type === "agent.warning") return "error_blocker";
   if (type.startsWith("session.")) {
     return type === "session.completed" || type === "session.cancelled" || type === "session.terminated"
       ? "completion_termination"
       : "session_lifecycle";
   }
   if (type.startsWith("task.") || type === "phase.changed") return "task";
+  if (type.startsWith("work.")) return "task";
   if (type.startsWith("tool.")) return "tool";
   if (type.startsWith("command.")) return "command";
   if (type.startsWith("file.")) return "file";
   if (type.startsWith("test.")) return "test";
+  if (type.startsWith("validation.")) return "test";
   if (type.startsWith("input.") || type === "agent.question") return "question_input";
   if (type.startsWith("approval.") || type.startsWith("review.")) return "approval_review";
   if (type === "holistic.checkpoint") return "checkpoint";

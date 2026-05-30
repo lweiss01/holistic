@@ -53,15 +53,23 @@ Recommended fields:
 
 - `session.started`
 - `session.heartbeat`
-- `session.completed`
-- `session.paused`
-- `session.resumed`
-- `session.failed`
-- `session.cancelled`
-- `session.terminated`
+- `work.started`
+- `work.completed`
 - `input.requested`
 - `input.resolved`
 - `review.requested`
+- `review.resolved`
+- `validation.passed`
+- `validation.failed`
+- `session.ended`
+- `session.parked`
+- `session.error`
+- `session.paused`
+- `session.resumed`
+- `session.completed`
+- `session.failed`
+- `session.cancelled`
+- `session.terminated`
 - `review.acknowledged`
 - `approval.requested`
 - `approval.granted`
@@ -80,6 +88,14 @@ Recommended fields:
 Heartbeats prove source/session liveness only. They do not prove progress and must not override explicit lifecycle states such as review-ready, parked, completed, failed, or waiting for input.
 
 Meaningful activity includes real work signals: tool use, command completion, file changes, tests, questions, review transitions, completion, blockers, or actual summaries. Tasks, checkpoints, and compatibility mirror events belong in Detail or Replay, not as top-level Mission Control cards.
+
+Agents emit telemetry; they do not own canonical status. Andon derives `running`, `awaiting_assignment`, `waiting_on_human_input`, `waiting_for_review`, `needs_intervention`, `parked_idle`, `done_historical`, or `unknown` from event sequence, freshness, and source visibility.
+
+Use `work.completed` when an agent has finished the current task and needs the operator to choose the next assignment; Andon derives `awaiting_assignment`. Use `review.requested` only when a concrete review, acceptance, or approval action is required before the session can proceed or close. Use `input.requested` for operator input gates and `validation.failed` for proof/build/test failure that needs intervention.
+
+Cold or missing runtime signal is telemetry/source health, not automatic intervention. Andon may expose `cold_signal`, `runtime_disconnected`, or similar warning tags while preserving the derived work state. `needs_intervention` is reserved for real failure evidence such as unresolved `validation.failed`, `session.error`, failed proof, runtime/database contradiction, or explicit intervention telemetry.
+
+Compatibility events such as `session.status_changed`, `session.needs_input`, `session.needs_review`, and `session.failed_proof` may still be accepted at boundaries, but agent-provided `primaryStatus`, `status`, or `statusHint` values are not canonical truth.
 
 ## Platform Examples
 

@@ -21,6 +21,7 @@ export const RUNTIME_STATUSES = [
   "starting",
   "running",
   "paused",
+  "awaiting_assignment",
   "waiting_for_input",
   "waiting_for_approval",
   "awaiting_review",
@@ -81,7 +82,7 @@ export const RUNTIME_OPERATIONAL_CATEGORIES = [
 ] as const;
 
 export const RUNTIME_RUNNING_STATUSES = ["starting", "running"] as const;
-export const RUNTIME_NEEDS_ACTION_STATUSES = ["waiting_for_input"] as const;
+export const RUNTIME_NEEDS_ACTION_STATUSES = ["awaiting_assignment", "waiting_for_input"] as const;
 export const RUNTIME_REVIEW_STATUSES = ["waiting_for_approval", "awaiting_review"] as const;
 export const RUNTIME_HISTORICAL_STATUSES = ["completed", "cancelled", "terminated", "parked"] as const;
 export const RUNTIME_DEGRADED_STATUSES = ["blocked", "failed"] as const;

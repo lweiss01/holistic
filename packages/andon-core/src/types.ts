@@ -3,6 +3,7 @@ import type { HolisticContext } from "../../holistic-bridge-types/src/index.ts";
 export const SESSION_STATUSES = [
   "running",
   "queued",
+  "awaiting_assignment",
   "needs_input",
   "at_risk",
   "blocked",
@@ -18,12 +19,20 @@ export const EVENT_TYPES = [
   "session.idle_detected",
   "session.checkpoint_created",
   "session.heartbeat",
+  "session.status_changed",
+  "session.needs_input",
+  "session.needs_review",
+  "session.failed_proof",
   "session.paused",
   "session.resumed",
+  "session.parked",
+  "session.error",
   "session.completed",
   "session.failed",
   "session.cancelled",
   "session.terminated",
+  "work.started",
+  "work.completed",
   "task.started",
   "task.updated",
   "task.completed",
@@ -42,6 +51,8 @@ export const EVENT_TYPES = [
   "test.failed",
   "input.requested",
   "input.resolved",
+  "validation.passed",
+  "validation.failed",
   "git.branch_created",
   "context.branch_changed",
   "context.environment_changed",
@@ -58,7 +69,9 @@ export const EVENT_TYPES = [
   "holistic.checkpoint",
   "telemetry.noop",
   "user.action",
-  "user.resumed"
+  "user.resumed",
+  "review.requested",
+  "review.resolved"
 ] as const;
 
 export const EVENT_SOURCES = ["agent", "collector", "system", "user"] as const;
