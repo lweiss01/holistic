@@ -54,10 +54,12 @@ export interface BootstrapResult extends InitResult {
 }
 
 export interface SetupComponentStatus {
-  component: "git-hooks" | "git-attributes" | "daemon" | "mcp-config" | "system-helpers" | "claude-code-hooks" | "portable-state" | "config-validation" | "session-hygiene" | "state-integrity";
+  component: "git-hooks" | "git-attributes" | "daemon" | "mcp-config" | "system-helpers" | "claude-code-hooks" | "andon-hooks" | "portable-state" | "config-validation" | "session-hygiene" | "state-integrity";
   status: "ok" | "missing" | "outdated" | "error" | "info";
   details: string;
   description: string;
+  /** Present on the andon-hooks component: true when PostToolUse hook referencing andon-hook is installed */
+  andonHooksInstalled?: boolean;
 }
 
 export interface RepairOptions {
@@ -700,6 +702,7 @@ If the global \`holistic\` command is unavailable in this shell:
   fs.chmodSync(autoCheckpointShPath, 0o755);
   fs.writeFileSync(autoCheckpointPs1Path, autoCheckpointPs1 + "\n", "utf8");
   fs.writeFileSync(path.join(sysDir, "README.md"), readme, "utf8");
+  writeAndonHookScripts(paths);
 }
 
 function installWindowsStartup(rootDir: string, paths: RuntimePaths, homeDir: string): string {
@@ -801,6 +804,8 @@ interface ClaudeHookGroup {
 interface ClaudeHooksBlock {
   SessionStart?: ClaudeHookGroup[];
   UserPromptSubmit?: ClaudeHookGroup[];
+  PostToolUse?: ClaudeHookGroup[];
+  Stop?: ClaudeHookGroup[];
   [key: string]: unknown;
 }
 
@@ -820,6 +825,381 @@ function autoCheckpointCommand(repoRoot: string, platform: NodeJS.Platform): str
   }
   const scriptPath = path.join(sysDir, "auto-checkpoint.sh");
   return `sh "${scriptPath}"`;
+}
+
+function isAndonHookCommand(command: string): boolean {
+  return command.includes("andon-hook");
+}
+
+function andonHookCommand(paths: RuntimePaths, platform: NodeJS.Platform): string {
+  const sysDir = systemDir(paths);
+  if (platform === "win32") {
+    const scriptPath = path.join(sysDir, "andon-hook.ps1");
+    return `powershell -NoProfile -ExecutionPolicy RemoteSigned -File "${scriptPath}"`;
+  }
+  const scriptPath = path.join(sysDir, "andon-hook.sh");
+  return `sh "${scriptPath}"`;
+}
+
+function renderAndonHookPs1(): string {
+  return [
+    "# andon-hook.ps1 — fired on PostToolUse and Stop Claude Code hook events",
+    "# Forwards events to the Andon API at http://127.0.0.1:4318/events",
+    "# Must exit 0 always and be silent on failure.",
+    "param()",
+    "$ErrorActionPreference = 'SilentlyContinue'",
+    "",
+    "# 1. Read JSON from stdin",
+    "$inputJson = $input | Out-String",
+    "if (-not $inputJson.Trim()) { exit 0 }",
+    "$hookData = $inputJson | ConvertFrom-Json",
+    "",
+    "# 2. Resolve Holistic session ID via walk-up from hookData.cwd",
+    "# IMPORTANT: Never use $PWD here — in worktrees $PWD is the worktree directory,",
+    "# not the repo root. Always use $hookData.cwd from the stdin JSON.",
+    "$dir = $hookData.cwd",
+    "$stateFile = $null",
+    "$level = 0",
+    "while ($dir -and $level -lt 5) {",
+    "    $candidate = Join-Path $dir '.holistic-local\\state.json'",
+    "    if (Test-Path $candidate) { $stateFile = $candidate; break }",
+    "    $candidate = Join-Path $dir '.holistic\\state.json'",
+    "    if (Test-Path $candidate) { $stateFile = $candidate; break }",
+    "    $parent = Split-Path $dir -Parent",
+    "    if ($parent -eq $dir) { break }   # filesystem root reached",
+    "    $dir = $parent",
+    "    $level++",
+    "}",
+    "if (-not $stateFile) { exit 0 }",
+    "",
+    "$state = Get-Content $stateFile -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue",
+    "$sessionId = $state.activeSession.id",
+    "if (-not $sessionId) { exit 0 }",
+    "",
+    "# 3. Map hook event to AgentEvent type",
+    "$eventType = $null",
+    "$summary = \"\"",
+    "$payload = @{}",
+    "$source = \"collector\"",
+    "",
+    "$hookName = $hookData.hook_event_name",
+    "",
+    "if ($hookName -eq \"PostToolUse\") {",
+    "    $toolName = $hookData.tool_name",
+    "",
+    "    if ($toolName -eq \"Bash\") {",
+    "        # tool_response field name may be exit_code OR exitCode — check both",
+    "        $exitCode = if ($null -ne $hookData.tool_response.exit_code) {",
+    "            $hookData.tool_response.exit_code",
+    "        } else {",
+    "            $hookData.tool_response.exitCode",
+    "        }",
+    "        $cmd = $hookData.tool_input.command",
+    "        $isTest = ($cmd -match \"npm test|jest|vitest|pytest|mocha\")",
+    "",
+    "        if ($isTest) {",
+    "            $eventType = if ($exitCode -eq 0) { \"test.finished\" } else { \"test.failed\" }",
+    "            $summary = if ($exitCode -eq 0) { \"Tests passed: $cmd\" } else { \"Tests failed: $cmd\" }",
+    "        } else {",
+    "            $eventType = if ($exitCode -eq 0) { \"command.finished\" } else { \"command.failed\" }",
+    "            $summary = if ($exitCode -eq 0) { \"Ran: $cmd\" } else { \"Failed: $cmd (exit $exitCode)\" }",
+    "        }",
+    "        $payload = @{ command = $cmd; exitCode = $exitCode; durationMs = $hookData.duration_ms }",
+    "",
+    "    } elseif ($toolName -in @(\"Edit\", \"Write\")) {",
+    "        $eventType = \"file.changed\"",
+    "        # payload.path is required by the status engine's out-of-scope detection",
+    "        $filePath = $hookData.tool_input.file_path",
+    "        $summary = \"Edited: $filePath\"",
+    "        $payload = @{ path = $filePath; tool = $toolName }",
+    "    }",
+    "",
+    "} elseif ($hookName -eq \"Stop\") {",
+    "    $eventType = \"agent.summary_emitted\"",
+    "    $summary = \"Agent turn completed\"",
+    "    $source = \"collector\"",
+    "    $payload = @{ stopReason = $hookData.stop_reason }",
+    "}",
+    "",
+    "if (-not $eventType) { exit 0 }",
+    "",
+    "# 4. Build and POST the event — fire-and-forget with 1s timeout",
+    "$event = @{",
+    "    id        = \"hook-$(Get-Date -Format 'yyyyMMddHHmmssfff')-$([System.Guid]::NewGuid().ToString('N').Substring(0,6))\"",
+    "    sessionId = $sessionId",
+    "    type      = $eventType",
+    "    source    = $source",
+    "    timestamp = (Get-Date -Format 'o')",
+    "    summary   = $summary",
+    "    payload   = $payload",
+    "}",
+    "$body = @{ events = @($event) } | ConvertTo-Json -Depth 5 -Compress",
+    "try {",
+    "    Invoke-RestMethod -Uri \"http://127.0.0.1:4318/events\" ``",
+    "        -Method POST -Body $body -ContentType \"application/json\" ``",
+    "        -TimeoutSec 1 | Out-Null",
+    "} catch { }",
+    "exit 0",
+  ].join("\n");
+}
+
+function renderAndonHookSh(): string {
+  return [
+    "#!/usr/bin/env sh",
+    "# andon-hook.sh — fired on PostToolUse and Stop Claude Code hook events (POSIX parity)",
+    "# Forwards events to the Andon API at http://127.0.0.1:4318/events",
+    "# Must exit 0 always and be silent on failure.",
+    "",
+    "# 1. Read JSON from stdin",
+    "input=$(cat)",
+    "if [ -z \"$(echo \"$input\" | tr -d '[:space:]')\" ]; then exit 0; fi",
+    "",
+    "# 2. Resolve Holistic session ID via walk-up from hookData.cwd",
+    "# IMPORTANT: Never use $PWD or $(pwd) — in worktrees $PWD is the worktree directory,",
+    "# not the repo root. Always use the cwd field from the stdin JSON.",
+    "cwd=$(echo \"$input\" | jq -r '.cwd // empty' 2>/dev/null)",
+    "if [ -z \"$cwd\" ]; then exit 0; fi",
+    "",
+    "state_file=\"\"",
+    "dir=\"$cwd\"",
+    "level=0",
+    "while [ -n \"$dir\" ] && [ \"$level\" -lt 5 ]; do",
+    "    candidate=\"$dir/.holistic-local/state.json\"",
+    "    if [ -f \"$candidate\" ]; then",
+    "        state_file=\"$candidate\"",
+    "        break",
+    "    fi",
+    "    candidate=\"$dir/.holistic/state.json\"",
+    "    if [ -f \"$candidate\" ]; then",
+    "        state_file=\"$candidate\"",
+    "        break",
+    "    fi",
+    "    parent=$(dirname \"$dir\")",
+    "    if [ \"$parent\" = \"$dir\" ]; then break; fi  # filesystem root reached",
+    "    dir=\"$parent\"",
+    "    level=$((level + 1))",
+    "done",
+    "",
+    "if [ -z \"$state_file\" ]; then exit 0; fi",
+    "",
+    "session_id=$(jq -r '.activeSession.id // empty' \"$state_file\" 2>/dev/null)",
+    "if [ -z \"$session_id\" ]; then exit 0; fi",
+    "",
+    "# 3. Map hook event to AgentEvent type",
+    "hook_event_name=$(echo \"$input\" | jq -r '.hook_event_name // empty' 2>/dev/null)",
+    "tool_name=$(echo \"$input\" | jq -r '.tool_name // empty' 2>/dev/null)",
+    "",
+    "event_type=\"\"",
+    "summary=\"\"",
+    "source_field=\"collector\"",
+    "payload=\"{}\"",
+    "",
+    "if [ \"$hook_event_name\" = \"PostToolUse\" ]; then",
+    "    if [ \"$tool_name\" = \"Bash\" ]; then",
+    "        # exit_code may be exit_code OR exitCode depending on Claude Code version — check both",
+    "        exit_code=$(echo \"$input\" | jq -r '.tool_response.exit_code // .tool_response.exitCode // 0' 2>/dev/null)",
+    "        cmd=$(echo \"$input\" | jq -r '.tool_input.command // empty' 2>/dev/null)",
+    "        duration_ms=$(echo \"$input\" | jq -r '.duration_ms // 0' 2>/dev/null)",
+    "",
+    "        # Test detection: check command against test runner patterns",
+    "        is_test=0",
+    "        case \"$cmd\" in",
+    "            *\"npm test\"*|*jest*|*vitest*|*pytest*|*mocha*) is_test=1 ;;",
+    "        esac",
+    "",
+    "        if [ \"$is_test\" = \"1\" ]; then",
+    "            if [ \"$exit_code\" = \"0\" ]; then",
+    "                event_type=\"test.finished\"",
+    "                summary=\"Tests passed: $cmd\"",
+    "            else",
+    "                event_type=\"test.failed\"",
+    "                summary=\"Tests failed: $cmd\"",
+    "            fi",
+    "        else",
+    "            if [ \"$exit_code\" = \"0\" ]; then",
+    "                event_type=\"command.finished\"",
+    "                summary=\"Ran: $cmd\"",
+    "            else",
+    "                event_type=\"command.failed\"",
+    "                summary=\"Failed: $cmd (exit $exit_code)\"",
+    "            fi",
+    "        fi",
+    "",
+    "        cmd_escaped=$(printf '%s' \"$cmd\" | jq -Rs '.' 2>/dev/null || echo '\"'\"$cmd\"'\"')",
+    "        payload=\"{\\\"command\\\":$cmd_escaped,\\\"exitCode\\\":$exit_code,\\\"durationMs\\\":$duration_ms}\"",
+    "",
+    "    elif [ \"$tool_name\" = \"Edit\" ] || [ \"$tool_name\" = \"Write\" ]; then",
+    "        event_type=\"file.changed\"",
+    "        # payload.path is required by the status engine's out-of-scope detection",
+    "        file_path=$(echo \"$input\" | jq -r '.tool_input.file_path // empty' 2>/dev/null)",
+    "        summary=\"Edited: $file_path\"",
+    "        file_path_escaped=$(printf '%s' \"$file_path\" | jq -Rs '.' 2>/dev/null || echo '\"'\"$file_path\"'\"')",
+    "        tool_escaped=$(printf '%s' \"$tool_name\" | jq -Rs '.' 2>/dev/null || echo '\"'\"$tool_name\"'\"')",
+    "        payload=\"{\\\"path\\\":$file_path_escaped,\\\"tool\\\":$tool_escaped}\"",
+    "    fi",
+    "",
+    "elif [ \"$hook_event_name\" = \"Stop\" ]; then",
+    "    event_type=\"agent.summary_emitted\"",
+    "    summary=\"Agent turn completed\"",
+    "    stop_reason=$(echo \"$input\" | jq -r '.stop_reason // empty' 2>/dev/null)",
+    "    stop_reason_escaped=$(printf '%s' \"$stop_reason\" | jq -Rs '.' 2>/dev/null || echo '\"'\"$stop_reason\"'\"')",
+    "    payload=\"{\\\"stopReason\\\":$stop_reason_escaped}\"",
+    "fi",
+    "",
+    "if [ -z \"$event_type\" ]; then exit 0; fi",
+    "",
+    "# 4. Build and POST the event — fire-and-forget with 1s max-time",
+    "timestamp=$(date -u +\"%Y-%m-%dT%H:%M:%S.000Z\" 2>/dev/null || date -u +\"%Y-%m-%dT%H:%M:%SZ\")",
+    "random_suffix=$(cat /proc/sys/kernel/random/uuid 2>/dev/null | tr -d '-' | cut -c1-6 || od -An -N3 -tx1 /dev/urandom 2>/dev/null | tr -d ' \\n' || echo \"000000\")",
+    "event_id=\"hook-$(date -u +\"%Y%m%d%H%M%S%3N\" 2>/dev/null || date -u +\"%Y%m%d%H%M%S000\")-${random_suffix}\"",
+    "",
+    "session_id_escaped=$(printf '%s' \"$session_id\" | jq -Rs '.' 2>/dev/null || echo '\"'\"$session_id\"'\"')",
+    "event_type_escaped=$(printf '%s' \"$event_type\" | jq -Rs '.' 2>/dev/null || echo '\"'\"$event_type\"'\"')",
+    "source_escaped=$(printf '%s' \"$source_field\" | jq -Rs '.' 2>/dev/null || echo '\"'\"$source_field\"'\"')",
+    "summary_escaped=$(printf '%s' \"$summary\" | jq -Rs '.' 2>/dev/null || echo '\"'\"$summary\"'\"')",
+    "timestamp_escaped=$(printf '%s' \"$timestamp\" | jq -Rs '.' 2>/dev/null || echo '\"'\"$timestamp\"'\"')",
+    "event_id_escaped=$(printf '%s' \"$event_id\" | jq -Rs '.' 2>/dev/null || echo '\"'\"$event_id\"'\"')",
+    "",
+    "body=\"{\\\"events\\\":[{\\\"id\\\":$event_id_escaped,\\\"sessionId\\\":$session_id_escaped,\\\"type\\\":$event_type_escaped,\\\"source\\\":$source_escaped,\\\"timestamp\\\":$timestamp_escaped,\\\"summary\\\":$summary_escaped,\\\"payload\\\":$payload}]}\"",
+    "",
+    "curl -s --max-time 1 -X POST \\",
+    "    -H \"Content-Type: application/json\" \\",
+    "    -d \"$body\" \\",
+    "    \"http://127.0.0.1:4318/events\" >/dev/null 2>&1 || true",
+    "",
+    "exit 0",
+  ].join("\n");
+}
+
+function writeAndonHookScripts(paths: RuntimePaths): void {
+  const sysDir = systemDir(paths);
+  fs.mkdirSync(sysDir, { recursive: true });
+
+  const ps1Path = path.join(sysDir, "andon-hook.ps1");
+  const shPath = path.join(sysDir, "andon-hook.sh");
+
+  fs.writeFileSync(ps1Path, renderAndonHookPs1() + "\n", "utf8");
+  fs.writeFileSync(shPath, renderAndonHookSh() + "\n", "utf8");
+  fs.chmodSync(shPath, 0o755);
+}
+
+export function installAndonHooks(repoRoot: string, paths: RuntimePaths, platform: NodeJS.Platform = process.platform): void {
+  const claudeDir = path.join(repoRoot, ".claude");
+  const settingsPath = path.join(claudeDir, "settings.json");
+
+  if (!fs.existsSync(claudeDir)) {
+    return;
+  }
+
+  fs.mkdirSync(claudeDir, { recursive: true });
+
+  const existing = readJsonObject(settingsPath);
+  const existingHooks = existing.hooks && typeof existing.hooks === "object"
+    ? existing.hooks as ClaudeHooksBlock
+    : {} as ClaudeHooksBlock;
+
+  const hookCmd = andonHookCommand(paths, platform);
+
+  // PostToolUse hook
+  const existingPostToolUse: ClaudeHookGroup[] = Array.isArray(existingHooks.PostToolUse)
+    ? existingHooks.PostToolUse as ClaudeHookGroup[]
+    : [];
+
+  const hasAndonPostToolUse = existingPostToolUse.some(
+    (group) =>
+      group &&
+      Array.isArray(group.hooks) &&
+      group.hooks.some((h) => h && typeof h.command === "string" && isAndonHookCommand(h.command)),
+  );
+
+  const updatedPostToolUse: ClaudeHookGroup[] = hasAndonPostToolUse
+    ? existingPostToolUse.map((group) => {
+        if (!group || !Array.isArray(group.hooks)) return group;
+        const hasAndon = group.hooks.some(
+          (h) => h && typeof h.command === "string" && isAndonHookCommand(h.command),
+        );
+        if (!hasAndon) return group;
+        return {
+          ...group,
+          hooks: group.hooks.map((h) => {
+            if (h && typeof h.command === "string" && isAndonHookCommand(h.command)) {
+              return { ...h, type: "command", command: hookCmd };
+            }
+            return h;
+          }),
+        };
+      })
+    : [...existingPostToolUse, { hooks: [{ type: "command", command: hookCmd }] }];
+
+  // Stop hook
+  const existingStop: ClaudeHookGroup[] = Array.isArray(existingHooks.Stop)
+    ? existingHooks.Stop as ClaudeHookGroup[]
+    : [];
+
+  const hasAndonStop = existingStop.some(
+    (group) =>
+      group &&
+      Array.isArray(group.hooks) &&
+      group.hooks.some((h) => h && typeof h.command === "string" && isAndonHookCommand(h.command)),
+  );
+
+  const updatedStop: ClaudeHookGroup[] = hasAndonStop
+    ? existingStop.map((group) => {
+        if (!group || !Array.isArray(group.hooks)) return group;
+        const hasAndon = group.hooks.some(
+          (h) => h && typeof h.command === "string" && isAndonHookCommand(h.command),
+        );
+        if (!hasAndon) return group;
+        return {
+          ...group,
+          hooks: group.hooks.map((h) => {
+            if (h && typeof h.command === "string" && isAndonHookCommand(h.command)) {
+              return { ...h, type: "command", command: hookCmd };
+            }
+            return h;
+          }),
+        };
+      })
+    : [...existingStop, { hooks: [{ type: "command", command: hookCmd }] }];
+
+  const next = {
+    ...existing,
+    hooks: {
+      ...existingHooks,
+      PostToolUse: updatedPostToolUse,
+      Stop: updatedStop,
+    },
+  };
+
+  fs.writeFileSync(settingsPath, JSON.stringify(next, null, 2) + "\n", "utf8");
+}
+
+export function refreshAndonHooks(repoRoot: string, paths: RuntimePaths, platform: NodeJS.Platform = process.platform): boolean {
+  const settingsPath = path.join(repoRoot, ".claude", "settings.json");
+  if (!fs.existsSync(settingsPath)) {
+    return false;
+  }
+
+  const existing = readJsonObject(settingsPath);
+  const existingHooks = existing.hooks && typeof existing.hooks === "object"
+    ? existing.hooks as ClaudeHooksBlock
+    : {} as ClaudeHooksBlock;
+
+  const postToolUse = existingHooks.PostToolUse;
+  const hasAndon = Array.isArray(postToolUse) &&
+    (postToolUse as ClaudeHookGroup[]).some(
+      (group) =>
+        group &&
+        Array.isArray(group.hooks) &&
+        group.hooks.some((h) => h && typeof h.command === "string" && isAndonHookCommand(h.command)),
+    );
+
+  if (!hasAndon) {
+    return false;
+  }
+
+  installAndonHooks(repoRoot, paths, platform);
+  return true;
 }
 
 export function installClaudeCodeHooks(repoRoot: string, holisticCmd: string, platform: NodeJS.Platform = process.platform): void {
@@ -1259,6 +1639,7 @@ export function repairHolistic(rootDir: string, options: RepairOptions = {}): Re
   if (fs.existsSync(path.join(rootDir, ".claude"))) {
     const holisticCmd = holisticCmdForPlatform(rootDir, platform);
     installClaudeCodeHooks(rootDir, holisticCmd, platform);
+    installAndonHooks(rootDir, paths, platform);
   }
 
   const configuredMcpPath = options.configureMcp
@@ -1356,6 +1737,8 @@ export function bootstrapHolistic(rootDir: string, options: BootstrapOptions = {
     const holisticCmd = holisticCmdForPlatform(rootDir, platform);
     installClaudeCodeHooks(rootDir, holisticCmd, platform);
     console.log("\u2713 Claude Code SessionStart hook installed");
+    installAndonHooks(rootDir, getRuntimePaths(rootDir), platform);
+    console.log("\u2713 Andon PostToolUse and Stop hooks installed");
   }
 
   const configuredMcpPath = configureMcp
@@ -1472,6 +1855,7 @@ export function getSetupStatus(rootDir: string, options: BootstrapOptions = {}):
   if (claudePresent) {
     const settingsPath = path.join(rootDir, ".claude", "settings.json");
     let installed = false;
+    let andonHooksInstalled = false;
     if (fs.existsSync(settingsPath)) {
       const settings = readJsonObject(settingsPath);
       const hooks = (settings.hooks || {}) as Record<string, unknown>;
@@ -1484,12 +1868,28 @@ export function getSetupStatus(rootDir: string, options: BootstrapOptions = {}):
             group.hooks.some((h) => h && typeof h.command === "string" && isHolisticCommand(h.command)),
         );
       }
+      const postToolUse = hooks.PostToolUse;
+      if (Array.isArray(postToolUse)) {
+        andonHooksInstalled = (postToolUse as ClaudeHookGroup[]).some(
+          (group) =>
+            group &&
+            Array.isArray(group.hooks) &&
+            group.hooks.some((h) => h && typeof h.command === "string" && isAndonHookCommand(h.command)),
+        );
+      }
     }
     status.push({
       component: "claude-code-hooks",
       status: installed ? "ok" : "missing",
       details: installed ? "SessionStart hook present in settings.json" : "Missing Claude Code hook",
       description: "Syncs Holistic automatically when starting a Claude Code session.",
+    });
+    status.push({
+      component: "andon-hooks",
+      status: andonHooksInstalled ? "ok" : "missing",
+      details: andonHooksInstalled ? "PostToolUse and Stop hooks present in settings.json" : "Missing Andon event forwarding hooks",
+      description: "Forwards Claude Code tool events to the Andon API for real-time session monitoring.",
+      andonHooksInstalled,
     });
   }
 
