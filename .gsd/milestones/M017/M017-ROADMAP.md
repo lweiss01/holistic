@@ -18,14 +18,14 @@ Andon
 
 ## Exit Criteria
 
-- An action contradicting an active decision produces a drift recommendation and writes nothing to Holistic.
-- The bridge remains read-only from Andon; grep for Holistic writes in `packages/andon-*` and `services/andon-*` returns nothing.
+- **An action contradicting an active decision produces a drift recommendation and writes nothing to Holistic.** (Parent spec Section 3.4 criterion 4.)
+- **The bridge is read-only from Andon's side: a grep for Holistic writes in `packages/andon-*` and `services/andon-*` returns nothing.** This grep is a required deliverable of S03, not an aspirational note. (Parent spec Section 3.4 criterion 5.) If Andon concludes a decision should be superseded, it emits a recommendation only; the author acts through `holistic supersede` (M011).
 - The decision-contradiction rule fires correctly on `AgentEvent` objects from both the native adapter (M015) and the OTel adapter (M016) without per-adapter code.
 - `HolisticContext.activeDecisions` is sourced from the fold output of `resolveDecisions`, not a raw file read.
 
 ## Notes
 
-The Andon → Holistic bridge is **read-only from Andon's side**. This is load-bearing for the ownership split and must not be violated. If Andon concludes a decision should be superseded, the correct output is a recommendation surfaced to the operator — the operator then acts through `holistic supersede`. Andon does not call `holistic supersede` itself.
+The Andon → Holistic bridge read-only invariant is load-bearing for the ownership split. The grep audit in S03 is what makes it a verified property rather than a stated intention.
 
 The `contradicts_rejected` condition (agent re-proposes a `rejectedApproaches` entry) is both a drift signal here and an escalation trigger in M013. The two are complementary and must not conflict.
 
