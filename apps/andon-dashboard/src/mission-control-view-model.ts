@@ -31,7 +31,7 @@ export const CATEGORY_PRESENTATION: Record<OperationalCategory, CategoryPresenta
     marker: "triangle",
   },
   review: {
-    label: "Review",
+    label: "Needs Review",
     shortLabel: "Review",
     tone: "review",
     marker: "diamond",
@@ -72,15 +72,22 @@ export const TRAFFIC_LIGHT_PRESENTATION: Record<MissionPrimaryStatus, TrafficLig
     marker: "circle",
     description: "Agent session is actively running now.",
   },
+  awaiting_assignment: {
+    label: "Awaiting Assignment",
+    shortLabel: "Assignment",
+    tone: "input",
+    marker: "triangle",
+    description: "Agent has finished the current task and is waiting for its next assignment.",
+  },
   waiting_for_review: {
-    label: "Waiting for Review",
+    label: "Needs Review",
     shortLabel: "Review",
     tone: "review",
     marker: "diamond",
-    description: "Agent output is ready for inspection or approval.",
+    description: "Agent needs a specific output review before proceeding.",
   },
   waiting_on_human_input: {
-    label: "Waiting on Human Input",
+    label: "Needs Input",
     shortLabel: "Input",
     tone: "input",
     marker: "triangle",
@@ -132,6 +139,9 @@ export interface MissionSessionViewModel {
   lastAgentSignalAge: string;
   runtimeAliveLabel: string;
   primaryStatusLabel: string;
+  actionRequired: boolean;
+  actionKind: string;
+  actionLabel: string;
   confidenceLabel: string | null;
   nextAction: string;
   rawRuntimeStatus: string | null;
@@ -139,7 +149,6 @@ export interface MissionSessionViewModel {
   attentionFlags: string[];
   isHistorical: boolean;
   detailHref: string;
-  replayHref: string;
 }
 
 export interface MissionControlBoardViewModel {
@@ -210,6 +219,9 @@ export interface DetailProjectionViewModel {
   confidence: string;
   operatorActivity: string;
   nextAction: string;
+  actionRequired: boolean;
+  actionKind: string;
+  actionLabel: string;
   belongsToMissionControl: boolean;
   belongsToHistory: boolean;
 }
@@ -310,6 +322,7 @@ function compareMissionSessions(a: MissionSessionViewModel, b: MissionSessionVie
   const statusOrder: MissionPrimaryStatus[] = [
     "waiting_on_human_input",
     "needs_intervention",
+    "awaiting_assignment",
     "waiting_for_review",
     "running",
     "unknown",
@@ -355,7 +368,7 @@ function summarizeMissionRuntime(
 ): MissionControlBoardViewModel["runtimeSummary"] {
   const runningCount = sessions.filter((session) => session.primaryStatus === "running").length;
   const attentionCount = sessions.filter((session) =>
-    ["waiting_on_human_input", "needs_intervention", "waiting_for_review", "unknown"].includes(session.primaryStatus)
+    session.actionRequired
   ).length;
   const activeSourceCount = sources.filter((source) => source.status === "active").length;
   const connectedSourceCount = sources.filter((source) => source.status === "active" || source.status === "idle" || source.status === "connected").length;
@@ -402,14 +415,16 @@ export function buildMissionSessionViewModels(
         lastAgentSignalAge: `agent ${formatSignalAge(item.agentSignalAgeMs, item.lastAgentSignalTimestamp)}`,
         runtimeAliveLabel: runtimeAliveLabel(item),
         primaryStatusLabel: primaryStatusLabel(item),
+        actionRequired: item.actionRequired,
+        actionKind: item.actionKind.replace(/_/g, " "),
+        actionLabel: trimLine(item.actionLabel, 78),
         confidenceLabel: item.confidence === "high" ? null : `${item.confidence} confidence`,
-        nextAction: trimLine(item.nextRecommendedOperatorAction, 78),
+        nextAction: trimLine(item.actionLabel ?? item.nextRecommendedOperatorAction, 78),
         rawRuntimeStatus: item.rawRuntimeStatus,
         sourceOfTruth: item.sourceOfTruth,
         attentionFlags: attentionFlags(item),
         isHistorical: item.belongsToHistory,
         detailHref: `/session/${encodeURIComponent(item.session.id)}`,
-        replayHref: `/session/${encodeURIComponent(item.session.id)}/replay`,
       } satisfies MissionSessionViewModel;
     })
     .sort(compareMissionSessions);
@@ -500,7 +515,10 @@ export function buildDetailProjectionViewModel(item: MissionControlSession): Det
     runtimeAliveLabel: runtimeAliveLabel(item),
     confidence: item.confidence,
     operatorActivity: item.operatorActivity.replace(/-/g, " "),
-    nextAction: item.nextRecommendedOperatorAction,
+    nextAction: item.actionLabel ?? item.nextRecommendedOperatorAction,
+    actionRequired: item.actionRequired,
+    actionKind: item.actionKind.replace(/_/g, " "),
+    actionLabel: item.actionLabel ?? item.nextRecommendedOperatorAction,
     belongsToMissionControl: item.belongsToMissionControl,
     belongsToHistory: item.belongsToHistory,
   };

@@ -161,7 +161,12 @@ function CategoryBadge({ category }: { category: OperationalCategory }) {
 
 function MissionSessionCard({ item }: { item: MissionSessionViewModel }) {
   return (
-    <article className={`session-card tone-${item.trafficLight.tone}`} data-primary-status={item.primaryStatus}>
+    <a
+      className={`session-card tone-${item.trafficLight.tone}`}
+      data-primary-status={item.primaryStatus}
+      href={item.detailHref}
+      aria-label={`${item.agentName} ${item.repoName}: ${item.primaryStatusLabel}. ${item.actionLabel}`}
+    >
       <div className="session-card-status">
         <StatusMarker item={item} />
         <div>
@@ -169,11 +174,11 @@ function MissionSessionCard({ item }: { item: MissionSessionViewModel }) {
           <strong>{item.primaryStatusLabel}</strong>
         </div>
       </div>
-      <a className="session-card-main" href={item.detailHref}>
+      <div className="session-card-main">
         <span>{item.repoName}</span>
         <strong>{item.agentName}</strong>
         <p>{item.objective}</p>
-      </a>
+      </div>
       <div className="session-card-meta">
         <span>{item.lastAgentSignalAge}</span>
         <span>{item.runtimeAliveLabel}</span>
@@ -188,11 +193,7 @@ function MissionSessionCard({ item }: { item: MissionSessionViewModel }) {
         <b>{item.nextAction}</b>
         <small>{item.reason}</small>
       </div>
-      <div className="session-card-links">
-        <a className="button primary" href={item.detailHref}>Detail</a>
-        <a className="row-link" href={item.replayHref}>Replay</a>
-      </div>
-    </article>
+    </a>
   );
 }
 

@@ -424,6 +424,149 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: "Andon API contract awaiting assignment is actionable and is not review",
+    run: async () => {
+      const database = createDatabase();
+
+      await withApi(database, async (baseUrl) => {
+        await fetch(`${baseUrl}/events`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            events: [
+              {
+                id: "assignment-session-started",
+                sessionId: "assignment-session",
+                runtime: "local_cli",
+                taskId: null,
+                type: "session.started",
+                phase: "execute",
+                source: "system",
+                timestamp: iso(-60_000),
+                summary: "Local CLI session started.",
+                payload: {
+                  sourceId: "local-cli-assignment-source",
+                  sourceName: "Local CLI runner",
+                  sourceType: "local_cli",
+                  transport: "http_events",
+                  agentName: "local-agent",
+                  objective: "Finish work and wait for the next assignment",
+                  repoPath: "D:\\Projects\\active\\holistic",
+                  worktreePath: "D:\\Projects\\active\\holistic",
+                  telemetryCommand: "start"
+                }
+              },
+              {
+                id: "assignment-session-status",
+                sessionId: "assignment-session",
+                runtime: "local_cli",
+                taskId: null,
+                type: "work.completed",
+                phase: "execute",
+                source: "system",
+                timestamp: iso(-5_000),
+                summary: "Work is complete; awaiting next assignment.",
+                payload: {
+                  sourceId: "local-cli-assignment-source",
+                  sourceName: "Local CLI runner",
+                  sourceType: "local_cli",
+                  transport: "http_events",
+                  agentName: "local-agent",
+                  telemetryCommand: "work-completed"
+                }
+              }
+            ]
+          })
+        });
+
+        const missionPayload = await (await fetch(`${baseUrl}/mission-control`)).json() as {
+          sessions: Array<{
+            session: { id: string };
+            category: string;
+            reason: string;
+            lifecycleState: string;
+            operatorAttention: string;
+            primaryStatus: string;
+            actionRequired: boolean;
+            actionKind: string;
+            actionLabel: string;
+          }>;
+        };
+        const detailPayload = await (await fetch(`${baseUrl}/sessions/assignment-session`)).json() as {
+          projection: { primaryStatus: string; actionLabel: string; operatorAttention: string } | null;
+        };
+        const item = missionPayload.sessions.find((session) => session.session.id === "assignment-session");
+
+        assert.ok(item);
+        assert.equal(item?.category, "needs_action");
+        assert.equal(item?.reason, "awaiting_assignment");
+        assert.equal(item?.lifecycleState, "awaiting_assignment");
+        assert.equal(item?.operatorAttention, "assignment_needed");
+        assert.equal(item?.primaryStatus, "awaiting_assignment");
+        assert.equal(item?.actionRequired, true);
+        assert.equal(item?.actionKind, "assignment");
+        assert.equal(item?.actionLabel, "Give this agent its next task or complete the session.");
+        assert.equal(detailPayload.projection?.primaryStatus, "awaiting_assignment");
+        assert.equal(detailPayload.projection?.actionLabel, item?.actionLabel);
+        assert.notEqual(item?.primaryStatus, "waiting_for_review");
+      });
+    }
+  },
+  {
+    name: "Andon API contract derives awaiting assignment from telemetry even when runtime row still says running",
+    run: async () => {
+      const database = createDatabase();
+      const base = Date.now() - 5_000;
+      upsertRuntimeSession(database, runtimeSession({
+        id: "session-telemetry-completed-row-running",
+        status: "running",
+        activity: "editing",
+        updatedAt: new Date(base + 3_000).toISOString(),
+        lastHeartbeatAt: new Date(base + 2_000).toISOString()
+      }));
+      insertRuntimeEvent(database, runtimeEvent({
+        id: "telemetry-work-started",
+        sessionId: "session-telemetry-completed-row-running",
+        type: "work.started",
+        timestamp: new Date(base + 1_000).toISOString(),
+        message: "Work started."
+      }));
+      insertRuntimeEvent(database, runtimeEvent({
+        id: "telemetry-heartbeat",
+        sessionId: "session-telemetry-completed-row-running",
+        type: "session.heartbeat",
+        timestamp: new Date(base + 2_000).toISOString(),
+        message: "Heartbeat."
+      }));
+      insertRuntimeEvent(database, runtimeEvent({
+        id: "telemetry-work-completed",
+        sessionId: "session-telemetry-completed-row-running",
+        type: "work.completed",
+        timestamp: new Date(base + 3_000).toISOString(),
+        message: "Work completed."
+      }));
+
+      await withApi(database, async (baseUrl) => {
+        const mission = await (await fetch(`${baseUrl}/mission-control`)).json() as {
+          sessions: Array<{
+            session: { id: string };
+            rawRuntimeStatus: string;
+            primaryStatus: string;
+            actionRequired: boolean;
+            actionKind: string;
+          }>;
+        };
+        const item = mission.sessions.find((session) => session.session.id === "session-telemetry-completed-row-running");
+
+        assert.ok(item);
+        assert.equal(item?.rawRuntimeStatus, "running");
+        assert.equal(item?.primaryStatus, "awaiting_assignment");
+        assert.equal(item?.actionRequired, true);
+        assert.equal(item?.actionKind, "assignment");
+      });
+    }
+  },
+  {
     name: "Andon API contract generic claude_code source can emit an active Mission Control session",
     run: async () => {
       const database = createDatabase();

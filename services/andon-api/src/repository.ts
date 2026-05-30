@@ -492,6 +492,9 @@ export interface OperationalSessionApiItem {
   runtimeSignal: OperationalProjection["runtimeSignal"];
   operatorAttention: OperationalProjection["operatorAttention"];
   primaryStatus: OperationalProjection["primaryStatus"];
+  actionRequired: boolean;
+  actionKind: OperationalProjection["actionKind"];
+  actionLabel: string;
   confidence: OperationalProjection["confidence"];
   operatorActivity: OperationalProjection["operatorActivity"];
   nextRecommendedOperatorAction: string;
@@ -748,6 +751,114 @@ function legacyEventsCanOverrideRuntimeLifecycle(events: AgentEvent[]): boolean 
   });
 }
 
+function runtimeTelemetryStatusHint(events: HolisticRuntimeEvent[]): SessionStatus | null {
+  const ordered = [...events]
+    .filter((event) => {
+      switch (event.type) {
+        case "work.started":
+        case "work.completed":
+        case "input.requested":
+        case "input.resolved":
+        case "approval.requested":
+        case "approval.granted":
+        case "approval.denied":
+        case "review.requested":
+        case "review.resolved":
+        case "review.acknowledged":
+        case "validation.passed":
+        case "validation.failed":
+        case "session.needs_input":
+        case "session.needs_review":
+        case "session.failed_proof":
+        case "session.error":
+        case "session.failed":
+        case "agent.blocked":
+        case "session.parked":
+          return true;
+        default:
+          return false;
+      }
+    })
+    .sort((left, right) => {
+      const leftTime = timestampMs(left.timestamp) ?? 0;
+      const rightTime = timestampMs(right.timestamp) ?? 0;
+      if (leftTime !== rightTime) return leftTime - rightTime;
+      return left.id.localeCompare(right.id);
+    });
+
+  let workState: "running" | "completed" | null = null;
+  let inputPending = false;
+  let reviewPending = false;
+  let failurePending = false;
+  let parked = false;
+
+  for (const event of ordered) {
+    switch (event.type) {
+      case "work.started":
+        workState = "running";
+        inputPending = false;
+        reviewPending = false;
+        failurePending = false;
+        parked = false;
+        break;
+      case "work.completed":
+        workState = "completed";
+        break;
+      case "input.requested":
+      case "approval.requested":
+      case "session.needs_input":
+        inputPending = true;
+        parked = false;
+        break;
+      case "input.resolved":
+      case "approval.granted":
+      case "approval.denied":
+        inputPending = false;
+        workState = "running";
+        parked = false;
+        break;
+      case "review.requested":
+      case "session.needs_review":
+        reviewPending = true;
+        parked = false;
+        break;
+      case "review.resolved":
+      case "review.acknowledged":
+        reviewPending = false;
+        workState = "running";
+        parked = false;
+        break;
+      case "validation.failed":
+      case "session.failed_proof":
+      case "session.error":
+      case "session.failed":
+      case "agent.blocked":
+        failurePending = true;
+        parked = false;
+        break;
+      case "validation.passed":
+        failurePending = false;
+        workState = "running";
+        parked = false;
+        break;
+      case "session.parked":
+        parked = true;
+        inputPending = false;
+        reviewPending = false;
+        failurePending = false;
+        break;
+    }
+  }
+
+  if (failurePending) return "blocked";
+  if (inputPending) return "needs_input";
+  if (reviewPending) return "awaiting_review";
+  if (parked) return "parked";
+  if (workState === "completed") return "awaiting_assignment";
+  if (workState === "running") return "running";
+  return null;
+}
+
 function legacyProjection(session: SessionRecord, events: AgentEvent[], now: number): OperationalProjection {
   const status = legacyStatusHint(session, events, now);
   return projectOperationalSession({
@@ -784,6 +895,9 @@ function operationalItem(session: SessionRecord, projection: OperationalProjecti
     runtimeSignal: projection.runtimeSignal,
     operatorAttention: projection.operatorAttention,
     primaryStatus: projection.primaryStatus,
+    actionRequired: projection.actionRequired,
+    actionKind: projection.actionKind,
+    actionLabel: projection.actionLabel,
     confidence: projection.confidence,
     operatorActivity: projection.operatorActivity,
     nextRecommendedOperatorAction: projection.nextRecommendedOperatorAction,
@@ -808,7 +922,8 @@ function normalizeTopLevelOperationalItem(item: OperationalSessionApiItem): Oper
       || item.rawRuntimeStatus === "failed"
     );
   const isTopLevelMissionSession =
-    (hasDirectRuntimeTruth && item.primaryStatus === "running" && (item.runtimeSignal === "alive" || item.runtimeSignal === "stale"))
+    (hasDirectRuntimeTruth && item.primaryStatus === "running")
+    || (hasDirectRuntimeTruth && item.primaryStatus === "awaiting_assignment")
     || (hasDirectRuntimeTruth && item.primaryStatus === "waiting_for_review")
     || hasDirectRuntimeIntervention
     || hasExplicitInput;
@@ -827,6 +942,9 @@ function normalizeTopLevelOperationalItem(item: OperationalSessionApiItem): Oper
     runtimeSignal: item.projection.runtimeSignal,
     operatorAttention: "none",
     primaryStatus: "parked_idle",
+    actionRequired: false,
+    actionKind: "none",
+    actionLabel: "No action needed.",
     confidence: "high",
     nextRecommendedOperatorAction: "No live operator action",
     belongsOnMissionControl: false,
@@ -853,6 +971,9 @@ function normalizeTopLevelOperationalItem(item: OperationalSessionApiItem): Oper
     runtimeSignal: projection.runtimeSignal,
     operatorAttention: projection.operatorAttention,
     primaryStatus: projection.primaryStatus,
+    actionRequired: projection.actionRequired,
+    actionKind: projection.actionKind,
+    actionLabel: projection.actionLabel,
     confidence: projection.confidence,
     operatorActivity: projection.operatorActivity,
     nextRecommendedOperatorAction: projection.nextRecommendedOperatorAction,
@@ -1110,12 +1231,12 @@ function buildOperationalSessions(database: DatabaseSync, now = Date.now()): Ope
     const runtimeEvents = getRuntimeEvents(database, session.id);
     const sessionRecord = runtimeSessionToSessionRecord(session);
     const legacyEvents = getEventsTailForRules(database, session.id, 200);
+    const runtimeStatusHint = runtimeTelemetryStatusHint(runtimeEvents);
     const legacyStatus = legacyEventsCanOverrideRuntimeLifecycle(legacyEvents)
       ? deriveStatus({ session: sessionRecord, events: legacyEvents, holisticContext: null }).status
       : null;
-    const canonicalStatusHint = legacyStatus && legacyStatus !== "queued" && legacyStatus !== "running"
-      ? legacyStatus
-      : null;
+    const canonicalStatusHint = runtimeStatusHint
+      ?? (legacyStatus && legacyStatus !== "queued" ? legacyStatus : null);
     return operationalItem(
       sessionRecord,
       runtimeProjection(database, session, runtimeEvents, canonicalStatusHint, now)
@@ -1916,20 +2037,62 @@ function legacyAgentEventToMirrorRuntimeStatus(
   event: AgentEvent,
   existingRuntime: RuntimeSession | null
 ): RuntimeSession["status"] {
+  const payload = event.payload as Record<string, unknown>;
   if (event.type === "session.ended" || event.type === "session.completed") {
     return "completed";
   }
+  if (event.type === "work.started") {
+    return "running";
+  }
+  if (event.type === "work.completed") {
+    return "awaiting_assignment";
+  }
+  if (event.type === "session.parked") {
+    return "parked";
+  }
+  if (event.type === "session.error") {
+    return "failed";
+  }
+  if (event.type === "session.needs_input") {
+    return "waiting_for_input";
+  }
+  if (event.type === "session.needs_review") {
+    return "awaiting_review";
+  }
+  if (event.type === "session.failed_proof") {
+    return "blocked";
+  }
+  if (event.type === "review.requested") {
+    return "awaiting_review";
+  }
+  if (event.type === "review.resolved") {
+    return existingRuntime?.status === "awaiting_review" ? "running" : (existingRuntime?.status ?? "unknown");
+  }
+  if (event.type === "validation.failed") {
+    return "blocked";
+  }
+  if (event.type === "validation.passed") {
+    return existingRuntime?.status === "blocked" || existingRuntime?.status === "failed" ? "running" : (existingRuntime?.status ?? "running");
+  }
   if (
     (event.type === "agent.summary_emitted" || event.type === "agent.summary")
-    && ((event.payload as Record<string, unknown>).signal || (event.payload as Record<string, unknown>).completionSignal)
+    && (payload.signal || payload.completionSignal)
   ) {
     return "completed";
   }
   if (event.type === "agent.question_asked" || event.type === "agent.question" || event.type === "input.requested") {
-    const payload = event.payload as Record<string, unknown>;
     if (payload.resolved === false) {
       return "waiting_for_input";
     }
+    if (event.type === "input.requested") {
+      return "waiting_for_input";
+    }
+  }
+  if (event.type === "input.resolved") {
+    return existingRuntime?.status === "waiting_for_input" ? "running" : (existingRuntime?.status ?? "unknown");
+  }
+  if (event.type === "session.status_changed") {
+    return existingRuntime?.status ?? "unknown";
   }
   if (
     event.type === "session.heartbeat"
@@ -1947,12 +2110,20 @@ function legacyEventToRuntimeEventType(type: AgentEvent["type"]): HolisticRuntim
   switch (type) {
     case "session.started":
     case "session.heartbeat":
+    case "session.status_changed":
+    case "session.needs_input":
+    case "session.needs_review":
+    case "session.failed_proof":
     case "session.paused":
     case "session.resumed":
+    case "session.parked":
+    case "session.error":
     case "session.completed":
     case "session.failed":
     case "session.cancelled":
     case "session.terminated":
+    case "work.started":
+    case "work.completed":
     case "task.started":
     case "task.updated":
     case "task.completed":
@@ -1969,6 +2140,10 @@ function legacyEventToRuntimeEventType(type: AgentEvent["type"]): HolisticRuntim
     case "test.failed":
     case "input.requested":
     case "input.resolved":
+    case "review.requested":
+    case "review.resolved":
+    case "validation.passed":
+    case "validation.failed":
     case "git.branch_created":
     case "context.branch_changed":
     case "context.environment_changed":
@@ -2035,6 +2210,15 @@ function maybeUpsertMirrorRuntimeFromLegacyEvent(database: DatabaseSync, event: 
   if (existingRt && existingRt.metadata?.andonIngestMirror !== true && !existingRuntimeWriter && !sameDirectSource) {
     return;
   }
+  const existingUpdatedAtMs = Date.parse(existingRt?.updatedAt ?? "");
+  const eventTimestampMs = Date.parse(event.timestamp);
+  if (
+    Number.isFinite(existingUpdatedAtMs)
+    && Number.isFinite(eventTimestampMs)
+    && eventTimestampMs < existingUpdatedAtMs
+  ) {
+    return;
+  }
   const status = legacyAgentEventToMirrorRuntimeStatus(event, existingRt);
   const payloadActivity = asNonEmptyString(eventPayload.activity) as RuntimeSession["activity"] | null;
   const activity = payloadActivity ?? phaseToMirrorRuntimeActivity(sessionRow.currentPhase);
@@ -2053,6 +2237,8 @@ function maybeUpsertMirrorRuntimeFromLegacyEvent(database: DatabaseSync, event: 
     platform: asNonEmptyString(eventPayload.platform) ?? normalizeSourceType(eventPayload.runtime ?? event.runtime ?? sessionRow.runtime),
     transport: normalizeTransport(eventPayload.transport) ?? (isRuntimeWriterEvent ? "cli_writer" : "http_events"),
     capabilities: Array.isArray(eventPayload.capabilities) ? eventPayload.capabilities.map(String) : ["session.started", "session.heartbeat"],
+    completedAcknowledged: metadataBoolean(eventPayload, "completedAcknowledged") || metadataBoolean(eventPayload, "acknowledged"),
+    acknowledged: metadataBoolean(eventPayload, "completedAcknowledged") || metadataBoolean(eventPayload, "acknowledged"),
     objective: sessionRow.objective,
     prompt: sessionRow.objective,
     agentName: sessionRow.agentName,

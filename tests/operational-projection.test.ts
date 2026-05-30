@@ -178,6 +178,29 @@ const tests: Array<{ name: string; run: () => void }> = [
     }
   },
   {
+    name: "operational projection awaiting assignment is actionable and not review",
+    run: () => {
+      const projected = projectOperationalSession({
+        sessionId: "session-assignment",
+        runtimeSession: runtimeSession({ id: "session-assignment", status: "awaiting_assignment" }),
+        runtimeProcessAlive: true,
+        now: NOW
+      });
+
+      assert.equal(projected.category, "needs_action");
+      assert.equal(projected.reason, "awaiting_assignment");
+      assert.equal(projected.lifecycleState, "awaiting_assignment");
+      assert.equal(projected.operatorAttention, "assignment_needed");
+      assert.equal(projected.primaryStatus, "awaiting_assignment");
+      assert.equal(projected.actionRequired, true);
+      assert.equal(projected.actionKind, "assignment");
+      assert.equal(projected.actionLabel, "Give this agent its next task or complete the session.");
+      assert.equal(projected.derivedOperationalStatus, "awaiting_assignment");
+      assert.notEqual(projected.primaryStatus, "waiting_for_review");
+      assert.notEqual(projected.category, "review");
+    }
+  },
+  {
     name: "operational projection active blocked and failed sessions are degraded_active not live",
     run: () => {
       for (const status of ["blocked", "failed"] as const) {
@@ -221,7 +244,7 @@ const tests: Array<{ name: string; run: () => void }> = [
     }
   },
   {
-    name: "operational projection stale active runtime is degraded_active not live",
+    name: "operational projection stale active runtime carries telemetry warning without intervention status",
     run: () => {
       const projected = projectOperationalSession({
         sessionId: "session-stale-active",
@@ -236,8 +259,10 @@ const tests: Array<{ name: string; run: () => void }> = [
 
       assert.equal(projected.category, "degraded_active");
       assert.equal(projected.reason, "stale_runtime");
-      assert.equal(projected.lifecycleState, "stale");
-      assert.equal(projected.primaryStatus, "needs_intervention");
+      assert.equal(projected.lifecycleState, "running");
+      assert.equal(projected.primaryStatus, "running");
+      assert.equal(projected.actionRequired, false);
+      assert.notEqual(projected.primaryStatus, "needs_intervention");
       assert.equal(projected.freshness, "cold");
       assert.notEqual(projected.category, "live");
     }
@@ -316,6 +341,38 @@ const tests: Array<{ name: string; run: () => void }> = [
     }
   },
   {
+    name: "operational projection fresh direct runtime activity can prove running without treating heartbeat as canonical status",
+    run: () => {
+      const projected = projectOperationalSession({
+        sessionId: "session-fresh-activity-no-heartbeat",
+        runtimeSession: runtimeSession({
+          id: "session-fresh-activity-no-heartbeat",
+          updatedAt: FRESH,
+          lastHeartbeatAt: undefined,
+          lastMeaningfulActivityAt: undefined
+        }),
+        runtimeEvents: [
+          event({
+            id: "session-started",
+            sessionId: "session-fresh-activity-no-heartbeat",
+            type: "session.started",
+            timestamp: FRESH,
+            message: "Session started."
+          })
+        ],
+        runtimeProcessAlive: "unknown",
+        now: NOW
+      });
+
+      assert.equal(projected.category, "live");
+      assert.equal(projected.reason, "runtime_active");
+      assert.equal(projected.primaryStatus, "running");
+      assert.equal(projected.actionRequired, false);
+      assert.equal(projected.runtimeSignal, "unknown");
+      assert.equal(projected.hasMeaningfulActivity, true);
+    }
+  },
+  {
     name: "operational projection branch context-only activity is not progress and cannot keep a session live",
     run: () => {
       const projected = projectOperationalSession({
@@ -342,6 +399,8 @@ const tests: Array<{ name: string; run: () => void }> = [
       assert.equal(projected.category, "degraded_active");
       assert.equal(projected.reason, "missing_runtime_signal");
       assert.equal(projected.hasMeaningfulActivity, false);
+      assert.equal(projected.primaryStatus, "unknown");
+      assert.notEqual(projected.primaryStatus, "needs_intervention");
       assert.equal(projected.freshness, "unknown");
       assert.notEqual(projected.category, "live");
     }

@@ -46,6 +46,7 @@ export interface MissionControlSession {
   runtimeProcessAlive: boolean | "unknown";
   lifecycleState:
     | "running"
+    | "awaiting_assignment"
     | "waiting_input"
     | "review_ready"
     | "blocked"
@@ -54,15 +55,19 @@ export interface MissionControlSession {
     | "stale"
     | "unknown";
   runtimeSignal: "alive" | "stale" | "dead" | "unknown";
-  operatorAttention: "none" | "review_needed" | "input_needed" | "intervention_needed";
+  operatorAttention: "none" | "assignment_needed" | "review_needed" | "input_needed" | "intervention_needed";
   primaryStatus:
     | "running"
+    | "awaiting_assignment"
     | "waiting_for_review"
     | "waiting_on_human_input"
     | "needs_intervention"
     | "parked_idle"
     | "done_historical"
     | "unknown";
+  actionRequired: boolean;
+  actionKind: "none" | "assignment" | "input" | "intervention" | "review" | "state_check";
+  actionLabel: string;
   confidence: "high" | "medium" | "low";
   operatorActivity:
     | "editing"

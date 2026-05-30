@@ -71,6 +71,25 @@ function makeMissionSession(
           ? "intervention_needed"
           : "none",
     primaryStatus: PRIMARY_STATUS_BY_CATEGORY[category],
+    actionRequired: ["needs_action", "review", "degraded_active", "unknown"].includes(category),
+    actionKind: category === "needs_action"
+      ? "input"
+      : category === "review"
+        ? "review"
+        : category === "degraded_active"
+          ? "intervention"
+          : category === "unknown"
+            ? "state_check"
+            : "none",
+    actionLabel: category === "needs_action"
+      ? "Provide the requested input."
+      : category === "review"
+        ? "Review the requested output."
+        : category === "degraded_active"
+          ? "Investigate the issue."
+          : category === "unknown"
+            ? "Check session state."
+            : "No action needed.",
     confidence: category === "unknown" ? "low" : "high",
     operatorActivity: category === "review" ? "review-ready" : category === "needs_action" ? "waiting" : "editing",
     nextRecommendedOperatorAction: category === "needs_action" ? "Answer the agent prompt." : "Inspect when ready.",
@@ -335,9 +354,11 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         marker: "circle",
         description: "Agent session is actively running now.",
       });
-      assert.equal(mapPrimaryStatusToTrafficLight("waiting_for_review").label, "Waiting for Review");
+      assert.equal(mapPrimaryStatusToTrafficLight("awaiting_assignment").label, "Awaiting Assignment");
+      assert.equal(mapPrimaryStatusToTrafficLight("awaiting_assignment").tone, "input");
+      assert.equal(mapPrimaryStatusToTrafficLight("waiting_for_review").label, "Needs Review");
       assert.equal(mapPrimaryStatusToTrafficLight("waiting_for_review").tone, "review");
-      assert.equal(mapPrimaryStatusToTrafficLight("waiting_on_human_input").label, "Waiting on Human Input");
+      assert.equal(mapPrimaryStatusToTrafficLight("waiting_on_human_input").label, "Needs Input");
       assert.equal(mapPrimaryStatusToTrafficLight("waiting_on_human_input").tone, "input");
       assert.equal(mapPrimaryStatusToTrafficLight("needs_intervention").label, "Needs Intervention");
       assert.equal(mapPrimaryStatusToTrafficLight("needs_intervention").tone, "critical");
@@ -347,6 +368,74 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(mapPrimaryStatusToTrafficLight("done_historical").tone, "history");
       assert.equal(mapPrimaryStatusToTrafficLight("unknown").label, "Unknown");
       assert.equal(mapPrimaryStatusToTrafficLight("unknown").marker, "question");
+    },
+  },
+  {
+    name: "Andon Mission Control displays finished waiting work as Awaiting Assignment not review",
+    run: () => {
+      const [viewModel] = buildMissionSessionViewModels([
+        makeMissionSession("needs_action", {
+          session: {
+            id: "assignment-session",
+            objective: "Work is complete; awaiting next assignment",
+          },
+          reason: "awaiting_assignment",
+          lifecycleState: "awaiting_assignment",
+          operatorAttention: "assignment_needed",
+          primaryStatus: "awaiting_assignment",
+          actionRequired: true,
+          actionKind: "assignment",
+          actionLabel: "Give this agent its next task or complete the session.",
+          nextRecommendedOperatorAction: "Give this agent its next task or complete the session.",
+          operatorActivity: "waiting",
+        }),
+      ]);
+
+      assert.ok(viewModel);
+      assert.equal(viewModel.primaryStatus, "awaiting_assignment");
+      assert.equal(viewModel.primaryStatusLabel, "Awaiting Assignment");
+      assert.equal(viewModel.actionRequired, true);
+      assert.equal(viewModel.actionKind, "assignment");
+      assert.equal(viewModel.actionLabel, "Give this agent its next task or complete the session.");
+      assert.equal(viewModel.nextAction, "Give this agent its next task or complete the session.");
+      assert.doesNotMatch(viewModel.primaryStatusLabel, /review/i);
+      assert.doesNotMatch(viewModel.nextAction, /review/i);
+    },
+  },
+  {
+    name: "Andon Mission Control action-required count follows explicit action policy",
+    run: () => {
+      const board = buildMissionControlBoardViewModel(makeResponse([
+        makeMissionSession("live", {
+          session: { id: "running" },
+          actionRequired: false,
+          actionKind: "none",
+          actionLabel: "No action needed.",
+        }),
+        makeMissionSession("needs_action", {
+          session: { id: "assignment" },
+          reason: "awaiting_assignment",
+          lifecycleState: "awaiting_assignment",
+          operatorAttention: "assignment_needed",
+          primaryStatus: "awaiting_assignment",
+          actionRequired: true,
+          actionKind: "assignment",
+          actionLabel: "Give this agent its next task or complete the session.",
+        }),
+        makeMissionSession("historical", {
+          session: { id: "parked" },
+          primaryStatus: "parked_idle",
+          actionRequired: false,
+          actionKind: "none",
+          actionLabel: "No action needed.",
+          belongsToMissionControl: true,
+          belongsToHistory: false,
+          category: "unknown",
+        }),
+      ]));
+
+      assert.equal(board.runtimeSummary.runningCount, 1);
+      assert.equal(board.runtimeSummary.attentionCount, 1);
     },
   },
   {
@@ -387,7 +476,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.ok(card);
       assert.equal(card.primaryStatus, detail.primaryStatus);
       assert.equal(card.primaryStatusLabel, detail.primaryStatusLabel);
-      assert.equal(detail.primaryStatusLabel, "Waiting for Review");
+      assert.equal(detail.primaryStatusLabel, "Needs Review");
       assert.doesNotMatch(card.primaryStatusLabel, /flowing|running/i);
     },
   },
@@ -445,7 +534,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 
       assert.ok(viewModel);
       assert.equal(viewModel.primaryStatus, "waiting_on_human_input");
-      assert.equal(viewModel.primaryStatusLabel, "Waiting on Human Input");
+      assert.equal(viewModel.primaryStatusLabel, "Needs Input");
       assert.equal(viewModel.rawRuntimeStatus, "running");
       assert.equal(viewModel.reason, "waiting for input");
       assert.equal(viewModel.operatorActivity, "waiting");
@@ -548,13 +637,16 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     },
   },
   {
-    name: "Andon Mission Control primary card action is Detail and Replay remains secondary",
+    name: "Andon Mission Control card is the Detail link and Replay is not visible on the card",
     run: () => {
       const appSource = fs.readFileSync("apps/andon-dashboard/src/App.tsx", "utf8");
 
-      assert.match(appSource, /<a className="session-card-main" href=\{item\.detailHref\}>/);
-      assert.match(appSource, /<a className="button primary" href=\{item\.detailHref\}>Detail<\/a>/);
-      assert.match(appSource, /<a className="row-link" href=\{item\.replayHref\}>Replay<\/a>/);
+      assert.match(appSource, /className=\{`session-card tone-\$\{item\.trafficLight\.tone\}`\}/);
+      assert.match(appSource, /href=\{item\.detailHref\}/);
+      assert.match(appSource, /aria-label=\{`\$\{item\.agentName\}/);
+      assert.doesNotMatch(appSource, /<a className="button primary" href=\{item\.detailHref\}>Detail<\/a>/);
+      assert.doesNotMatch(appSource, /<a className="row-link" href=\{item\.replayHref\}>Replay<\/a>/);
+      assert.match(appSource, /href=\{`\/session\/\$\{encodeURIComponent\(sessionId\)\}\/replay`\}>Open replay/);
     },
   },
   {
@@ -606,7 +698,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.equal(projection.confidence, "medium");
       assert.equal(projection.operatorActivity, "blocked");
       assert.equal(projection.lastSignalAge, "10m");
-      assert.match(projection.nextAction, /stale runtime/i);
+      assert.equal(projection.nextAction, "Investigate the issue.");
     },
   },
   {

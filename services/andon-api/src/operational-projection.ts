@@ -25,6 +25,7 @@ export type OperationalSourceOfTruth = "runtime" | "legacy" | "mixed" | "missing
 export type OperationalConfidence = "high" | "medium" | "low";
 export type LifecycleState =
   | "running"
+  | "awaiting_assignment"
   | "waiting_input"
   | "review_ready"
   | "blocked"
@@ -33,9 +34,11 @@ export type LifecycleState =
   | "stale"
   | "unknown";
 export type RuntimeSignalState = "alive" | "stale" | "dead" | "unknown";
-export type OperatorAttention = "none" | "review_needed" | "input_needed" | "intervention_needed";
+export type OperatorAttention = "none" | "assignment_needed" | "review_needed" | "input_needed" | "intervention_needed";
+export type OperatorActionKind = "none" | "assignment" | "input" | "intervention" | "review" | "state_check";
 export type MissionPrimaryStatus =
   | "running"
+  | "awaiting_assignment"
   | "waiting_for_review"
   | "waiting_on_human_input"
   | "needs_intervention"
@@ -55,6 +58,7 @@ export type OperatorActivityInsight =
 
 export type OperationalProjectionReason =
   | "runtime_active"
+  | "awaiting_assignment"
   | "waiting_for_input"
   | "awaiting_review"
   | "unacknowledged_completion"
@@ -89,7 +93,7 @@ export interface OperationalProjectionInput {
   humanInputNeeded?: boolean;
   reviewNeeded?: boolean;
   completedAcknowledged?: boolean;
-  canonicalStatusHint?: "running" | "needs_input" | "awaiting_review" | "parked" | "blocked" | "at_risk" | null;
+  canonicalStatusHint?: "running" | "awaiting_assignment" | "needs_input" | "awaiting_review" | "parked" | "blocked" | "at_risk" | null;
   now?: Date | number | string;
   freshAfterMs?: number;
   coldAfterMs?: number;
@@ -104,6 +108,7 @@ export interface OperationalProjection {
   rawRuntimeStatus: RuntimeStatus | "missing";
   derivedOperationalStatus:
     | "running"
+    | "awaiting_assignment"
     | "needs_input"
     | "awaiting_review"
     | "degraded"
@@ -124,6 +129,9 @@ export interface OperationalProjection {
   runtimeSignal: RuntimeSignalState;
   operatorAttention: OperatorAttention;
   primaryStatus: MissionPrimaryStatus;
+  actionRequired: boolean;
+  actionKind: OperatorActionKind;
+  actionLabel: string;
   hasMeaningfulActivity: boolean;
   operatorActivity: OperatorActivityInsight;
   confidence: OperationalConfidence;
@@ -247,10 +255,11 @@ function projection(
     "review",
     "unknown"
   ];
-  const lifecycleState = lifecycleStateFor(fields.category, fields.reason, fields.rawRuntimeStatus);
+  const lifecycleState = lifecycleStateFor(fields.category, fields.reason, fields.rawRuntimeStatus, fields.freshness);
   const runtimeSignal = runtimeSignalFor(fields.freshness, input.runtimeProcessAlive);
-  const operatorAttention = operatorAttentionFor(fields.category, lifecycleState);
+  const operatorAttention = operatorAttentionFor(fields.category, lifecycleState, fields.reason);
   const primaryStatus = primaryStatusFor(lifecycleState, operatorAttention);
+  const action = operatorActionFor(primaryStatus);
   const lastAgentSignalTimestamp = latestTimestamp([
     fields.lastHeartbeatAt,
     fields.lastMeaningfulActivityAt,
@@ -277,6 +286,9 @@ function projection(
     runtimeSignal,
     operatorAttention,
     primaryStatus,
+    actionRequired: action.required,
+    actionKind: action.kind,
+    actionLabel: action.label,
     hasMeaningfulActivity: fields.lastMeaningfulActivityAt !== null,
     operatorActivity: fields.operatorActivity ?? operatorActivityFor(input, fields.rawRuntimeStatus, fields.category),
     confidence: fields.confidence ?? confidenceFor(fields.category, fields.reason),
@@ -285,6 +297,53 @@ function projection(
     belongsInHistory: fields.category === "historical",
     evidence: fields.evidence
   };
+}
+
+function operatorActionFor(primaryStatus: MissionPrimaryStatus): {
+  required: boolean;
+  kind: OperatorActionKind;
+  label: string;
+} {
+  switch (primaryStatus) {
+    case "awaiting_assignment":
+      return {
+        required: true,
+        kind: "assignment",
+        label: "Give this agent its next task or complete the session."
+      };
+    case "waiting_on_human_input":
+      return {
+        required: true,
+        kind: "input",
+        label: "Provide the requested input."
+      };
+    case "needs_intervention":
+      return {
+        required: true,
+        kind: "intervention",
+        label: "Investigate the issue."
+      };
+    case "waiting_for_review":
+      return {
+        required: true,
+        kind: "review",
+        label: "Review the requested output."
+      };
+    case "unknown":
+      return {
+        required: true,
+        kind: "state_check",
+        label: "Check session state."
+      };
+    case "running":
+    case "parked_idle":
+    case "done_historical":
+      return {
+        required: false,
+        kind: "none",
+        label: "No action needed."
+      };
+  }
 }
 
 function runtimeActivityInsight(activity: RuntimeSession["activity"] | undefined): OperatorActivityInsight {
@@ -316,6 +375,9 @@ function operatorActivityFor(
   category: RuntimeOperationalCategory
 ): OperatorActivityInsight {
   if (category === "needs_action" || rawRuntimeStatus === "waiting_for_input") {
+    return "waiting";
+  }
+  if (rawRuntimeStatus === "awaiting_assignment") {
     return "waiting";
   }
   if (category === "review" || rawRuntimeStatus === "waiting_for_approval" || rawRuntimeStatus === "awaiting_review") {
@@ -357,8 +419,10 @@ function confidenceFor(category: RuntimeOperationalCategory, reason: Operational
 function lifecycleStateFor(
   category: RuntimeOperationalCategory,
   reason: OperationalProjectionReason,
-  rawRuntimeStatus: RuntimeStatus | "missing"
+  rawRuntimeStatus: RuntimeStatus | "missing",
+  freshness: RuntimeFreshness
 ): LifecycleState {
+  if (reason === "awaiting_assignment" || rawRuntimeStatus === "awaiting_assignment") return "awaiting_assignment";
   if (category === "needs_action") return "waiting_input";
   if (category === "review") return "review_ready";
   if (rawRuntimeStatus === "waiting_for_input") return "waiting_input";
@@ -366,6 +430,7 @@ function lifecycleStateFor(
   if (rawRuntimeStatus === "blocked" || rawRuntimeStatus === "failed") return "blocked";
   if (rawRuntimeStatus === "parked" || rawRuntimeStatus === "paused") return "parked";
   if (rawRuntimeStatus === "completed" || rawRuntimeStatus === "cancelled" || rawRuntimeStatus === "terminated") return "completed";
+  if ((reason === "stale_runtime" || reason === "missing_runtime_signal") && isRuntimeRunningStatus(rawRuntimeStatus) && freshness !== "unknown") return "running";
   if (reason === "stale_runtime" || reason === "missing_runtime_signal" || reason === "runtime_db_mismatch") return "stale";
   if (category === "live") return "running";
   if (category === "historical") return reason === "parked" ? "parked" : "completed";
@@ -386,48 +451,61 @@ function runtimeSignalFor(
 
 function operatorAttentionFor(
   category: RuntimeOperationalCategory,
-  lifecycleState: LifecycleState
+  lifecycleState: LifecycleState,
+  reason: OperationalProjectionReason
 ): OperatorAttention {
+  if (lifecycleState === "awaiting_assignment") return "assignment_needed";
   if (lifecycleState === "waiting_input" || category === "needs_action") return "input_needed";
   if (lifecycleState === "review_ready" || category === "review") return "review_needed";
-  if (lifecycleState === "blocked" || lifecycleState === "stale" || category === "degraded_active") {
+  if (
+    lifecycleState === "blocked"
+    || reason === "blocked_or_failed"
+    || reason === "runtime_db_mismatch"
+    || reason === "contradictory_telemetry"
+  ) {
     return "intervention_needed";
   }
   return "none";
 }
 
 function primaryStatusFor(lifecycleState: LifecycleState, operatorAttention: OperatorAttention): MissionPrimaryStatus {
+  if (operatorAttention === "assignment_needed") return "awaiting_assignment";
   if (operatorAttention === "input_needed") return "waiting_on_human_input";
   if (operatorAttention === "intervention_needed") return "needs_intervention";
   if (operatorAttention === "review_needed") return "waiting_for_review";
   if (lifecycleState === "running") return "running";
   if (lifecycleState === "parked") return "parked_idle";
   if (lifecycleState === "completed") return "done_historical";
-  if (lifecycleState === "stale") return "needs_intervention";
+  if (lifecycleState === "stale") return "unknown";
   return "unknown";
 }
 
 function recommendedActionFor(category: RuntimeOperationalCategory, reason: OperationalProjectionReason): string {
   if (category === "live") {
-    return "Monitor active runtime";
+    return "No action needed.";
   }
   if (category === "needs_action") {
-    return "Answer requested input";
+    return reason === "awaiting_assignment"
+      ? "Give this agent its next task or complete the session."
+      : "Provide the requested input.";
   }
   if (category === "review") {
-    return "Review or approve session output";
+    return "Review the requested output.";
   }
   if (category === "degraded_active") {
+    if (reason === "missing_runtime_signal" || reason === "stale_runtime" || reason === "legacy_active_without_runtime") {
+      return "No action needed.";
+    }
     return reason === "runtime_db_mismatch"
       ? "Investigate runtime/database mismatch"
-      : "Investigate runtime telemetry";
+      : "Investigate the issue.";
   }
   if (category === "historical") {
     return reason === "stale_review"
-      ? "Review aged out of Mission Control; open History if follow-up is needed"
-      : "No live operator action";
+      ? "Review aged out of Mission Control; open History if follow-up is needed."
+      : "No action needed.";
   }
-  return "Inspect source data before acting";
+  return "Check session state.";
 }
 
 function legacyProjection(input: OperationalProjectionInput, now: number): OperationalProjection {
@@ -575,6 +653,25 @@ export function projectOperationalSession(input: OperationalProjectionInput): Op
     });
   }
 
+  if (input.canonicalStatusHint === "running" && !isRuntimeHistoricalStatus(rawRuntimeStatus)) {
+    return projection(input, {
+      category: "live",
+      reason: "runtime_active",
+      rawRuntimeStatus,
+      derivedOperationalStatus: "running",
+      sourceOfTruth,
+      freshness,
+      lastSignalTimestamp,
+      lastHeartbeatAt,
+      lastMeaningfulActivityAt,
+      now,
+      evidence: [
+        ...evidenceBase,
+        "Canonical telemetry contains fresh work-started activity; heartbeat and runtime connection remain secondary signal health."
+      ]
+    });
+  }
+
   if (isRuntimeRunningStatus(rawRuntimeStatus) && input.canonicalStatusHint === "parked") {
     return projection(input, {
       category: "historical",
@@ -625,6 +722,25 @@ export function projectOperationalSession(input: OperationalProjectionInput): Op
       evidence: [
         ...evidenceBase,
         "Canonical session status is review-ready; heartbeat is liveness metadata and does not make it running."
+      ]
+    });
+  }
+
+  if (isRuntimeRunningStatus(rawRuntimeStatus) && input.canonicalStatusHint === "awaiting_assignment") {
+    return projection(input, {
+      category: "needs_action",
+      reason: "awaiting_assignment",
+      rawRuntimeStatus,
+      derivedOperationalStatus: "awaiting_assignment",
+      sourceOfTruth,
+      freshness,
+      lastSignalTimestamp,
+      lastHeartbeatAt,
+      lastMeaningfulActivityAt,
+      now,
+      evidence: [
+        ...evidenceBase,
+        "Canonical session status is awaiting assignment; heartbeat is liveness metadata and does not make it running."
       ]
     });
   }
@@ -731,16 +847,18 @@ export function projectOperationalSession(input: OperationalProjectionInput): Op
   if (isRuntimeNeedsActionStatus(rawRuntimeStatus) || input.humanInputNeeded) {
     return projection(input, {
       category: "needs_action",
-      reason: "waiting_for_input",
+      reason: rawRuntimeStatus === "awaiting_assignment" ? "awaiting_assignment" : "waiting_for_input",
       rawRuntimeStatus,
-      derivedOperationalStatus: "needs_input",
+      derivedOperationalStatus: rawRuntimeStatus === "awaiting_assignment" ? "awaiting_assignment" : "needs_input",
       sourceOfTruth,
       freshness,
       lastSignalTimestamp,
       lastHeartbeatAt,
       lastMeaningfulActivityAt,
       now,
-      evidence: [...evidenceBase, "Runtime is explicitly waiting for human input."]
+      evidence: rawRuntimeStatus === "awaiting_assignment"
+        ? [...evidenceBase, "Runtime is explicitly waiting for the operator to assign the next task."]
+        : [...evidenceBase, "Runtime is explicitly waiting for human input."]
     });
   }
 
@@ -830,7 +948,8 @@ export function projectOperationalSession(input: OperationalProjectionInput): Op
       });
     }
 
-    const lastAgentSignalAge = ageMs(latestTimestamp([lastHeartbeatAt, lastMeaningfulActivityAt]), now);
+    const lastAgentSignalTimestamp = latestTimestamp([lastHeartbeatAt, lastMeaningfulActivityAt]);
+    const lastAgentSignalAge = ageMs(lastAgentSignalTimestamp, now);
     if (
       input.runtimeProcessAlive !== true
       && lastAgentSignalAge !== null
@@ -848,6 +967,30 @@ export function projectOperationalSession(input: OperationalProjectionInput): Op
         lastMeaningfulActivityAt,
         now,
         evidence: [...evidenceBase, "Runtime signal is expired and no live process proof exists."]
+      });
+    }
+
+    if (
+      input.runtimeProcessAlive !== true
+      && lastMeaningfulActivityAt
+      && lastAgentSignalAge !== null
+      && lastAgentSignalAge <= OPERATIONAL_PROJECTION_COLD_MS
+    ) {
+      return projection(input, {
+        category: "live",
+        reason: "runtime_active",
+        rawRuntimeStatus,
+        derivedOperationalStatus: "running",
+        sourceOfTruth,
+        freshness,
+        lastSignalTimestamp,
+        lastHeartbeatAt,
+        lastMeaningfulActivityAt,
+        now,
+        evidence: [
+          ...evidenceBase,
+          "Fresh runtime activity is direct agent-session telemetry; heartbeat/runtime connection is shown as secondary signal health."
+        ]
       });
     }
 
