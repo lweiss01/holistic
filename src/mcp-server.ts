@@ -12,6 +12,7 @@ import {
   canInferSessionStart,
   checkpointState,
   continueFromLatest,
+  findNearestHolisticRoot,
   getResumePayload,
   getRuntimePaths,
   loadState,
@@ -359,7 +360,7 @@ export async function runMcpServer(rootDir: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const rootDir = process.env.HOLISTIC_REPO || process.cwd();
+  const rootDir = process.env.HOLISTIC_REPO || findNearestHolisticRoot(process.cwd());
   await runMcpServer(rootDir);
 }
 

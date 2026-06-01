@@ -4,7 +4,25 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 
 const apiBaseUrl = (process.env.ANDON_API_BASE_URL ?? "http://127.0.0.1:4318").replace(/\/$/, "");
-const repoRoot = process.env.HOLISTIC_REPO ?? process.cwd();
+
+function findNearestHolisticRoot(startDir) {
+  let dir = path.resolve(startDir);
+  for (let level = 0; level < 10; level++) {
+    if (
+      fs.existsSync(path.join(dir, 'holistic.repo.json')) ||
+      fs.existsSync(path.join(dir, '.holistic-local')) ||
+      fs.existsSync(path.join(dir, '.holistic'))
+    ) {
+      return dir;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return startDir;
+}
+
+const repoRoot = process.env.HOLISTIC_REPO ?? findNearestHolisticRoot(process.cwd());
 const intervalMs = Number(process.env.ANDON_RUNTIME_WRITER_INTERVAL_MS ?? "10000");
 const staleSessionMs = Number(process.env.ANDON_RUNTIME_WRITER_STALE_SESSION_MS ?? String(20 * 60 * 1000));
 // How often to RE-ASSERT the lifecycle status (running/waiting) even without a

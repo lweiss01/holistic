@@ -104,6 +104,32 @@ function resolvePathInsideRoot(rootDir: string, candidate: string, defaultBasena
   return resolved;
 }
 
+/**
+ * Walk up from startDir until we find a directory containing a Holistic
+ * config marker (holistic.repo.json, .holistic-local/, or .holistic/).
+ *
+ * This makes every entry point worktree-safe: a session started from a git
+ * worktree that has no Holistic config of its own will share the main repo's
+ * state.json instead of minting a fresh session id that diverges from the
+ * daemon/writer, which is the root cause of the two-card Mission Control bug.
+ */
+export function findNearestHolisticRoot(startDir: string): string {
+  let dir = path.resolve(startDir);
+  for (let level = 0; level < 10; level++) {
+    if (
+      fs.existsSync(path.join(dir, "holistic.repo.json")) ||
+      fs.existsSync(path.join(dir, ".holistic-local")) ||
+      fs.existsSync(path.join(dir, ".holistic"))
+    ) {
+      return dir;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return startDir;
+}
+
 function readRepoRuntimeConfig(rootDir: string): RepoRuntimeConfigShape {
   const configPath = path.join(rootDir, "holistic.repo.json");
   if (!fs.existsSync(configPath)) {
