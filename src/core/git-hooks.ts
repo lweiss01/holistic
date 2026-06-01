@@ -62,6 +62,8 @@ function renderGitHooks(rootDir: string, command: HookCommand): Record<HookName,
     "Detected branch switch; review the new branch context.",
   ]);
 
+  const propagateHooksCommand = commandLine(command, ["repair"]);
+
   return {
     "post-commit": `${renderHookHeader("post-commit")}# Holistic hook placeholder after commit
 
@@ -74,10 +76,21 @@ exit 0
 `,
     "post-checkout": `${renderHookHeader("post-checkout")}# Holistic continuity checkpoint after branch switch
 
+# Capture the initial working directory BEFORE cd. git worktree add fires this
+# hook from the NEW worktree directory ($3=0); a regular branch switch fires from
+# the main repo ($3=1). By comparing _HLS_INITIAL_PWD to rootDir after the cd we
+# can detect worktree creation without relying on GIT_WORK_TREE being set.
+_HLS_INITIAL_PWD="$PWD"
 cd '${shellQuote(rootDir)}' || exit 0
 
 if [ -f "$PWD/${shellQuote(command.stateFilePath)}" ] && [ "$3" = "1" ]; then
   ${branchSwitchCommand} >/dev/null 2>&1 || true
+fi
+
+# On new worktree creation ($3=0 from a directory other than the main repo),
+# re-run repair so the new worktree receives its .claude/settings.json with hooks.
+if [ "$3" = "0" ] && [ "$_HLS_INITIAL_PWD" != '${shellQuote(rootDir)}' ]; then
+  ${propagateHooksCommand} >/dev/null 2>&1 || true
 fi
 
 exit 0

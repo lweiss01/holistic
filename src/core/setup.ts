@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { repoLocalCliPaths } from './cli-fallback.ts';
 import { writeDerivedDocs } from './docs.ts';
-import { captureRepoSnapshot, resolveGitDir } from './git.ts';
+import { captureRepoSnapshot, enumerateGitWorktrees, resolveGitDir } from './git.ts';
 import { installGitHooks, refreshGitHooks, getGitHooksStatus, type GitHookInstallResult, type HookCommand } from './git-hooks.ts';
 import { getRuntimePaths, loadState, saveState } from './state.ts';
 import type { AgentName, HolisticState, RuntimePaths } from './types.ts';
@@ -1106,22 +1106,13 @@ function writeAndonHookScripts(paths: RuntimePaths): void {
   fs.chmodSync(shPath, 0o755);
 }
 
-export function installAndonHooks(repoRoot: string, paths: RuntimePaths, platform: NodeJS.Platform = process.platform): void {
-  const claudeDir = path.join(repoRoot, ".claude");
-  const settingsPath = path.join(claudeDir, "settings.json");
-
-  if (!fs.existsSync(claudeDir)) {
-    return;
-  }
-
-  fs.mkdirSync(claudeDir, { recursive: true });
+function applyAndonHooksToSettings(settingsPath: string, hookCmd: string): void {
+  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
 
   const existing = readJsonObject(settingsPath);
   const existingHooks = existing.hooks && typeof existing.hooks === "object"
     ? existing.hooks as ClaudeHooksBlock
     : {} as ClaudeHooksBlock;
-
-  const hookCmd = andonHookCommand(paths, platform);
 
   // PostToolUse hook
   const existingPostToolUse: ClaudeHookGroup[] = Array.isArray(existingHooks.PostToolUse)
@@ -1195,6 +1186,25 @@ export function installAndonHooks(repoRoot: string, paths: RuntimePaths, platfor
   };
 
   fs.writeFileSync(settingsPath, JSON.stringify(next, null, 2) + "\n", "utf8");
+}
+
+export function installAndonHooks(repoRoot: string, paths: RuntimePaths, platform: NodeJS.Platform = process.platform): void {
+  const claudeDir = path.join(repoRoot, ".claude");
+  if (!fs.existsSync(claudeDir)) {
+    return;
+  }
+
+  const hookCmd = andonHookCommand(paths, platform);
+  applyAndonHooksToSettings(path.join(claudeDir, "settings.json"), hookCmd);
+
+  // Propagate to all active git worktrees so hooks fire in worktree sessions.
+  // Hooks bind at session startup; without this they never fire in worktrees that
+  // have no .claude/settings.json of their own.
+  for (const worktreePath of enumerateGitWorktrees(repoRoot)) {
+    if (fs.existsSync(worktreePath)) {
+      applyAndonHooksToSettings(path.join(worktreePath, ".claude", "settings.json"), hookCmd);
+    }
+  }
 }
 
 export function refreshAndonHooks(repoRoot: string, paths: RuntimePaths, platform: NodeJS.Platform = process.platform): boolean {

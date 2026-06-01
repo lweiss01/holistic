@@ -36,6 +36,29 @@ export function resolveGitDir(rootDir: string): string | null {
   return path.resolve(rootDir, match[1]);
 }
 
+export function enumerateGitWorktrees(repoRoot: string): string[] {
+  try {
+    const output = execFileSync("git", ["-C", repoRoot, "worktree", "list", "--porcelain"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const worktrees: string[] = [];
+    let isFirst = true;
+    for (const line of output.split("\n")) {
+      if (line.startsWith("worktree ")) {
+        if (isFirst) {
+          isFirst = false;
+          continue; // skip the main worktree (always first)
+        }
+        worktrees.push(line.slice("worktree ".length).trim());
+      }
+    }
+    return worktrees;
+  } catch {
+    return [];
+  }
+}
+
 export function getBranchName(rootDir: string): string {
   const gitDir = resolveGitDir(rootDir);
   if (!gitDir) {
