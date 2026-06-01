@@ -371,9 +371,13 @@ export function buildRuntimeWriterEvents(session, nowMs, writerState, heartbeatI
     events.push(buildStartedEvent(session, nowIso));
   }
 
-  // Lifecycle: a turn-completion signal (without endedAt) means the agent
-  // finished its turn and is WAITING for the human. Otherwise it is running.
-  const desiredLifecycle = session.completionSignal ? "waiting" : "running";
+  // Lifecycle: prefer an explicit turnState written by per-agent turn hooks
+  // (Stop->waiting, UserPromptSubmit->running) because it is a direct signal
+  // at every turn boundary. Fall back to completionSignal inference only when
+  // turnState is absent (older agents / sessions without turn hooks installed).
+  const desiredLifecycle = session.turnState === "waiting" ? "waiting"
+    : session.turnState === "running" ? "running"
+    : session.completionSignal ? "waiting" : "running";
   const priorLifecycle = writerState.lastLifecycle ?? (shouldEmitStart ? "running" : null);
   const transitioned = desiredLifecycle !== priorLifecycle;
 
@@ -492,8 +496,34 @@ if (isMainModule()) {
     });
   }, intervalMs);
 
+  // Fast path: watch state.json for turnState changes and emit within ~50ms.
+  // The regular polling interval is too slow for real-time running/waiting; when
+  // a per-agent turn hook writes turnState (Stop->waiting, UserPromptSubmit->running)
+  // we want Mission Control to reflect it immediately.
+  const stateFileToWatch = resolveStateFile();
+  let lastKnownTurnState = null;
+  let watchDebounceTimer = null;
+  try {
+    fs.watch(stateFileToWatch, { persistent: false }, () => {
+      clearTimeout(watchDebounceTimer);
+      watchDebounceTimer = setTimeout(() => {
+        try {
+          const raw = fs.readFileSync(stateFileToWatch, "utf8");
+          const parsed = parseState(raw);
+          const currentTurnState = parsed?.activeSession?.turnState ?? null;
+          if (currentTurnState !== null && currentTurnState !== lastKnownTurnState) {
+            lastKnownTurnState = currentTurnState;
+            tick().catch(() => {});
+          }
+        } catch { /* ignore read errors */ }
+      }, 50);
+    });
+  } catch {
+    // fs.watch not available or file does not exist yet; polling is the fallback
+  }
+
   await tick().catch((error) => {
     process.stderr.write(`[andon-runtime-writer] startup retry scheduled: ${error instanceof Error ? error.message : String(error)}\n`);
   });
-  process.stdout.write(`[andon-runtime-writer] Watching ${resolveStateFile()} every ${intervalMs}ms\n`);
+  process.stdout.write(`[andon-runtime-writer] Watching ${stateFileToWatch} every ${intervalMs}ms\n`);
 }

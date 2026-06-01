@@ -179,6 +179,85 @@ const tests: Array<{ name: string; run: () => void }> = [
       assert.equal(event.payload.transport, "cli_writer");
       assert.notEqual(event.payload.agentName, "codex");
     }
+  },
+  {
+    name: "Andon runtime writer uses explicit turnState=waiting over completionSignal inference",
+    run: () => {
+      // A session with turnState=waiting should emit needs_input even without
+      // a completionSignal, because the turn hook wrote the signal directly.
+      const hookWaitingSession = {
+        ...session,
+        turnState: "waiting",
+        completionSignal: null,
+        updatedAt: "2026-04-30T23:05:00.000Z"
+      };
+      const state = {
+        lastStartedSessionId: session.id,
+        lastHeartbeatAtMs: Date.parse("2026-04-30T23:05:00.000Z"),
+        lastCompletedSessionId: null,
+        lastLifecycle: "running",
+        lastLifecycleAssertAtMs: Date.parse("2026-04-30T23:04:59.000Z")
+      };
+      const result = writer.buildRuntimeWriterEvents(hookWaitingSession, Date.parse("2026-04-30T23:05:01.000Z"), state, 10_000);
+      assert.equal(result.events.some((e) => e.type === "session.needs_input"), true, "should emit needs_input from turnState=waiting");
+      assert.equal(result.events.some((e) => e.type === "session.completed"), false);
+      assert.equal(result.lifecycle, "waiting");
+    }
+  },
+  {
+    name: "Andon runtime writer uses explicit turnState=running to override completionSignal inference",
+    run: () => {
+      // A session with turnState=running AND a completionSignal should be treated
+      // as running -- the hook said the agent started a new turn.
+      const hookRunningSession = {
+        ...session,
+        turnState: "running",
+        completionSignal: {
+          kind: "natural-breakpoint",
+          source: "agent",
+          summary: "Previous turn ended."
+        },
+        updatedAt: "2026-04-30T23:05:00.000Z"
+      };
+      const state = {
+        lastStartedSessionId: session.id,
+        lastHeartbeatAtMs: Date.parse("2026-04-30T23:05:00.000Z"),
+        lastCompletedSessionId: null,
+        lastLifecycle: "waiting",
+        lastLifecycleAssertAtMs: Date.parse("2026-04-30T23:04:59.000Z")
+      };
+      const result = writer.buildRuntimeWriterEvents(hookRunningSession, Date.parse("2026-04-30T23:05:01.000Z"), state, 10_000);
+      assert.equal(result.events.some((e) => e.type === "work.started"), true, "should emit work.started from turnState=running");
+      assert.equal(result.events.some((e) => e.type === "session.needs_input"), false);
+      assert.equal(result.lifecycle, "running");
+    }
+  },
+  {
+    name: "Andon runtime writer falls back to completionSignal when turnState is absent",
+    run: () => {
+      // Sessions without turnState (older agents, no hook installed) should
+      // continue to use completionSignal-based inference unchanged.
+      const noTurnStateSession = {
+        ...session,
+        turnState: undefined,
+        completionSignal: {
+          kind: "natural-breakpoint",
+          source: "agent",
+          summary: "Task done."
+        },
+        updatedAt: "2026-04-30T23:05:00.000Z"
+      };
+      const state = {
+        lastStartedSessionId: session.id,
+        lastHeartbeatAtMs: Date.parse("2026-04-30T23:05:00.000Z"),
+        lastCompletedSessionId: null,
+        lastLifecycle: "running",
+        lastLifecycleAssertAtMs: Date.parse("2026-04-30T23:04:59.000Z")
+      };
+      const result = writer.buildRuntimeWriterEvents(noTurnStateSession, Date.parse("2026-04-30T23:05:01.000Z"), state, 10_000);
+      assert.equal(result.events.some((e) => e.type === "session.needs_input"), true, "should fall back to completionSignal inference");
+      assert.equal(result.lifecycle, "waiting");
+    }
   }
 ];
 

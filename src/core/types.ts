@@ -127,6 +127,9 @@ export interface SessionRecord {
   outcomeStatus?: OutcomeStatus;
   severity?: Severity;
   completionSignal?: CompletionSignalMetadata | null;
+  // Written by per-agent turn hooks (Stop->waiting, UserPromptSubmit->running).
+  // Takes priority over completionSignal inference in the runtime-writer.
+  turnState?: "running" | "waiting";
   // End of enhanced metadata
   changedFiles: string[];
   checkpointCount: number;

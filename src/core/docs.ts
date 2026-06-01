@@ -468,10 +468,26 @@ interface AdapterProfile {
   startupNotes: string[];
   checkpointNotes: string[];
   handoffNotes: string[];
+  turnHookConfigYaml?: string;
+}
+
+function renderTurnHookConfigSection(yaml: string): string {
+  return `
+## Turn Hook Config
+
+The installer reads this section to wire turn-boundary signals into the shared
+state.json so the runtime-writer can forward running/waiting status in real time.
+Nothing in core/daemon/writer branches on agent name -- all per-agent variation
+lives here. To add support for a new agent, add a new <agent>.md with this section.
+
+\`\`\`yaml
+${yaml.trimEnd()}
+\`\`\`
+`;
 }
 
 function renderAdapter(state: HolisticState, profile: AdapterProfile): string {
-  const { appName, commandName, hasMcp, toolingNotes, startupNotes, checkpointNotes, handoffNotes } = profile;
+  const { appName, commandName, hasMcp, toolingNotes, startupNotes, checkpointNotes, handoffNotes, turnHookConfigYaml } = profile;
   const resumeFallbackNote = renderCliFallbackNote(state.docIndex.contextDir, `resume --agent ${commandName}`);
   const checkpointFallbackNote = renderCliFallbackNote(state.docIndex.contextDir, "checkpoint --reason \"<what changed>\"");
   const handoffFallbackNote = renderCliFallbackNote(state.docIndex.contextDir, "handoff");
@@ -533,7 +549,7 @@ ${checkpointFallbackNote}
 ${renderList(handoffNotes, "Use the default handoff contract.")}
 
 ${handoffFallbackNote}
-
+${turnHookConfigYaml ? renderTurnHookConfigSection(turnHookConfigYaml) : ""}
 ${renderSessionCloseBlock(hasMcp)}`;
 }
 
@@ -556,6 +572,36 @@ const ADAPTER_PROFILES: AdapterProfile[] = [
     handoffNotes: [
       "Treat the handoff as the durable replacement for a long final Codex recap message.",
     ],
+    turnHookConfigYaml: `turn_hooks:
+  - agent_hook: Stop
+    holistic_event: turn.ended
+    state_field: turn_state
+    state_value: waiting
+
+  - agent_hook: UserPromptSubmit
+    holistic_event: turn.started
+    state_field: turn_state
+    state_value: running
+
+  - agent_hook: PostToolUse
+    holistic_event: turn.started
+    state_field: turn_state
+    state_value: running
+    condition: first_per_turn
+
+install_targets:
+  - main
+  - worktrees
+
+hook_config:
+  windows:
+    path: .codex/hooks.json
+    format: json_merge
+    hook_key: (root)
+  posix:
+    path: .codex/hooks.json
+    format: json_merge
+    hook_key: (root)`,
   },
   {
     appName: "Claude/Cowork",
@@ -575,6 +621,36 @@ const ADAPTER_PROFILES: AdapterProfile[] = [
     handoffNotes: [
       "Prefer \`holistic_handoff\` when the tool is available so the handoff fields stay structured.",
     ],
+    turnHookConfigYaml: `turn_hooks:
+  - agent_hook: Stop
+    holistic_event: turn.ended
+    state_field: turn_state
+    state_value: waiting
+
+  - agent_hook: UserPromptSubmit
+    holistic_event: turn.started
+    state_field: turn_state
+    state_value: running
+
+  - agent_hook: PostToolUse
+    holistic_event: turn.started
+    state_field: turn_state
+    state_value: running
+    condition: first_per_turn
+
+install_targets:
+  - main
+  - worktrees
+
+hook_config:
+  windows:
+    path: .claude/settings.json
+    format: json_merge
+    hook_key: hooks
+  posix:
+    path: .claude/settings.json
+    format: json_merge
+    hook_key: hooks`,
   },
   {
     appName: "Antigravity",
