@@ -828,7 +828,11 @@ function autoCheckpointCommand(repoRoot: string, platform: NodeJS.Platform): str
 }
 
 function isAndonHookCommand(command: string): boolean {
-  return command.includes("andon-hook");
+  return command.includes("andon-hook") && !command.includes("andon-turn-hook");
+}
+
+function isAndonTurnHookCommand(command: string): boolean {
+  return command.includes("andon-turn-hook");
 }
 
 function andonHookCommand(paths: RuntimePaths, platform: NodeJS.Platform): string {
@@ -838,6 +842,16 @@ function andonHookCommand(paths: RuntimePaths, platform: NodeJS.Platform): strin
     return `powershell -NoProfile -ExecutionPolicy RemoteSigned -File "${scriptPath}"`;
   }
   const scriptPath = path.join(sysDir, "andon-hook.sh");
+  return `sh "${scriptPath}"`;
+}
+
+function andonTurnHookCommand(paths: RuntimePaths, platform: NodeJS.Platform): string {
+  const sysDir = systemDir(paths);
+  if (platform === "win32") {
+    const scriptPath = path.join(sysDir, "andon-turn-hook.ps1");
+    return `powershell -NoProfile -ExecutionPolicy RemoteSigned -File "${scriptPath}"`;
+  }
+  const scriptPath = path.join(sysDir, "andon-turn-hook.sh");
   return `sh "${scriptPath}"`;
 }
 
@@ -1094,17 +1108,267 @@ function renderAndonHookSh(): string {
   ].join("\n");
 }
 
+function renderAndonTurnHookPs1(): string {
+  return [
+    "# andon-turn-hook.ps1 -- writes turnState to state.json on each agent turn boundary",
+    "# Stop -> waiting, UserPromptSubmit/PostToolUse -> running.",
+    "# Must exit 0 always and be silent on failure.",
+    "param()",
+    "$ErrorActionPreference = 'SilentlyContinue'",
+    "",
+    "# 1. Read JSON from stdin",
+    "$inputJson = $input | Out-String",
+    "if (-not $inputJson.Trim()) { exit 0 }",
+    "$hookData = $inputJson | ConvertFrom-Json",
+    "",
+    "# 2. Map hook event to turnState value",
+    "$hookName = $hookData.hook_event_name",
+    "$turnStateValue = if ($hookName -eq 'Stop') { 'waiting' } else { 'running' }",
+    "",
+    "# 3. Find state.json via walk-up from hookData.cwd",
+    "# IMPORTANT: Never use $PWD here -- in worktrees $PWD is the worktree directory.",
+    "$dir = $hookData.cwd",
+    "$stateFile = $null",
+    "$level = 0",
+    "while ($dir -and $level -lt 5) {",
+    "    $candidate = Join-Path $dir '.holistic-local\\state.json'",
+    "    if (Test-Path $candidate) { $stateFile = $candidate; break }",
+    "    $candidate = Join-Path $dir '.holistic\\state.json'",
+    "    if (Test-Path $candidate) { $stateFile = $candidate; break }",
+    "    $parent = Split-Path $dir -Parent",
+    "    if ($parent -eq $dir) { break }",
+    "    $dir = $parent",
+    "    $level++",
+    "}",
+    "if (-not $stateFile) { exit 0 }",
+    "",
+    "# 4. Write turnState to activeSession.turnState",
+    "$state = Get-Content $stateFile -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue",
+    "if (-not $state -or -not $state.activeSession) { exit 0 }",
+    "$state.activeSession | Add-Member -MemberType NoteProperty -Name 'turnState' -Value $turnStateValue -Force",
+    "$newJson = $state | ConvertTo-Json -Depth 20",
+    "[System.IO.File]::WriteAllText($stateFile, $newJson, [System.Text.UTF8Encoding]::new($false))",
+    "exit 0",
+  ].join("\n");
+}
+
+function renderAndonTurnHookSh(): string {
+  return [
+    "#!/usr/bin/env sh",
+    "# andon-turn-hook.sh -- writes turnState to state.json on each agent turn boundary",
+    "# Stop -> waiting, UserPromptSubmit/PostToolUse -> running.",
+    "# Must exit 0 always and be silent on failure.",
+    "",
+    "# 1. Read JSON from stdin",
+    "input=$(cat)",
+    "if [ -z \"$(echo \"$input\" | tr -d '[:space:]')\" ]; then exit 0; fi",
+    "",
+    "# 2. Map hook event to turnState value",
+    "hook_event_name=$(echo \"$input\" | jq -r '.hook_event_name // empty' 2>/dev/null)",
+    "if [ \"$hook_event_name\" = 'Stop' ]; then",
+    "    turn_state_value='waiting'",
+    "else",
+    "    turn_state_value='running'",
+    "fi",
+    "",
+    "# 3. Find state.json via walk-up from hookData.cwd",
+    "# IMPORTANT: Never use $PWD here -- in worktrees $PWD is the worktree directory.",
+    "cwd=$(echo \"$input\" | jq -r '.cwd // empty' 2>/dev/null)",
+    "if [ -z \"$cwd\" ]; then exit 0; fi",
+    "",
+    "state_file=''",
+    "dir=\"$cwd\"",
+    "level=0",
+    "while [ -n \"$dir\" ] && [ \"$level\" -lt 5 ]; do",
+    "    candidate=\"$dir/.holistic-local/state.json\"",
+    "    if [ -f \"$candidate\" ]; then state_file=\"$candidate\"; break; fi",
+    "    candidate=\"$dir/.holistic/state.json\"",
+    "    if [ -f \"$candidate\" ]; then state_file=\"$candidate\"; break; fi",
+    "    parent=$(dirname \"$dir\")",
+    "    if [ \"$parent\" = \"$dir\" ]; then break; fi",
+    "    dir=\"$parent\"",
+    "    level=$((level + 1))",
+    "done",
+    "if [ -z \"$state_file\" ]; then exit 0; fi",
+    "",
+    "# 4. Write turnState to activeSession.turnState",
+    "if ! command -v jq >/dev/null 2>&1; then exit 0; fi",
+    "jq --arg val \"$turn_state_value\" '.activeSession.turnState = $val' \"$state_file\" > \"${state_file}.tmp\" 2>/dev/null \\",
+    "    && mv \"${state_file}.tmp\" \"$state_file\" 2>/dev/null || true",
+    "exit 0",
+  ].join("\n");
+}
+
 function writeAndonHookScripts(paths: RuntimePaths): void {
   const sysDir = systemDir(paths);
   fs.mkdirSync(sysDir, { recursive: true });
 
-  const ps1Path = path.join(sysDir, "andon-hook.ps1");
+  fs.writeFileSync(path.join(sysDir, "andon-hook.ps1"), renderAndonHookPs1() + "\n", "utf8");
   const shPath = path.join(sysDir, "andon-hook.sh");
-
-  fs.writeFileSync(ps1Path, renderAndonHookPs1() + "\n", "utf8");
   fs.writeFileSync(shPath, renderAndonHookSh() + "\n", "utf8");
   fs.chmodSync(shPath, 0o755);
+
+  fs.writeFileSync(path.join(sysDir, "andon-turn-hook.ps1"), renderAndonTurnHookPs1() + "\n", "utf8");
+  const turnShPath = path.join(sysDir, "andon-turn-hook.sh");
+  fs.writeFileSync(turnShPath, renderAndonTurnHookSh() + "\n", "utf8");
+  fs.chmodSync(turnShPath, 0o755);
 }
+
+// ---- Turn Hook Config: data-driven installer (reads adapter docs) ----
+
+interface HookConfigTarget {
+  path: string;
+  format: "json_merge";
+  hookKey: string;
+}
+
+interface TurnHookConfig {
+  hookEvents: string[];
+  installTargets: string[];
+  hookConfigWindows: HookConfigTarget | null;
+  hookConfigPosix: HookConfigTarget | null;
+}
+
+function parseTurnHookConfigYaml(yaml: string): TurnHookConfig {
+  const lines = yaml.split("\n");
+  const hookEvents: string[] = [];
+  const installTargets: string[] = [];
+  let section = "";
+  let platform = "";
+  const windowsCfg: { path?: string; format?: string; hookKey?: string } = {};
+  const posixCfg: { path?: string; format?: string; hookKey?: string } = {};
+
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    if (!trimmed) continue;
+    if (trimmed === "turn_hooks:") { section = "turn_hooks"; platform = ""; continue; }
+    if (trimmed === "install_targets:") { section = "install_targets"; platform = ""; continue; }
+    if (trimmed === "hook_config:") { section = "hook_config"; platform = ""; continue; }
+    if (section === "turn_hooks") {
+      const m = trimmed.match(/^-\s+agent_hook:\s+(.+)/);
+      if (m) hookEvents.push(m[1].trim());
+    }
+    if (section === "install_targets") {
+      const m = trimmed.match(/^-\s+(.+)/);
+      if (m) installTargets.push(m[1].trim());
+    }
+    if (section === "hook_config") {
+      if (trimmed === "windows:") { platform = "windows"; continue; }
+      if (trimmed === "posix:") { platform = "posix"; continue; }
+      if (platform) {
+        const cfg = platform === "windows" ? windowsCfg : posixCfg;
+        const pm = trimmed.match(/^path:\s+(.+)/);
+        const fm = trimmed.match(/^format:\s+(.+)/);
+        const km = trimmed.match(/^hook_key:\s+(.+)/);
+        if (pm) cfg.path = pm[1].trim();
+        if (fm) cfg.format = fm[1].trim();
+        if (km) cfg.hookKey = km[1].trim();
+      }
+    }
+  }
+
+  const toTarget = (cfg: { path?: string; format?: string; hookKey?: string }): HookConfigTarget | null => {
+    if (!cfg.path || !cfg.format || !cfg.hookKey) return null;
+    return { path: cfg.path, format: cfg.format as "json_merge", hookKey: cfg.hookKey };
+  };
+
+  return { hookEvents, installTargets, hookConfigWindows: toTarget(windowsCfg), hookConfigPosix: toTarget(posixCfg) };
+}
+
+function parseTurnHookConfigFromDoc(docContent: string): TurnHookConfig | null {
+  const m = docContent.match(/## Turn Hook Config[\s\S]*?```yaml\n([\s\S]*?)```/);
+  if (!m) return null;
+  const cfg = parseTurnHookConfigYaml(m[1]);
+  return cfg.hookEvents.length > 0 ? cfg : null;
+}
+
+function applyTurnHookToConfig(configPath: string, turnHookCmd: string, hookEvents: string[], hookKey: string): void {
+  // Only install if the agent's config directory already exists. Never create it proactively:
+  // creating .claude/ or .codex/ would make getSetupStatus report hooks as missing for
+  // agents that have not been initialized in this repo.
+  if (!fs.existsSync(path.dirname(configPath))) return;
+  const existing = readJsonObject(configPath);
+
+  if (hookKey === "(root)") {
+    // Codex style: event keys at root, entries are [{command: "..."}]
+    const next: Record<string, unknown> = { ...existing };
+    for (const event of hookEvents) {
+      const existingEvent = Array.isArray(next[event]) ? [...(next[event] as unknown[])] : [];
+      const hasTurnHook = existingEvent.some(
+        (h) => h && typeof (h as Record<string, unknown>).command === "string" &&
+          isAndonTurnHookCommand((h as Record<string, unknown>).command as string)
+      );
+      if (!hasTurnHook) {
+        existingEvent.push({ command: turnHookCmd });
+      }
+      next[event] = existingEvent;
+    }
+    fs.writeFileSync(configPath, JSON.stringify(next, null, 2) + "\n", "utf8");
+  } else {
+    // Claude style: event keys under hookKey, entries are [{hooks: [{type, command}]}]
+    const hooksBlock: Record<string, unknown> = existing[hookKey] && typeof existing[hookKey] === "object"
+      ? { ...(existing[hookKey] as Record<string, unknown>) }
+      : {};
+    for (const event of hookEvents) {
+      const existingEvent = Array.isArray(hooksBlock[event]) ? [...(hooksBlock[event] as unknown[])] : [];
+      const hasTurnHook = existingEvent.some((group) => {
+        const g = group as Record<string, unknown>;
+        return Array.isArray(g.hooks) && (g.hooks as unknown[]).some(
+          (h) => {
+            const hh = h as Record<string, unknown>;
+            return typeof hh.command === "string" && isAndonTurnHookCommand(hh.command as string);
+          }
+        );
+      });
+      if (!hasTurnHook) {
+        existingEvent.push({ hooks: [{ type: "command", command: turnHookCmd }] });
+      }
+      hooksBlock[event] = existingEvent;
+    }
+    fs.writeFileSync(configPath, JSON.stringify({ ...existing, [hookKey]: hooksBlock }, null, 2) + "\n", "utf8");
+  }
+}
+
+export function installAllTurnHooks(repoRoot: string, paths: RuntimePaths, platform: NodeJS.Platform = process.platform): void {
+  const adaptersDir = paths.adaptersDir;
+  if (!fs.existsSync(adaptersDir)) return;
+
+  let adapterFiles: string[];
+  try {
+    adapterFiles = fs.readdirSync(adaptersDir).filter((f) => f.endsWith(".md"));
+  } catch { return; }
+
+  const turnHookCmd = andonTurnHookCommand(paths, platform);
+
+  for (const fileName of adapterFiles) {
+    try {
+      const content = fs.readFileSync(path.join(adaptersDir, fileName), "utf8");
+      const config = parseTurnHookConfigFromDoc(content);
+      if (!config) continue;
+
+      const target = platform === "win32" ? config.hookConfigWindows : config.hookConfigPosix;
+      if (!target) continue;
+
+      const configPath = path.resolve(repoRoot, target.path);
+      applyTurnHookToConfig(configPath, turnHookCmd, config.hookEvents, target.hookKey);
+
+      if (config.installTargets.includes("worktrees")) {
+        for (const worktreePath of enumerateGitWorktrees(repoRoot)) {
+          if (fs.existsSync(worktreePath)) {
+            applyTurnHookToConfig(
+              path.resolve(worktreePath, target.path),
+              turnHookCmd,
+              config.hookEvents,
+              target.hookKey,
+            );
+          }
+        }
+      }
+    } catch { /* skip malformed adapter docs */ }
+  }
+}
+
+// ---- End turn hook installer ----
 
 function applyAndonHooksToSettings(settingsPath: string, hookCmd: string): void {
   fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
@@ -1674,6 +1938,7 @@ export function repairHolistic(rootDir: string, options: RepairOptions = {}): Re
     installClaudeCodeHooks(rootDir, holisticCmd, platform);
     installAndonHooks(rootDir, paths, platform);
   }
+  installAllTurnHooks(rootDir, paths, platform);
 
   const configuredMcpPath = options.configureMcp
     ? writeClaudeDesktopMcpConfig(rootDir, platform, homeDir)
@@ -1773,6 +2038,7 @@ export function bootstrapHolistic(rootDir: string, options: BootstrapOptions = {
     installAndonHooks(rootDir, getRuntimePaths(rootDir), platform);
     console.log("\u2713 Andon PostToolUse and Stop hooks installed");
   }
+  installAllTurnHooks(rootDir, getRuntimePaths(rootDir), platform);
 
   const configuredMcpPath = configureMcp
     ? writeClaudeDesktopMcpConfig(rootDir, platform, homeDir)

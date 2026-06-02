@@ -57,6 +57,7 @@ import { tests as andonRuntimeWriterTests } from "./andon-runtime-writer.test.ts
 import { tests as andonSessionBeaconTests } from "./andon-session-beacon.test.ts";
 import { tests as worktreeStateResolutionTests } from "./worktree-state-resolution.test.ts";
 import { tests as worktreeHookPropagationTests } from "./worktree-hook-propagation.test.ts";
+import { tests as turnHookInstallerTests } from "./turn-hook-installer.test.ts";
 import type { HolisticState } from "../src/core/types.ts";
 
 const workspaceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -1872,7 +1873,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
 ];
 
 // Merge in unit tests from test modules
-const allTests = [...tests, ...securityTests, ...mcpNotificationTests, ...redactTests, ...andonTests, ...daemonTests, ...runtimeCoreTests, ...runtimeLocalTests, ...runtimeStorageTests, ...runtimeServiceTests, ...missionControlViewModelTests, ...operationalProjectionTests, ...andonEventIntegrityTests, ...andonApiContractTests, ...andonRuntimeWriterTests, ...andonSessionBeaconTests, ...worktreeStateResolutionTests, ...worktreeHookPropagationTests];
+const allTests = [...tests, ...securityTests, ...mcpNotificationTests, ...redactTests, ...andonTests, ...daemonTests, ...runtimeCoreTests, ...runtimeLocalTests, ...runtimeStorageTests, ...runtimeServiceTests, ...missionControlViewModelTests, ...operationalProjectionTests, ...andonEventIntegrityTests, ...andonApiContractTests, ...andonRuntimeWriterTests, ...andonSessionBeaconTests, ...worktreeStateResolutionTests, ...worktreeHookPropagationTests, ...turnHookInstallerTests];
 
 const argv = process.argv.slice(2);
 const grepIndex = argv.indexOf("--grep");
