@@ -1,9 +1,10 @@
+import { andonAuthHeaders } from "./andon-auth.mjs";
 import path from "node:path";
 import process from "node:process";
 
 const baseUrl = process.env.ANDON_API_BASE_URL ?? "http://127.0.0.1:4318";
 
-const response = await fetch(`${baseUrl.replace(/\/$/, "")}/health/andon`);
+const response = await fetch(`${baseUrl.replace(/\/$/, "")}/health/andon`, { headers: andonAuthHeaders() });
 if (!response.ok) {
   process.stderr.write(`Andon health request failed: HTTP ${response.status}\n`);
   process.exit(1);

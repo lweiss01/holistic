@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import { andonAuthHeaders } from "./andon-auth.mjs";
 
 const DEFAULT_API_BASE_URL = "http://127.0.0.1:4318";
 const DEFAULT_TRANSPORT = "http_events";
@@ -359,7 +360,7 @@ async function postBeaconEvent(eventOrEvents, options = {}) {
 
 async function verifyMissionControlStatus(state, options = {}, expectedStatus = "running") {
   const apiBaseUrl = resolveApiBaseUrl(options, state);
-  const response = await fetch(`${apiBaseUrl}/mission-control`);
+  const response = await fetch(`${apiBaseUrl}/mission-control`, { headers: andonAuthHeaders() });
   if (!response.ok) {
     const body = await response.text().catch(() => "");
     throw new Error(`Andon API returned ${response.status} while verifying /mission-control${body ? `: ${body}` : ""}`);
@@ -383,7 +384,7 @@ async function verifyMissionControlStatus(state, options = {}, expectedStatus = 
 
 async function verifyMissionControlAbsent(state, options = {}) {
   const apiBaseUrl = resolveApiBaseUrl(options, state);
-  const response = await fetch(`${apiBaseUrl}/mission-control`);
+  const response = await fetch(`${apiBaseUrl}/mission-control`, { headers: andonAuthHeaders() });
   if (!response.ok) {
     const body = await response.text().catch(() => "");
     throw new Error(`Andon API returned ${response.status} while verifying /mission-control${body ? `: ${body}` : ""}`);

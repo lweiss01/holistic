@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import { andonAuthHeaders } from "./andon-auth.mjs";
 
 const apiBaseUrl = (process.env.ANDON_API_BASE_URL ?? "http://127.0.0.1:4318").replace(/\/$/, "");
 
@@ -446,7 +447,7 @@ async function postEvents(events) {
   try {
     const response = await fetch(`${apiBaseUrl}/events`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...andonAuthHeaders() },
       body: JSON.stringify({ events })
     });
     if (!response.ok) {

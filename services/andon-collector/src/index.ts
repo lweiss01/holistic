@@ -2,6 +2,8 @@ import { fileURLToPath } from "node:url";
 
 import type { ActiveSessionResponse, AgentEvent } from "../../../packages/andon-core/src/index.ts";
 
+import { andonAuthHeaders } from "../../../src/core/andon-token.ts";
+
 import { normalizeOpenHarnessStreamEvent } from "./openharness-adapter.ts";
 
 const apiBaseUrl = process.env.ANDON_API_BASE_URL ?? "http://localhost:4318";
@@ -37,7 +39,7 @@ export function shouldPostProgressHeartbeat(activeSession: ActiveSessionResponse
 }
 
 async function getActiveSession(): Promise<ActiveSessionResponse | null> {
-  const response = await fetch(`${apiBaseUrl}/sessions/active`);
+  const response = await fetch(`${apiBaseUrl}/sessions/active`, { headers: andonAuthHeaders() });
   if (!response.ok) {
     throw new Error(`Collector could not load active session (${response.status})`);
   }
@@ -89,7 +91,8 @@ async function main(): Promise<void> {
   const response = await fetch(`${apiBaseUrl}/events`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      ...andonAuthHeaders()
     },
     body: JSON.stringify({ events })
   });

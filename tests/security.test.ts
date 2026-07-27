@@ -20,6 +20,8 @@ import {
 } from "../src/core/state.ts";
 import { getSetupStatus, validateRuntimeConfig, writeAndonHookScripts } from "../src/core/setup.ts";
 import { untrusted, writeDerivedDocs } from "../src/core/docs.ts";
+import { andonAuthHeaders, andonTokenFilePath, readAndonToken } from "../src/core/andon-token.ts";
+import { getOrCreateToken } from "../services/shared/auth.ts";
 import { resolveLocalProcessCommand } from "../packages/runtime-local/src/process.ts";
 import { createRuntimeAdapterRegistry } from "../services/runtime-service/src/adapter-registry.ts";
 import { createRuntimeServiceHandler } from "../services/runtime-service/src/server.ts";
@@ -523,6 +525,141 @@ export const tests = [
         const running = JSON.parse(fs.readFileSync(sidecar, "utf8")) as { turnState?: string };
         assert.equal(running.turnState, "running", "UserPromptSubmit must record running");
         assert.equal(fs.readFileSync(stateFile, "utf8"), original, "turn hook must still not modify state.json");
+      }
+    }
+  },
+  {
+    name: "andon api requires a bearer token on every route except health",
+    run: async () => {
+      const tokenDir = makeTempDir("andon-token");
+      const previousTokenFile = process.env.ANDON_TOKEN_FILE;
+      process.env.ANDON_TOKEN_FILE = path.join(tokenDir, "andon-token");
+
+      try {
+        const token = getOrCreateToken();
+        assert.ok(token.length >= 32, "minted token must be long enough to be unguessable");
+
+        // A second call must return the same token, not mint a new one, or
+        // every restart would lock out already-running clients.
+        assert.equal(getOrCreateToken(), token, "token must be stable across calls");
+
+        const database = createAndonDatabase(path.join(makeTempDir("andon-auth"), "andon.sqlite"));
+        const handler = createAndonHandler(database, undefined, { token });
+
+        try {
+          await withServer(handler, async (base) => {
+            // Liveness probes must keep working without credentials.
+            assert.equal((await fetch(`${base}/health`)).status, 200);
+
+            // Everything else is closed.
+            assert.equal((await fetch(`${base}/mission-control`)).status, 401);
+            assert.equal((await fetch(`${base}/sessions`)).status, 401);
+
+            const unauthenticatedPost = await fetch(`${base}/events`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ events: [] }),
+            });
+            assert.equal(unauthenticatedPost.status, 401);
+
+            // A wrong token is rejected.
+            assert.equal(
+              (await fetch(`${base}/mission-control`, { headers: { Authorization: `Bearer ${"0".repeat(token.length)}` } })).status,
+              401,
+            );
+            // A malformed header is rejected.
+            assert.equal(
+              (await fetch(`${base}/mission-control`, { headers: { Authorization: token } })).status,
+              401,
+            );
+
+            // The real token works.
+            assert.equal(
+              (await fetch(`${base}/mission-control`, { headers: { Authorization: `Bearer ${token}` } })).status,
+              200,
+            );
+          });
+        } finally {
+          database.close();
+        }
+      } finally {
+        if (previousTokenFile === undefined) delete process.env.ANDON_TOKEN_FILE;
+        else process.env.ANDON_TOKEN_FILE = previousTokenFile;
+      }
+    }
+  },
+  {
+    name: "runtime service requires a bearer token before it will start a process",
+    run: async () => {
+      const tokenDir = makeTempDir("runtime-token");
+      const previousTokenFile = process.env.ANDON_TOKEN_FILE;
+      process.env.ANDON_TOKEN_FILE = path.join(tokenDir, "andon-token");
+
+      try {
+        const token = getOrCreateToken();
+        const database = createAndonDatabase(path.join(makeTempDir("runtime-auth"), "andon.sqlite"));
+        const handler = createRuntimeServiceHandler(database, createRuntimeAdapterRegistry(), { token });
+
+        try {
+          await withServer(handler, async (base) => {
+            assert.equal((await fetch(`${base}/health`)).status, 200);
+            assert.equal((await fetch(`${base}/runtime/sessions`)).status, 401);
+
+            const unauthenticatedStart = await fetch(`${base}/runtime/tasks`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                runtimeId: "local",
+                prompt: "p",
+                repoPath: process.cwd(),
+                repoName: "probe",
+                agentName: "probe",
+              }),
+            });
+            assert.equal(unauthenticatedStart.status, 401, "task start must require a token");
+
+            assert.equal(
+              (await fetch(`${base}/runtime/sessions`, { headers: { Authorization: `Bearer ${token}` } })).status,
+              200,
+            );
+          });
+        } finally {
+          database.close();
+        }
+      } finally {
+        if (previousTokenFile === undefined) delete process.env.ANDON_TOKEN_FILE;
+        else process.env.ANDON_TOKEN_FILE = previousTokenFile;
+      }
+    }
+  },
+  {
+    name: "token file is created with owner-only permissions and read back consistently",
+    run: () => {
+      const tokenDir = makeTempDir("andon-token-perms");
+      const previousTokenFile = process.env.ANDON_TOKEN_FILE;
+      process.env.ANDON_TOKEN_FILE = path.join(tokenDir, "nested", "andon-token");
+
+      try {
+        const token = getOrCreateToken();
+        const tokenFile = andonTokenFilePath();
+        assert.equal(fs.existsSync(tokenFile), true, "token file should be created, including parent dirs");
+
+        // The client-side reader must agree with the server-side creator.
+        assert.equal(readAndonToken(), token);
+        assert.deepEqual(andonAuthHeaders(), { Authorization: `Bearer ${token}` });
+
+        if (process.platform !== "win32") {
+          const mode = fs.statSync(tokenFile).mode & 0o777;
+          assert.equal(mode, 0o600, `token file must not be readable by other users, got ${mode.toString(8)}`);
+        }
+
+        // A truncated or junk token is treated as absent rather than trusted.
+        fs.writeFileSync(tokenFile, "short\n", "utf8");
+        assert.equal(readAndonToken(), null);
+        assert.deepEqual(andonAuthHeaders(), {});
+      } finally {
+        if (previousTokenFile === undefined) delete process.env.ANDON_TOKEN_FILE;
+        else process.env.ANDON_TOKEN_FILE = previousTokenFile;
       }
     }
   },

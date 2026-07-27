@@ -14,6 +14,7 @@ import {
   isAllowedOrigin,
   requestOrigin
 } from "../../shared/http-security.ts";
+import { isAuthorized, isPublicPath, resolveServiceToken } from "../../shared/auth.ts";
 import { DEFAULT_API_PORT } from "./config.ts";
 import { getDatabase } from "./db.ts";
 import { createFileHolisticBridge } from "./holistic/file-bridge.ts";
@@ -137,10 +138,23 @@ async function readJsonBody(request: import("node:http").IncomingMessage): Promi
   return raw.length > 0 ? (JSON.parse(raw) as unknown) : null;
 }
 
+export interface AndonHandlerOptions {
+  /**
+   * Bearer token required on every route except /health. Null disables auth.
+   *
+   * The default is null because this factory is the seam tests and embedders
+   * use; the running service turns auth on explicitly in its entry point
+   * below, so every real service start is authenticated.
+   */
+  token?: string | null;
+}
+
 export function createAndonHandler(
   database = getDatabase(),
-  holisticBridge: HolisticBridge = mockHolisticBridge
+  holisticBridge: HolisticBridge = mockHolisticBridge,
+  options: AndonHandlerOptions = {}
 ): (request: IncomingMessage, response: ServerResponse) => Promise<void> {
+  const authToken = options.token ?? null;
   reconcileRuntimeSessionsOnStartup(database);
   const clients = new Set<ServerResponse>();
   let streamBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -181,6 +195,18 @@ export function createAndonHandler(
       response.writeHead(result.status, result.headers);
       response.end(result.body);
       return;
+    }
+
+    // Preflight carries no Authorization header by design, so it is answered
+    // before the token check. The actual request that follows is still checked.
+    if (authToken && request.method !== "OPTIONS") {
+      const pathname = request.url ? new URL(request.url, "http://localhost").pathname : "";
+      if (!isPublicPath(pathname) && !isAuthorized(request, authToken)) {
+        const result = jsonResponse({ error: "Unauthorized." }, 401);
+        response.writeHead(result.status, result.headers);
+        response.end(result.body);
+        return;
+      }
     }
 
     try {
@@ -398,9 +424,10 @@ export function createAndonHandler(
 
 export function createAndonServer(
   database = getDatabase(),
-  holisticBridge: HolisticBridge = mockHolisticBridge
+  holisticBridge: HolisticBridge = mockHolisticBridge,
+  options: AndonHandlerOptions = {}
 ): Server {
-  return createServer(createAndonHandler(database, holisticBridge));
+  return createServer(createAndonHandler(database, holisticBridge, options));
 }
 
 async function checkExistingApi(port: number): Promise<boolean> {
@@ -425,7 +452,9 @@ function isMainModule(): boolean {
 }
 
 if (isMainModule()) {
-  const server = createAndonServer(getDatabase(), resolveHolisticBridge());
+  // Every real service start is authenticated. resolveServiceToken mints the
+  // token on first run and warns loudly if auth is explicitly disabled.
+  const server = createAndonServer(getDatabase(), resolveHolisticBridge(), { token: resolveServiceToken() });
   server.once("error", async (error: NodeJS.ErrnoException) => {
     if (error.code === "EADDRINUSE") {
       const alreadyRunning = await checkExistingApi(DEFAULT_API_PORT);

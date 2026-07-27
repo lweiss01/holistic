@@ -29,6 +29,7 @@ import {
   isAllowedOrigin,
   requestOrigin
 } from "../../shared/http-security.ts";
+import { isAuthorized, isPublicPath, resolveServiceToken } from "../../shared/auth.ts";
 import { DEFAULT_RUNTIME_SERVICE_PORT } from "./config.ts";
 import { getRuntimeDatabase } from "./db.ts";
 import { createRuntimeAdapterRegistry, type RuntimeAdapterRegistry } from "./adapter-registry.ts";
@@ -252,10 +253,21 @@ function resolveSessionAdapter(registry: RuntimeAdapterRegistry, sessionId: stri
   return registry.require(session.runtimeId);
 }
 
+export interface RuntimeServiceHandlerOptions {
+  /**
+   * Bearer token required on every route except /health. Null disables auth.
+   * Defaults to null because this factory is the seam tests use; the running
+   * service enables it explicitly in its entry point below.
+   */
+  token?: string | null;
+}
+
 export function createRuntimeServiceHandler(
   database = getRuntimeDatabase(),
-  registry: RuntimeAdapterRegistry = createDefaultRuntimeRegistry()
+  registry: RuntimeAdapterRegistry = createDefaultRuntimeRegistry(),
+  options: RuntimeServiceHandlerOptions = {}
 ): (request: IncomingMessage, response: ServerResponse) => Promise<void> {
+  const authToken = options.token ?? null;
   const clients = new Set<ServerResponse>();
 
   return async (request, response) => {
@@ -277,6 +289,16 @@ export function createRuntimeServiceHandler(
     if (hasRequestBody(request) && !hasJsonContentType(request)) {
       writeJson(response, jsonResponse({ error: "Content-Type must be application/json." }, 415));
       return;
+    }
+
+    // This service can start processes, so an unauthenticated caller must not
+    // reach routing. Preflight carries no Authorization header by design.
+    if (authToken && request.method !== "OPTIONS") {
+      const pathname = request.url ? new URL(request.url, "http://localhost").pathname : "";
+      if (!isPublicPath(pathname) && !isAuthorized(request, authToken)) {
+        writeJson(response, jsonResponse({ error: "Unauthorized." }, 401));
+        return;
+      }
     }
 
     try {
@@ -422,9 +444,10 @@ export function createRuntimeServiceHandler(
 
 export function createRuntimeServiceServer(
   database = getRuntimeDatabase(),
-  registry: RuntimeAdapterRegistry = createDefaultRuntimeRegistry()
+  registry: RuntimeAdapterRegistry = createDefaultRuntimeRegistry(),
+  options: RuntimeServiceHandlerOptions = {}
 ): Server {
-  return createServer(createRuntimeServiceHandler(database, registry));
+  return createServer(createRuntimeServiceHandler(database, registry, options));
 }
 
 function createDefaultRuntimeRegistry(): RuntimeAdapterRegistry {
@@ -434,7 +457,11 @@ function createDefaultRuntimeRegistry(): RuntimeAdapterRegistry {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const server = createRuntimeServiceServer();
+  const server = createRuntimeServiceServer(
+    getRuntimeDatabase(),
+    createDefaultRuntimeRegistry(),
+    { token: resolveServiceToken() },
+  );
   server.listen(DEFAULT_RUNTIME_SERVICE_PORT, "127.0.0.1", () => {
     console.log(`Runtime service listening on http://127.0.0.1:${DEFAULT_RUNTIME_SERVICE_PORT}`);
   });

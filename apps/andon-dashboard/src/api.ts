@@ -8,7 +8,14 @@ import type {
 
 export type { AgentEvent };
 
-const apiBaseUrl = import.meta.env.VITE_ANDON_API_BASE_URL ?? "http://127.0.0.1:4318";
+/**
+ * Same-origin by default so requests go through the dev server proxy, which
+ * attaches the Andon loopback auth token. Talking to the API directly from the
+ * browser would need that token in page JavaScript, so avoid it: an explicit
+ * VITE_ANDON_API_BASE_URL only works against a service started with
+ * ANDON_REQUIRE_TOKEN=0.
+ */
+const apiBaseUrl = import.meta.env.VITE_ANDON_API_BASE_URL ?? "/api";
 const DEFAULT_FETCH_MS = 15_000;
 
 async function fetchWithTimeout(

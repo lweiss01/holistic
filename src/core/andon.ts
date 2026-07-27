@@ -1,3 +1,5 @@
+import { andonAuthHeaders } from './andon-token.ts';
+
 interface AndonEventPayload {
   type: string;
   sessionId: string;
@@ -30,7 +32,7 @@ export function emitAndonEvent(
 
       const result = await fetch(`${baseUrl}/events`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...andonAuthHeaders() },
         body: JSON.stringify({ events: [fullEvent] }),
         signal: controller.signal
       });
