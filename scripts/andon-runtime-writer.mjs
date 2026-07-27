@@ -45,11 +45,11 @@ function resolveStateFile() {
   if (explicit) {
     return explicit;
   }
+  // Prefer .holistic-local/state.json if it exists (checked lazily in tick),
+  // otherwise fall back to .holistic/state.json. We don't check fs.existsSync
+  // here to avoid TOCTOU and redundant stat syscalls; tick() will handle ENOENT.
   const localState = path.join(repoRoot, ".holistic-local", "state.json");
-  if (fs.existsSync(localState)) {
-    return localState;
-  }
-  return path.join(repoRoot, ".holistic", "state.json");
+  return localState;
 }
 
 function asPhase(session) {
@@ -300,6 +300,26 @@ export function buildWorkStartedEvent(session, nowIso) {
   };
 }
 
+/**
+ * Per-agent turn hooks record the turn boundary in a dedicated sidecar next to
+ * state.json. They deliberately do not touch state.json itself: they fire on
+ * every tool call and cannot take the state lock, so writing there loses
+ * concurrent updates and can be read half-written.
+ */
+export function resolveTurnStateFile(stateFile) {
+  return path.join(path.dirname(stateFile), "turn-state.json");
+}
+
+export function readTurnStateSidecar(stateFile) {
+  try {
+    const parsed = parseState(fs.readFileSync(resolveTurnStateFile(stateFile), "utf8"));
+    const value = parsed?.turnState;
+    return value === "waiting" || value === "running" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 function resolveWriterStateFile() {
   const explicit = process.env.ANDON_RUNTIME_WRITER_STATE_FILE?.trim();
   if (explicit) {
@@ -331,7 +351,7 @@ function saveWriterState(writerState) {
   fs.writeFileSync(stateFile, `${JSON.stringify(writerState, null, 2)}\n`, "utf8");
 }
 
-export function buildRuntimeWriterEvents(session, nowMs, writerState, heartbeatIntervalMs = intervalMs) {
+export function buildRuntimeWriterEvents(session, nowMs, writerState, heartbeatIntervalMs = intervalMs, turnStateOverride = null) {
   const nowIso = new Date(nowMs).toISOString();
   const events = [];
   const sessionEnded = Boolean(session.endedAt);
@@ -373,10 +393,12 @@ export function buildRuntimeWriterEvents(session, nowMs, writerState, heartbeatI
 
   // Lifecycle: prefer an explicit turnState written by per-agent turn hooks
   // (Stop->waiting, UserPromptSubmit->running) because it is a direct signal
-  // at every turn boundary. Fall back to completionSignal inference only when
-  // turnState is absent (older agents / sessions without turn hooks installed).
-  const desiredLifecycle = session.turnState === "waiting" ? "waiting"
-    : session.turnState === "running" ? "running"
+  // at every turn boundary. The sidecar is authoritative; session.turnState is
+  // kept as a fallback for state written by older hook versions. Fall back to
+  // completionSignal inference only when neither is present.
+  const turnState = turnStateOverride ?? session.turnState ?? null;
+  const desiredLifecycle = turnState === "waiting" ? "waiting"
+    : turnState === "running" ? "running"
     : session.completionSignal ? "waiting" : "running";
   const priorLifecycle = writerState.lastLifecycle ?? (shouldEmitStart ? "running" : null);
   const transitioned = desiredLifecycle !== priorLifecycle;
@@ -440,11 +462,26 @@ async function postEvents(events) {
 
 async function tick() {
   const stateFile = resolveStateFile();
-  if (!fs.existsSync(stateFile)) {
-    return;
+  let raw;
+  try {
+    raw = fs.readFileSync(stateFile, "utf8");
+  } catch (e) {
+    if (e.code === "ENOENT") {
+      // Fall back to .holistic/state.json if .holistic-local doesn't exist
+      if (stateFile.includes(".holistic-local")) {
+        const fallbackFile = stateFile.replace(".holistic-local", ".holistic");
+        try {
+          raw = fs.readFileSync(fallbackFile, "utf8");
+        } catch {
+          return; // Neither file exists
+        }
+      } else {
+        return; // .holistic/state.json doesn't exist either
+      }
+    } else {
+      throw e;
+    }
   }
-
-  const raw = fs.readFileSync(stateFile, "utf8");
   const state = parseState(raw);
   // Process ended sessions too (so the final session.completed fires once);
   // only bail when there is no active session at all.
@@ -456,7 +493,7 @@ async function tick() {
   const nowMs = Date.now();
   const writerState = loadWriterState();
   const { events, shouldEmitStart, shouldEmitHeartbeat, shouldEmitComplete, assertedLifecycle, lifecycle } =
-    buildRuntimeWriterEvents(session, nowMs, writerState, intervalMs);
+    buildRuntimeWriterEvents(session, nowMs, writerState, intervalMs, readTurnStateSidecar(stateFile));
 
   const posted = await postEvents(events);
   if (!posted) {
@@ -496,30 +533,36 @@ if (isMainModule()) {
     });
   }, intervalMs);
 
-  // Fast path: watch state.json for turnState changes and emit within ~50ms.
-  // The regular polling interval is too slow for real-time running/waiting; when
-  // a per-agent turn hook writes turnState (Stop->waiting, UserPromptSubmit->running)
-  // we want Mission Control to reflect it immediately.
+  // Fast path: watch the turn-state sidecar and emit within ~50ms. The regular
+  // polling interval is too slow for real-time running/waiting; when a per-agent
+  // turn hook records a turn boundary we want Mission Control to reflect it
+  // immediately. The 10s poll remains the authoritative source.
+  //
+  // Watch the containing directory rather than the sidecar itself: the file does
+  // not exist until the first turn hook fires, and an atomic replace swaps the
+  // inode, which drops a watch bound directly to the old file.
   const stateFileToWatch = resolveStateFile();
+  const turnStateFile = resolveTurnStateFile(stateFileToWatch);
+  const watchDir = path.dirname(turnStateFile);
+  const turnStateBasename = path.basename(turnStateFile);
   let lastKnownTurnState = null;
   let watchDebounceTimer = null;
   try {
-    fs.watch(stateFileToWatch, { persistent: false }, () => {
+    fs.watch(watchDir, { persistent: false }, (_eventType, filename) => {
+      if (filename && filename !== turnStateBasename) {
+        return;
+      }
       clearTimeout(watchDebounceTimer);
       watchDebounceTimer = setTimeout(() => {
-        try {
-          const raw = fs.readFileSync(stateFileToWatch, "utf8");
-          const parsed = parseState(raw);
-          const currentTurnState = parsed?.activeSession?.turnState ?? null;
-          if (currentTurnState !== null && currentTurnState !== lastKnownTurnState) {
-            lastKnownTurnState = currentTurnState;
-            tick().catch(() => {});
-          }
-        } catch { /* ignore read errors */ }
+        const currentTurnState = readTurnStateSidecar(stateFileToWatch);
+        if (currentTurnState !== null && currentTurnState !== lastKnownTurnState) {
+          lastKnownTurnState = currentTurnState;
+          tick().catch(() => {});
+        }
       }, 50);
     });
   } catch {
-    // fs.watch not available or file does not exist yet; polling is the fallback
+    // fs.watch not available or directory missing; polling is the fallback
   }
 
   await tick().catch((error) => {

@@ -364,9 +364,14 @@ export function inferSessionStart(rootDir: string, state: HolisticState): Inferr
 
     const recentCommits = getRecentCommitSubjects(rootDir).filter((subject) => subject !== "docs(holistic): handoff");
     if (recentCommits.length > 0) {
+      // Deliberately does not quote the commit subject into the goal. The goal
+      // is rendered under "Current Objective" in HOLISTIC.md, a document agents
+      // are told to read as instruction, and a commit subject is attacker
+      // controlled by anyone who can land a commit. Point at the history
+      // instead of copying it into an instruction position.
       return {
         title: "Continue recent repo work",
-        goal: `Continue work related to: ${sanitizeText(recentCommits[0])}`,
+        goal: "Continue the most recent implementation thread (see recent commits).",
         plan: ["Review the latest commits", "Continue the most recent implementation thread"],
         source: "git",
         status: "Inferred a session from recent repo history.",

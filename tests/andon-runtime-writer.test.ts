@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 const writer = await import("../scripts/andon-runtime-writer.mjs");
 
@@ -257,6 +260,54 @@ const tests: Array<{ name: string; run: () => void }> = [
       const result = writer.buildRuntimeWriterEvents(noTurnStateSession, Date.parse("2026-04-30T23:05:01.000Z"), state, 10_000);
       assert.equal(result.events.some((e) => e.type === "session.needs_input"), true, "should fall back to completionSignal inference");
       assert.equal(result.lifecycle, "waiting");
+    }
+  },
+  {
+    name: "Andon runtime writer prefers the turn-state sidecar over session.turnState",
+    run: () => {
+      // The sidecar is what the turn hooks now write; session.turnState only
+      // survives as a fallback for state left by older hook versions.
+      const staleSession = { ...session, turnState: "running" as const };
+      const state = {
+        lastStartedSessionId: session.id,
+        lastHeartbeatAtMs: Date.parse("2026-04-30T23:05:00.000Z"),
+        lastCompletedSessionId: null,
+        lastLifecycle: "running",
+        lastLifecycleAssertAtMs: Date.parse("2026-04-30T23:04:59.000Z")
+      };
+      const result = writer.buildRuntimeWriterEvents(
+        staleSession,
+        Date.parse("2026-04-30T23:05:01.000Z"),
+        state,
+        10_000,
+        "waiting",
+      );
+      assert.equal(result.lifecycle, "waiting", "sidecar value must win over session.turnState");
+      assert.equal(result.events.some((e) => e.type === "session.needs_input"), true);
+    }
+  },
+  {
+    name: "Andon runtime writer reads and validates the turn-state sidecar",
+    run: () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "holistic-turn-sidecar-"));
+      const stateFile = path.join(dir, "state.json");
+      const sidecar = writer.resolveTurnStateFile(stateFile);
+      assert.equal(sidecar, path.join(dir, "turn-state.json"));
+
+      // Missing sidecar reads as null rather than throwing.
+      assert.equal(writer.readTurnStateSidecar(stateFile), null);
+
+      fs.writeFileSync(sidecar, JSON.stringify({ turnState: "waiting", recordedAt: "2026-07-27T00:00:00Z" }), "utf8");
+      assert.equal(writer.readTurnStateSidecar(stateFile), "waiting");
+
+      fs.writeFileSync(sidecar, JSON.stringify({ turnState: "running" }), "utf8");
+      assert.equal(writer.readTurnStateSidecar(stateFile), "running");
+
+      // Garbage and unexpected values must not propagate.
+      fs.writeFileSync(sidecar, "{ not json", "utf8");
+      assert.equal(writer.readTurnStateSidecar(stateFile), null);
+      fs.writeFileSync(sidecar, JSON.stringify({ turnState: "bogus" }), "utf8");
+      assert.equal(writer.readTurnStateSidecar(stateFile), null);
     }
   }
 ];
