@@ -7,6 +7,13 @@ import { fileURLToPath } from "node:url";
 import type { AgentEvent } from "../../../packages/andon-core/src/index.ts";
 import type { HolisticBridge } from "../../../packages/holistic-bridge-types/src/index.ts";
 
+import {
+  corsHeaders,
+  hasJsonContentType,
+  hasRequestBody,
+  isAllowedOrigin,
+  requestOrigin
+} from "../../shared/http-security.ts";
 import { DEFAULT_API_PORT } from "./config.ts";
 import { getDatabase } from "./db.ts";
 import { createFileHolisticBridge } from "./holistic/file-bridge.ts";
@@ -103,14 +110,17 @@ interface JsonResponse {
   status: number;
 }
 
-function jsonResponse(body: unknown, status = 200): JsonResponse {
+/**
+ * `allowedOrigin` is echoed back only for origins that passed the allowlist.
+ * Requests with no Origin (CLI writers, hooks, tests) get no CORS headers,
+ * which they neither need nor read.
+ */
+function buildJsonResponse(body: unknown, status = 200, allowedOrigin?: string): JsonResponse {
   return {
     status,
     body: JSON.stringify(body),
     headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Headers": "Content-Type",
-      "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+      ...corsHeaders(allowedOrigin),
       "Content-Type": "application/json"
     }
   };
@@ -149,6 +159,30 @@ export function createAndonHandler(
   };
 
   return async (request, response) => {
+    // Reject browser-originated requests from origins we did not authorize
+    // before any routing happens, so a hostile page can neither read session
+    // data nor inject events. Non-browser clients send no Origin and pass.
+    const origin = requestOrigin(request);
+    if (!isAllowedOrigin(origin)) {
+      response.writeHead(403, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ error: "Origin not allowed." }));
+      return;
+    }
+
+    // Shadows the module-level helper so every reply below carries the CORS
+    // headers for this request's (already validated) origin.
+    const jsonResponse = (body: unknown, status = 200): JsonResponse =>
+      buildJsonResponse(body, status, origin);
+
+    // A cross-origin POST using a simple content type reaches the handler
+    // without preflight, so bodies must declare JSON before they are parsed.
+    if (hasRequestBody(request) && !hasJsonContentType(request)) {
+      const result = jsonResponse({ error: "Content-Type must be application/json." }, 415);
+      response.writeHead(result.status, result.headers);
+      response.end(result.body);
+      return;
+    }
+
     try {
       if (!request.url || !request.method) {
         const result = jsonResponse({ error: "Missing request metadata." }, 400);
@@ -230,9 +264,7 @@ export function createAndonHandler(
           "Content-Type": "text/event-stream",
           "Cache-Control": "no-cache",
           "Connection": "keep-alive",
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Headers": "Content-Type",
-          "Access-Control-Allow-Methods": "GET,POST,OPTIONS"
+          ...corsHeaders(origin)
         });
 
         clients.add(response);

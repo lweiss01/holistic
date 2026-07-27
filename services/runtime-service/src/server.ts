@@ -22,6 +22,13 @@ import {
   type RuntimeApprovalRecord
 } from "../../andon-api/src/runtime-repository.ts";
 import { LocalRuntimeAdapter } from "../../../packages/runtime-local/src/index.ts";
+import {
+  corsHeaders,
+  hasJsonContentType,
+  hasRequestBody,
+  isAllowedOrigin,
+  requestOrigin
+} from "../../shared/http-security.ts";
 import { DEFAULT_RUNTIME_SERVICE_PORT } from "./config.ts";
 import { getRuntimeDatabase } from "./db.ts";
 import { createRuntimeAdapterRegistry, type RuntimeAdapterRegistry } from "./adapter-registry.ts";
@@ -33,14 +40,12 @@ interface JsonResponse {
   status: number;
 }
 
-function jsonResponse(body: unknown, status = 200): JsonResponse {
+function buildJsonResponse(body: unknown, status = 200, allowedOrigin?: string): JsonResponse {
   return {
     status,
     body: JSON.stringify(body),
     headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Headers": "Content-Type",
-      "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+      ...corsHeaders(allowedOrigin),
       "Content-Type": "application/json"
     }
   };
@@ -254,6 +259,26 @@ export function createRuntimeServiceHandler(
   const clients = new Set<ServerResponse>();
 
   return async (request, response) => {
+    // This service can start processes, so an unauthorized browser origin must
+    // never reach routing. Non-browser clients send no Origin and pass.
+    const origin = requestOrigin(request);
+    if (!isAllowedOrigin(origin)) {
+      response.writeHead(403, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ error: "Origin not allowed." }));
+      return;
+    }
+
+    // Shadows the module-level helper so replies carry this request's CORS headers.
+    const jsonResponse = (body: unknown, status = 200): JsonResponse =>
+      buildJsonResponse(body, status, origin);
+
+    // A cross-origin POST using a simple content type reaches the handler
+    // without preflight, so bodies must declare JSON before they are parsed.
+    if (hasRequestBody(request) && !hasJsonContentType(request)) {
+      writeJson(response, jsonResponse({ error: "Content-Type must be application/json." }, 415));
+      return;
+    }
+
     try {
       if (!request.url || !request.method) {
         writeJson(response, jsonResponse({ error: "Missing request metadata." }, 400));
@@ -280,9 +305,7 @@ export function createRuntimeServiceHandler(
           "Content-Type": "text/event-stream",
           "Cache-Control": "no-cache",
           "Connection": "keep-alive",
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Headers": "Content-Type",
-          "Access-Control-Allow-Methods": "GET,POST,OPTIONS"
+          ...corsHeaders(origin)
         });
         clients.add(response);
         response.write(`data: ${JSON.stringify({ type: "connected" })}\n\n`);

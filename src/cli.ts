@@ -24,6 +24,7 @@ import {
   draftHandoffFile,
   getResumePayload,
   getRuntimePaths,
+  isSafeSessionId,
   loadSessionById,
   loadState,
   maybeWriteAutoDraftHandoff,
@@ -997,6 +998,13 @@ async function handleDiff(rootDir: string, parsed: ParsedArgs): Promise<number> 
     return 1;
   }
 
+  for (const [flag, value] of [["--from", from], ["--to", to]] as const) {
+    if (!isSafeSessionId(value)) {
+      process.stderr.write(`Error: ${flag} is not a valid session ID: ${value}\n`);
+      return 1;
+    }
+  }
+
   const { state, paths } = loadState(rootDir);
 
   // Reactivate archived sessions used in diff — explicit reuse brings them back.
@@ -1030,6 +1038,11 @@ async function handleSearch(rootDir: string, parsed: ParsedArgs): Promise<number
 
   if (!sessionId) {
     process.stderr.write("Error: --id is required for search.\n");
+    return 1;
+  }
+
+  if (!isSafeSessionId(sessionId)) {
+    process.stderr.write(`Error: --id is not a valid session ID: ${sessionId}\n`);
     return 1;
   }
 

@@ -339,58 +339,90 @@ function killTree(child: ChildProcess): void {
   }
 }
 
+/**
+ * Attach an error handler before returning a child. A failed spawn emits an
+ * 'error' event, and an unhandled 'error' on a ChildProcess terminates the
+ * whole daemon. Passive capture must survive an Andon service failing to start.
+ */
+function superviseChild(child: ChildProcess, label: string): ChildProcess {
+  child.once("error", (error: Error) => {
+    process.stderr.write(`${label} failed to start: ${error.message}\n`);
+  });
+  child.once("exit", (code) => {
+    if (code !== 0 && code !== null) {
+      process.stderr.write(`${label} exited with code ${code}.\n`);
+    }
+  });
+  return child;
+}
+
+/**
+ * The Andon add-on lives in the Holistic product repo, not in the repos
+ * Holistic is installed into. Detect it rather than assuming it: a published
+ * install has no services/ or apps/ tree, and spawning those paths
+ * unconditionally leaves every user with failing child processes.
+ * Set HOLISTIC_ANDON=0 to opt out even when the add-on is present.
+ */
+function andonAvailability(rootDir: string): { enabled: boolean; apiScript: string; writerScript: string; dashboardDir: string } {
+  const apiScript = path.join(rootDir, "services/andon-api/src/server.ts");
+  const writerScript = path.join(rootDir, "scripts/andon-runtime-writer.mjs");
+  const dashboardDir = path.join(rootDir, "apps/andon-dashboard");
+  const optedOut = process.env.HOLISTIC_ANDON === "0";
+  const present = fs.existsSync(apiScript) && fs.existsSync(writerScript);
+  return { enabled: present && !optedOut, apiScript, writerScript, dashboardDir };
+}
+
 async function startAndonServices(rootDir: string): Promise<ChildProcess[]> {
+  const andon = andonAvailability(rootDir);
+  if (!andon.enabled) {
+    return [];
+  }
+
   const owned: ChildProcess[] = [];
 
   if (await isPortFree(ANDON_API_PORT)) {
     const api = spawn(
       process.execPath,
-      ["--experimental-strip-types", path.join(rootDir, "services/andon-api/src/server.ts")],
+      ["--experimental-strip-types", andon.apiScript],
       { cwd: rootDir, env: { ...process.env, HOLISTIC_REPO: rootDir }, stdio: "ignore" }
     );
-    api.once("exit", (code) => {
-      if (code !== 0 && code !== null) {
-        process.stderr.write(`Andon API exited with code ${code}.\n`);
-      }
-    });
-    owned.push(api);
-    process.stdout.write("Holistic: Andon API starting on port 4318.\n");
+    owned.push(superviseChild(api, "Andon API"));
+    process.stdout.write(`Holistic: Andon API starting on port ${ANDON_API_PORT}.\n`);
   }
 
-  if (await isPortFree(ANDON_DASHBOARD_PORT)) {
-    const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
-    const dashboard = spawn(
-      npmCmd,
-      ["--prefix", path.join(rootDir, "apps/andon-dashboard"), "run", "dev"],
-      { cwd: rootDir, stdio: "ignore" }
-    );
-    dashboard.once("exit", (code) => {
-      if (code !== 0 && code !== null) {
-        process.stderr.write(`Andon dashboard exited with code ${code}.\n`);
-      }
-    });
-    owned.push(dashboard);
-    process.stdout.write("Holistic: Andon dashboard starting on port 5173.\n");
+  if (fs.existsSync(andon.dashboardDir) && await isPortFree(ANDON_DASHBOARD_PORT)) {
+    // Node 20.12+/22+ refuses to spawn .cmd/.bat without a shell, so npm.cmd
+    // must be routed through the command interpreter on Windows. This mirrors
+    // scripts/andon-dev.mjs, which already handles it correctly.
+    const dashboard = process.platform === "win32"
+      ? spawn(
+          process.env.ComSpec || "cmd.exe",
+          ["/d", "/s", "/c", `npm --prefix "${andon.dashboardDir}" run dev`],
+          { cwd: rootDir, stdio: "ignore", windowsHide: true }
+        )
+      : spawn(
+          "npm",
+          ["--prefix", andon.dashboardDir, "run", "dev"],
+          { cwd: rootDir, stdio: "ignore" }
+        );
+    owned.push(superviseChild(dashboard, "Andon dashboard"));
+    process.stdout.write(`Holistic: Andon dashboard starting on port ${ANDON_DASHBOARD_PORT}.\n`);
   }
 
-  // Agent-agnostic liveness forwarder. Reads .holistic-local/state.json and
-  // POSTs session.started/heartbeat/needs_input/completed to the Andon API for
+  // Agent-agnostic liveness forwarder. Reads the repo's state.json and POSTs
+  // session.started/heartbeat/needs_input/completed to the Andon API for
   // WHATEVER agent owns the active session (claude, codex, cursor, gsd, ...).
   // This is the single agent-agnostic source of Mission Control liveness — it
   // replaces per-agent tool hooks, which only ever worked for Claude Code and
-  // broke in worktrees. Started unconditionally because the daemon is the sole
-  // owner per repo (pidFile guard) and the writer retries while the API warms up.
+  // broke in worktrees. Started whenever Andon is present because the daemon is
+  // the sole owner per repo (pidFile guard) and the writer retries while the
+  // API warms up.
   const writer = spawn(
     process.execPath,
-    [path.join(rootDir, "scripts/andon-runtime-writer.mjs")],
+    [andon.writerScript],
     { cwd: rootDir, env: { ...process.env, HOLISTIC_REPO: rootDir }, stdio: "ignore" }
   );
-  writer.once("exit", (code) => {
-    if (code !== 0 && code !== null) {
-      process.stderr.write(`Andon runtime-writer exited with code ${code}.\n`);
-    }
-  });
-  owned.push(writer);
+  owned.push(superviseChild(writer, "Andon runtime-writer"));
   process.stdout.write("Holistic: Andon runtime-writer forwarding session liveness.\n");
 
   return owned;
@@ -403,7 +435,11 @@ async function main(): Promise<number> {
   const runOnce = firstFlag(parsed.flags, "once") === "true";
   const agent = asAgent(firstFlag(parsed.flags, "agent", inferAgentFromEnvironment()));
 
-  const pidFile = path.join(rootDir, ".holistic-local", "daemon.pid");
+  // Derive the pidfile from the repo's configured runtime directory rather than
+  // hard-coding ".holistic-local", which only exists in the Holistic product
+  // repo's dogfooding setup. A normal install uses ".holistic", and neither
+  // directory is guaranteed to exist yet, so create it before writing.
+  const pidFile = path.join(getRuntimePaths(rootDir).holisticDir, "daemon.pid");
 
   // Bail if another daemon instance is already running for this repo.
   if (!runOnce && isDaemonRunning(pidFile)) {
@@ -412,6 +448,7 @@ async function main(): Promise<number> {
   }
 
   if (!runOnce) {
+    fs.mkdirSync(path.dirname(pidFile), { recursive: true });
     fs.writeFileSync(pidFile, String(process.pid), "utf8");
   }
 
@@ -422,7 +459,10 @@ async function main(): Promise<number> {
     process.stderr.write(`${warning}\n`);
   }
 
-  const andonChildren = await startAndonServices(rootDir);
+  // A one-shot tick is used by hooks and tests. Starting long-lived Andon
+  // services only to kill them immediately wastes work and can disturb an
+  // already-running Andon setup, so skip them entirely in that mode.
+  const andonChildren = runOnce ? [] : await startAndonServices(rootDir);
 
   const tick = () => {
     const result = runDaemonTick(rootDir, agent);
@@ -433,7 +473,6 @@ async function main(): Promise<number> {
 
   tick();
   if (runOnce) {
-    for (const child of andonChildren) killTree(child);
     return 0;
   }
 

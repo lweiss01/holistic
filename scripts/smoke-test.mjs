@@ -32,6 +32,21 @@ function run(command, args, options = {}) {
   return result;
 }
 
+/** Run a command that is expected to exit non-zero, and return its result. */
+function runExpectingFailure(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    cwd: options.cwd ?? repoRoot,
+    env: options.env ?? process.env,
+    encoding: "utf8",
+  });
+
+  if (result.status === 0) {
+    fail(`${command} ${args.join(" ")} was expected to fail but succeeded`, result);
+  }
+
+  return result;
+}
+
 function quoteCmdArg(value) {
   return /[\s"]/u.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
@@ -102,9 +117,25 @@ function main() {
   run("git", ["add", "README.md"], { cwd: repoUnderTest });
   run("git", ["commit", "-m", "init"], { cwd: repoUnderTest });
 
+  // Bootstrap writes outside the repo, so without --yes it must stop at the
+  // pre-flight gate and change nothing. Lock that safety behavior down here.
+  const preflight = runExpectingFailure(process.execPath, [
+    installedBin,
+    "bootstrap",
+    "--install-daemon",
+    "false",
+    "--configure-mcp",
+    "false",
+  ], { cwd: repoUnderTest });
+  ensureIncludes(preflight.stdout, "Run with --yes", "bootstrap pre-flight output");
+  if (fs.existsSync(path.join(repoUnderTest, ".git", "hooks", "post-commit"))) {
+    throw new Error("Bootstrap pre-flight must not install hooks before confirmation.");
+  }
+
   run(process.execPath, [
     installedBin,
     "bootstrap",
+    "--yes",
     "--install-daemon",
     "false",
     "--configure-mcp",

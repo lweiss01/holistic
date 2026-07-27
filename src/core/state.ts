@@ -83,6 +83,40 @@ function relativeToRoot(rootDir: string, absolutePath: string): string {
 }
 
 /**
+ * Session ids are minted as `session-<ISO timestamp with : and . replaced by ->`,
+ * so a legitimate id never contains a path separator, a drive letter, or a
+ * parent-directory segment. Ids arrive from CLI flags, MCP arguments, and
+ * agent-authored handoff metadata (all untrusted) and are interpolated straight
+ * into file paths, so they must be validated before they reach the filesystem.
+ */
+const SESSION_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
+const MAX_SESSION_ID_LENGTH = 200;
+
+export function isSafeSessionId(sessionId: unknown): sessionId is string {
+  return typeof sessionId === "string"
+    && sessionId.length > 0
+    && sessionId.length <= MAX_SESSION_ID_LENGTH
+    && SESSION_ID_PATTERN.test(sessionId)
+    && !sessionId.includes("..");
+}
+
+export function assertSafeSessionId(sessionId: unknown): asserts sessionId is string {
+  if (!isSafeSessionId(sessionId)) {
+    throw new Error(`Invalid session id: ${JSON.stringify(sessionId)}`);
+  }
+}
+
+/** True when `candidate` resolves to a path strictly inside `directory`. */
+function isPathInsideDirectory(candidate: string, directory: string): boolean {
+  const resolvedDirectory = path.resolve(directory);
+  const resolved = path.resolve(candidate);
+  const directoryWithSeparator = resolvedDirectory.endsWith(path.sep)
+    ? resolvedDirectory
+    : resolvedDirectory + path.sep;
+  return resolved.startsWith(directoryWithSeparator);
+}
+
+/**
  * Ensures a resolved path remains inside the repository root.
  * If path escapes root, falls back to default and records a diagnostic.
  */
@@ -608,6 +642,7 @@ function recentFirstMerge(current: string[], incoming: string[]): string[] {
 }
 
 const sessionDirListCache = new Map<string, { signature: string; sessions: SessionRecord[] }>();
+const MAX_SESSION_DIR_CACHE_ENTRIES = 50;
 
 /** Drop cached session JSON lists (call after writes under `.holistic/sessions/`). */
 export function invalidateSessionDirectoryCache(directory?: string): void {
@@ -616,6 +651,17 @@ export function invalidateSessionDirectoryCache(directory?: string): void {
     return;
   }
   sessionDirListCache.delete(path.resolve(directory));
+}
+
+function cacheSessions(resolved: string, signature: string, sessions: SessionRecord[]): void {
+  // LRU eviction: remove oldest entry when cache is at capacity
+  if (sessionDirListCache.size >= MAX_SESSION_DIR_CACHE_ENTRIES) {
+    const firstKey = sessionDirListCache.keys().next().value;
+    if (firstKey !== undefined) {
+      sessionDirListCache.delete(firstKey);
+    }
+  }
+  sessionDirListCache.set(resolved, { signature, sessions });
 }
 
 function readSessionsFromDir(directory: string): SessionRecord[] {
@@ -656,7 +702,7 @@ function readSessionsFromDir(directory: string): SessionRecord[] {
     }
   }
 
-  sessionDirListCache.set(resolved, { signature, sessions });
+  cacheSessions(resolved, signature, sessions);
   return sessions;
 }
 
@@ -807,7 +853,22 @@ export function runSessionHygiene(
  * use when explicit reuse makes an archived session relevant again.
  */
 export function reactivateArchivedSession(paths: RuntimePaths, sessionId: string): SessionRecord | null {
+  if (!isSafeSessionId(sessionId)) {
+    return null;
+  }
+
   const archivePath = path.join(paths.archiveSessionsDir, `${sessionId}.json`);
+  const activePath = path.join(paths.sessionsDir, `${sessionId}.json`);
+
+  // Defense in depth: this function reads, writes, and unlinks. Even with a
+  // validated id, never let either path escape its session directory.
+  if (
+    !isPathInsideDirectory(archivePath, paths.archiveSessionsDir)
+    || !isPathInsideDirectory(activePath, paths.sessionsDir)
+  ) {
+    return null;
+  }
+
   if (!fs.existsSync(archivePath)) {
     return null;
   }
@@ -819,8 +880,6 @@ export function reactivateArchivedSession(paths: RuntimePaths, sessionId: string
     // Corrupt archive file — cannot reactivate.
     return null;
   }
-
-  const activePath = path.join(paths.sessionsDir, `${sessionId}.json`);
 
   try {
     // Write to active first, then remove from archive — crash-safe ordering.
@@ -1577,10 +1636,12 @@ export function applyHandoff(rootDir: string, state: HolisticState, input: Hando
 
   // Reactivate archived sessions that are explicitly referenced by exact id
   // in relatedSessions — free-form text in other fields is left untouched.
+  // relatedSessions is agent-authored, so a prefix test alone is not a guard:
+  // "session-../../../etc/hosts" satisfies startsWith("session-").
   const paths = getRuntimePaths(rootDir);
   if (input.relatedSessions) {
     for (const relatedId of input.relatedSessions) {
-      if (relatedId && relatedId.startsWith("session-")) {
+      if (isSafeSessionId(relatedId) && relatedId.startsWith("session-")) {
         reactivateArchivedSession(paths, relatedId);
       }
     }
