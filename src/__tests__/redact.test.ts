@@ -99,4 +99,56 @@ Keep it safe.`;
       }
     },
   },
+  {
+    name: "sanitizeText preserves prose that merely mentions a secret keyword",
+    run: () => {
+      // Redacting every word after "token:" silently destroyed checkpoint text.
+      const inputs = [
+        "Decide on the loopback auth token: needs a Vite proxy for the dashboard",
+        "password: required before the next step",
+        "secret: the design doc explains why",
+        "api key: must be rotated by ops",
+        "token = well-defined behavior",
+        "Rotate the access key: ask the platform team",
+      ];
+      for (const input of inputs) {
+        const output = sanitizeText(input);
+        assert.strictEqual(output, input, `Failed to preserve prose: ${input}`);
+      }
+    },
+  },
+  {
+    name: "sanitizeText still redacts secret-shaped and quoted assigned values",
+    run: () => {
+      // Quoted values may contain spaces, which the bare-value rule cannot span.
+      assert.strictEqual(
+        sanitizeText('password = "hunter2 with spaces"'),
+        "password = [REDACTED]",
+      );
+      assert.strictEqual(
+        sanitizeText("api_key: A1b2C3d4e5f6"),
+        "api_key: [REDACTED]",
+      );
+      // Long values are redacted even without digits.
+      assert.strictEqual(
+        sanitizeText("token: abcdefghijklmnopqrstuvwxyz"),
+        "token: [REDACTED]",
+      );
+      // Tight config-style assignment stays redacted even when short.
+      assert.strictEqual(sanitizeText("secret=shhh"), "secret= [REDACTED]");
+    },
+  },
+  {
+    name: "sanitizeText redacts Slack and npm tokens",
+    run: () => {
+      assert.strictEqual(
+        sanitizeText("slack xoxb-1234567890-abcdefghij"),
+        "slack [REDACTED_SLACK_TOKEN]",
+      );
+      assert.strictEqual(
+        sanitizeText(`npm ${"npm_"}${"a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8"}`),
+        "npm [REDACTED_NPM_TOKEN]",
+      );
+    },
+  },
 ];
