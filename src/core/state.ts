@@ -287,7 +287,23 @@ interface InferredSessionStart {
   status: string;
   blockers?: string[];
   nextSteps?: string[];
+  triedItems?: string[];
+  assumptions?: string[];
+  regressionRisks?: string[];
   consumePendingWork?: boolean;
+}
+
+/** Human-readable age used to make stale carryover visible instead of silent. */
+function describeAge(fromIso: string, currentTimeMs: number = Date.now()): string | null {
+  const fromMs = new Date(fromIso).getTime();
+  if (Number.isNaN(fromMs)) {
+    return null;
+  }
+  const days = Math.floor((currentTimeMs - fromMs) / (24 * 60 * 60 * 1000));
+  if (days <= 0) {
+    return null;
+  }
+  return days === 1 ? "1 day ago" : `${days} days ago`;
 }
 
 function loadHolisticConfig(rootDir: string): Record<string, unknown> {
@@ -324,13 +340,22 @@ function summarizeFilesForGoal(files: string[]): string {
 export function inferSessionStart(rootDir: string, state: HolisticState): InferredSessionStart {
   const nextPending = state.pendingWork[0];
   if (nextPending) {
+    // Carry the full recorded detail, not just the first next step. Dropping
+    // triedItems here is what made a resumed agent repeat work the previous
+    // one had already ruled out.
+    const age = describeAge(nextPending.createdAt);
     return {
       title: nextPending.title,
       goal: nextPending.recommendedNextStep,
       plan: ["Read HOLISTIC.md", nextPending.recommendedNextStep],
       source: "pending",
-      status: nextPending.context,
-      nextSteps: [nextPending.recommendedNextStep],
+      // Surface the age so a months-old objective is never seeded silently.
+      status: age ? `${nextPending.context} (carried from a session ${age})` : nextPending.context,
+      nextSteps: nextPending.nextSteps?.length ? [...nextPending.nextSteps] : [nextPending.recommendedNextStep],
+      blockers: nextPending.blockers ? [...nextPending.blockers] : undefined,
+      triedItems: nextPending.triedItems ? [...nextPending.triedItems] : undefined,
+      assumptions: nextPending.assumptions ? [...nextPending.assumptions] : undefined,
+      regressionRisks: nextPending.regressionRisks ? [...nextPending.regressionRisks] : undefined,
       consumePendingWork: true,
     };
   }
@@ -734,6 +759,37 @@ export function readAllSessions(paths: RuntimePaths): SessionRecord[] {
 const STALE_SESSION_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 /**
+ * Pending work is bounded by the same window as session archival, plus a hard
+ * cap. Nothing used to drain the queue: startNewSession and applyHandoff only
+ * ever unshifted, and only inferSessionStart consumed, and only the single
+ * newest entry on a cold start. Left alone it grew for months.
+ *
+ * The shared window also resolves a contradiction. referencedSessionIds treats
+ * a pending entry as a reason to keep its session out of the archive, so an
+ * unbounded queue pinned sessions active forever and defeated the hygiene
+ * policy it was supposed to cooperate with. Pruning before computing the
+ * referenced set means a pin now expires exactly when the entry does.
+ */
+const PENDING_WORK_MAX_AGE_MS = STALE_SESSION_AGE_MS;
+const MAX_PENDING_WORK_ITEMS = 20;
+
+export function prunePendingWork(
+  items: PendingWorkItem[],
+  currentTimeMs: number = Date.now(),
+): PendingWorkItem[] {
+  const retained = items.filter((item) => {
+    const createdMs = new Date(item.createdAt).getTime();
+    if (Number.isNaN(createdMs)) {
+      // Malformed timestamp: keep it rather than silently discarding work.
+      return true;
+    }
+    return currentTimeMs - createdMs <= PENDING_WORK_MAX_AGE_MS;
+  });
+
+  return retained.slice(0, MAX_PENDING_WORK_ITEMS);
+}
+
+/**
  * Collect the set of session IDs that are "referenced" by current state and
  * should never be archived regardless of age.  Referenced means: active session,
  * last handoff, any pending-work item that carried from a session, or any
@@ -825,6 +881,11 @@ export function runSessionHygiene(
   state: HolisticState,
   currentTimeMs: number = Date.now(),
 ): string[] {
+  // Prune first so an expired pending entry stops pinning its session against
+  // archival in the same pass. Mutates state in place because every caller
+  // persists the same object immediately afterwards.
+  state.pendingWork = prunePendingWork(state.pendingWork ?? [], currentTimeMs);
+
   const candidates = findArchiveCandidates(paths, state, currentTimeMs);
   const archived: string[] = [];
 
@@ -942,6 +1003,21 @@ function buildResumeRecap(state: HolisticState): string[] {
     lines.push(`Top pending work: ${top.title}`);
     lines.push(`Pending context: ${top.context}`);
     lines.push(`Suggested next step: ${top.recommendedNextStep}`);
+    // Surface the carried detail on a cold start. Without this the anti-loop
+    // and safety signals sat unread in state.json.
+    if (top.triedItems && top.triedItems.length > 0) {
+      lines.push(`Already tried before the handoff: ${top.triedItems.join("; ")}`);
+    }
+    if (top.blockers && top.blockers.length > 0) {
+      lines.push(`Carried blockers: ${top.blockers.join("; ")}`);
+    }
+    if (top.regressionRisks && top.regressionRisks.length > 0) {
+      lines.push(`Carried regression watch: ${top.regressionRisks.join("; ")}`);
+    }
+    const age = describeAge(top.createdAt);
+    if (age) {
+      lines.push(`Pending work was carried ${age}.`);
+    }
   }
 
   if (lines.length === 0) {
@@ -1282,6 +1358,19 @@ export function checkpointState(rootDir: string, state: HolisticState, input: Ch
   };
 }
 
+/**
+ * Whether a session left anything a later session could actually act on.
+ *
+ * Without this test every superseded session enqueued an item, so the queue
+ * filled with placeholder entries carrying no information beyond a title.
+ */
+function hasCarryableWork(session: SessionRecord): boolean {
+  return session.nextSteps.length > 0
+    || session.blockers.length > 0
+    || session.triedItems.length > 0
+    || session.regressionRisks.length > 0;
+}
+
 function toPendingWork(session: SessionRecord): PendingWorkItem {
   return {
     id: `pending-${session.id}`,
@@ -1291,6 +1380,12 @@ function toPendingWork(session: SessionRecord): PendingWorkItem {
     priority: session.blockers.length > 0 ? "high" : "medium",
     carriedFromSession: session.id,
     createdAt: now(),
+    agent: session.agent,
+    nextSteps: [...session.nextSteps],
+    triedItems: [...session.triedItems],
+    assumptions: [...session.assumptions],
+    blockers: [...session.blockers],
+    regressionRisks: [...session.regressionRisks],
   };
 }
 
@@ -1314,7 +1409,13 @@ export function startNewSession(rootDir: string, state: HolisticState, agent: Ag
       endedAt: now(),
     };
     writeArchivedSession(getRuntimePaths(rootDir), archived);
-    nextState.pendingWork.unshift(toPendingWork(archived));
+    // Only enqueue a session that left something actionable. A placeholder
+    // entry carries no information and still pins its session against
+    // archival, which is how the queue filled with 8 copies of
+    // "Capture work and prepare a clean handoff."
+    if (hasCarryableWork(archived)) {
+      nextState.pendingWork.unshift(toPendingWork(archived));
+    }
     nextState.repoSnapshot = refreshed.state.repoSnapshot;
   }
 
@@ -1370,6 +1471,11 @@ export function continueFromLatest(rootDir: string, state: HolisticState, agent:
   resumed.latestStatus = inferred.status;
   resumed.nextSteps = inferred.nextSteps ? sanitizeList(inferred.nextSteps) : [];
   resumed.blockers = inferred.blockers ? sanitizeList(inferred.blockers) : [];
+  // Restore the rest of the carryover so the resumed session knows what was
+  // already tried and what must not regress, rather than starting blind.
+  resumed.triedItems = inferred.triedItems ? sanitizeList(inferred.triedItems) : [];
+  resumed.assumptions = inferred.assumptions ? sanitizeList(inferred.assumptions) : [];
+  resumed.regressionRisks = inferred.regressionRisks ? sanitizeList(inferred.regressionRisks) : [];
 
   const remainingPendingWork = inferred.consumePendingWork ? state.pendingWork.slice(1) : state.pendingWork;
   const refreshed = refreshSessionFromRepo(rootDir, state, resumed);

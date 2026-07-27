@@ -59,6 +59,19 @@ export interface PendingWorkItem {
   priority: Priority;
   carriedFromSession: string;
   createdAt: string;
+  /**
+   * Carryover detail. A pending item used to keep only the first next step,
+   * which meant the anti-loop signal (what was already tried) and the safety
+   * signal (blockers, regression risks) did not survive a session boundary in
+   * structured form. Optional so state files written by older versions still
+   * load; readers must tolerate absence.
+   */
+  agent?: AgentName;
+  nextSteps?: string[];
+  triedItems?: string[];
+  assumptions?: string[];
+  blockers?: string[];
+  regressionRisks?: string[];
 }
 
 export interface LastHandoff {

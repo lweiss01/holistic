@@ -14,7 +14,9 @@ import {
   isSafeSessionId,
   loadState,
   createInitialState,
+  prunePendingWork,
   reactivateArchivedSession,
+  runSessionHygiene,
   saveState,
   startNewSession,
 } from "../src/core/state.ts";
@@ -481,51 +483,175 @@ export const tests = [
       ) + "\n";
       fs.writeFileSync(stateFile, original, "utf8");
 
-      const isWindows = process.platform === "win32";
-      const scriptPath = path.join(paths.holisticDir, "system", isWindows ? "andon-turn-hook.ps1" : "andon-turn-hook.sh");
-      assert.equal(fs.existsSync(scriptPath), true, "turn hook script was not generated");
-
-      // The POSIX hook needs jq to parse the hook payload; without it the script
-      // exits 0 by design and writes nothing, so only assert the sidecar when
-      // the interpreter's prerequisites are actually present.
-      let canWriteSidecar = isWindows;
-      if (!isWindows) {
+      const canRun = (command: string, args: string[]): boolean => {
         try {
-          execFileSync("jq", ["--version"], { stdio: "ignore" });
-          canWriteSidecar = true;
+          execFileSync(command, args, { stdio: "ignore", timeout: 30_000 });
+          return true;
         } catch {
-          canWriteSidecar = false;
+          return false;
         }
-      }
-
-      const runHook = (event: string): void => {
-        const payload = JSON.stringify({ hook_event_name: event, cwd: rootDir });
-        const command = isWindows ? "powershell" : "sh";
-        const args = isWindows
-          ? ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath]
-          : [scriptPath];
-        execFileSync(command, args, { input: payload, stdio: ["pipe", "ignore", "ignore"], timeout: 30_000 });
       };
 
-      runHook("Stop");
+      // Exercise every interpreter available here, not just the platform-native
+      // one. The POSIX hook ships to macOS and Linux users, and on Windows a
+      // git-bash sh plus jq can still run it, so cover both when we can. The
+      // POSIX hook needs jq to parse the payload and exits 0 without it.
+      const systemDir = path.join(paths.holisticDir, "system");
+      const runners: Array<{ label: string; command: string; args: string[] }> = [];
+      if (process.platform === "win32" && canRun("powershell", ["-NoProfile", "-Command", "exit 0"])) {
+        runners.push({
+          label: "powershell",
+          command: "powershell",
+          args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(systemDir, "andon-turn-hook.ps1")],
+        });
+      }
+      if (canRun("sh", ["-c", "exit 0"]) && canRun("jq", ["--version"])) {
+        runners.push({ label: "sh", command: "sh", args: [path.join(systemDir, "andon-turn-hook.sh")] });
+      }
 
-      // The critical invariant: the hook must never touch state.json, which is
-      // guarded by a lock it cannot take.
-      assert.equal(fs.readFileSync(stateFile, "utf8"), original, "turn hook must not modify state.json");
+      assert.ok(runners.length > 0, "no interpreter available to exercise the generated turn hook");
 
-      const sidecar = path.join(paths.holisticDir, "turn-state.json");
-      if (canWriteSidecar) {
-        assert.equal(fs.existsSync(sidecar), true, "Stop should have written the turn-state sidecar");
+      for (const runner of runners) {
+        const sidecar = path.join(paths.holisticDir, "turn-state.json");
+        fs.rmSync(sidecar, { force: true });
+
+        const runHook = (event: string): void => {
+          execFileSync(runner.command, runner.args, {
+            input: JSON.stringify({ hook_event_name: event, cwd: rootDir }),
+            stdio: ["pipe", "ignore", "ignore"],
+            timeout: 30_000,
+          });
+        };
+
+        runHook("Stop");
+        assert.equal(fs.existsSync(sidecar), true, `${runner.label}: Stop should have written the sidecar`);
         const waiting = JSON.parse(fs.readFileSync(sidecar, "utf8")) as { turnState?: string };
-        assert.equal(waiting.turnState, "waiting", "Stop must record waiting");
-        assert.equal(fs.existsSync(`${sidecar}.tmp`), false, "atomic temp file must not be left behind");
+        assert.equal(waiting.turnState, "waiting", `${runner.label}: Stop must record waiting`);
+        assert.equal(fs.existsSync(`${sidecar}.tmp`), false, `${runner.label}: atomic temp file must not be left behind`);
 
         // A later turn must flip the value in place.
         runHook("UserPromptSubmit");
         const running = JSON.parse(fs.readFileSync(sidecar, "utf8")) as { turnState?: string };
-        assert.equal(running.turnState, "running", "UserPromptSubmit must record running");
-        assert.equal(fs.readFileSync(stateFile, "utf8"), original, "turn hook must still not modify state.json");
+        assert.equal(running.turnState, "running", `${runner.label}: UserPromptSubmit must record running`);
+
+        // The critical invariant: the hook must never touch state.json, which
+        // is guarded by a lock it cannot take.
+        assert.equal(
+          fs.readFileSync(stateFile, "utf8"),
+          original,
+          `${runner.label}: turn hook must not modify state.json`,
+        );
       }
+    }
+  },
+  {
+    name: "pending work is bounded by age and count, and an expired entry stops pinning its session",
+    run: () => {
+      const { rootDir } = makeRepo();
+      const { paths } = loadState(rootDir);
+      const state = createInitialState(rootDir);
+      const nowMs = Date.parse("2026-07-27T00:00:00.000Z");
+      const daysAgo = (days: number) => new Date(nowMs - days * 24 * 60 * 60 * 1000).toISOString();
+
+      const makeItem = (id: string, createdAt: string) => ({
+        id: `pending-${id}`,
+        title: `Item ${id}`,
+        context: "ctx",
+        recommendedNextStep: "Do something",
+        priority: "medium" as const,
+        carriedFromSession: id,
+        createdAt,
+      });
+
+      // Age based pruning.
+      const aged = prunePendingWork(
+        [makeItem("fresh", daysAgo(1)), makeItem("boundary", daysAgo(30)), makeItem("expired", daysAgo(31))],
+        nowMs,
+      );
+      assert.deepEqual(aged.map((item) => item.carriedFromSession), ["fresh", "boundary"]);
+
+      // Count cap, newest first.
+      const many = Array.from({ length: 30 }, (_, index) => makeItem(`s${index}`, daysAgo(1)));
+      const capped = prunePendingWork(many, nowMs);
+      assert.equal(capped.length, 20, "queue must be capped");
+      assert.equal(capped[0].carriedFromSession, "s0", "newest entries are kept");
+
+      // A malformed timestamp is kept rather than silently discarded.
+      assert.equal(prunePendingWork([makeItem("bad", "not-a-date")], nowMs).length, 1);
+
+      // An expired pending entry must stop pinning its session against
+      // archival, so the two retention policies agree on one window.
+      const endedAt = daysAgo(31);
+      const session = {
+        id: "session-pinned", agent: "codex", branch: "main",
+        startedAt: endedAt, updatedAt: endedAt, endedAt,
+        status: "handed_off", title: "Pinned", currentGoal: "old", currentPlan: [],
+        latestStatus: "done", workDone: [], triedItems: [], nextSteps: [],
+        assumptions: [], blockers: [], references: [], impactNotes: [], regressionRisks: [],
+        changedFiles: [], checkpointCount: 1, lastCheckpointReason: "manual", resumeRecap: [],
+      };
+      fs.writeFileSync(path.join(paths.sessionsDir, "session-pinned.json"), JSON.stringify(session) + "\n", "utf8");
+      state.pendingWork = [makeItem("session-pinned", daysAgo(31))];
+
+      const archived = runSessionHygiene(paths, state, nowMs);
+      assert.ok(archived.includes("session-pinned"), "an expired pending entry must not pin its session forever");
+      assert.equal(state.pendingWork.length, 0, "hygiene must drain the expired entry");
+    }
+  },
+  {
+    name: "carryover preserves what was tried, blocked, and must not regress across a session boundary",
+    run: () => {
+      const { rootDir } = makeRepo();
+      const { paths } = loadState(rootDir);
+      let state = createInitialState(rootDir);
+      state = startNewSession(rootDir, state, "codex", "First objective", ["Step one"]);
+      state = checkpointState(rootDir, state, {
+        agent: "codex",
+        reason: "milestone",
+        status: "Half done",
+        tried: ["Rewrote the parser and it deadlocked", "Tried a mutex and it was slower"],
+        next: ["Try the lock-free queue", "Then benchmark it"],
+        blockers: ["Needs a decision on the buffer size"],
+        regressions: ["Do not reintroduce the deadlock"],
+        assumptions: ["Single writer per queue"],
+      });
+      saveState(paths, state);
+
+      // Supersede it, which is what pushes the session onto the pending queue.
+      state = startNewSession(rootDir, state, "codex", "Second objective", ["Step two"]);
+
+      const carried = state.pendingWork[0];
+      assert.ok(carried, "superseding a session with real work must enqueue it");
+      assert.deepEqual(carried.triedItems, ["Rewrote the parser and it deadlocked", "Tried a mutex and it was slower"]);
+      assert.deepEqual(carried.nextSteps, ["Try the lock-free queue", "Then benchmark it"]);
+      assert.deepEqual(carried.blockers, ["Needs a decision on the buffer size"]);
+      assert.deepEqual(carried.regressionRisks, ["Do not reintroduce the deadlock"]);
+
+      // Resuming from that entry must rebuild the detail, not just the first step.
+      const resumed = continueFromLatest(rootDir, { ...state, activeSession: null }, "claude");
+      assert.deepEqual(resumed.activeSession?.triedItems, carried.triedItems);
+      assert.deepEqual(resumed.activeSession?.blockers, carried.blockers);
+      assert.deepEqual(resumed.activeSession?.regressionRisks, carried.regressionRisks);
+      assert.deepEqual(resumed.activeSession?.nextSteps, carried.nextSteps);
+    }
+  },
+  {
+    name: "a session with nothing actionable does not enqueue a placeholder",
+    run: () => {
+      const { rootDir } = makeRepo();
+      const { paths } = loadState(rootDir);
+      let state = createInitialState(rootDir);
+      state = startNewSession(rootDir, state, "codex", "Nothing actionable", ["Step one"]);
+      saveState(paths, state);
+
+      // Supersede without recording any next step, blocker, attempt, or risk.
+      state = startNewSession(rootDir, state, "codex", "Second objective", ["Step two"]);
+
+      assert.equal(
+        state.pendingWork.length,
+        0,
+        "a session with no carryable work must not add a placeholder entry",
+      );
     }
   },
   {

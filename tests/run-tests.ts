@@ -937,13 +937,16 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
         nextAction: "Continue", committedAt: null, createdAt: thirtyOneDaysAgo,
       };
 
-      // Old but referenced by pendingWork — should stay active.
+      // Old but referenced by a RETAINED pendingWork entry — should stay active.
+      // The pending entry must itself be within the retention window: pending
+      // work is now pruned on the same 30 day schedule, so an expired entry no
+      // longer pins its session (see the dedicated test below).
       const pendingSession = { ...staleSession, id: "session-pending-1", title: "Pending old work" };
       fs.writeFileSync(path.join(paths.sessionsDir, "session-pending-1.json"), JSON.stringify(pendingSession) + "\n", "utf8");
       state.pendingWork = [{
         id: "pending-session-pending-1", title: "Pending item", context: "ctx",
         recommendedNextStep: "Do something", priority: "medium",
-        carriedFromSession: "session-pending-1", createdAt: thirtyOneDaysAgo,
+        carriedFromSession: "session-pending-1", createdAt: twentyNineDaysAgo,
       }];
 
       const candidates = findArchiveCandidates(paths, state, nowMs);
