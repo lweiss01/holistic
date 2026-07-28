@@ -80,7 +80,8 @@ The architecture is split on purpose, because a daemon on your laptop cannot hel
 | --- | --- | --- |
 | Repo memory | Shared handoff, history, regression, and session state | Yes |
 | State branch | Cross-device distribution of Holistic state | Yes |
-| Local daemon | Passive capture on one machine | No |
+| Local daemon | Passive capture on one machine, optional | No |
+| Andon (optional) | Live monitoring of running agents, source-only | No |
 
 ### During a session
 
@@ -99,11 +100,37 @@ The next agent reads `HOLISTIC.md`, reviews project history and regression memor
 | Command | Purpose |
 | --- | --- |
 | `holistic init` | Initialize Holistic for a repo |
+| `holistic bootstrap` | Install machine helpers: git hooks, daemon, MCP config |
+| `holistic doctor` | Diagnose setup and configuration health |
+| `holistic repair` | Regenerate machine-local helpers |
 | `holistic resume` | Produce a recap and recovery flow |
 | `holistic checkpoint` | Save durable mid-session state |
 | `holistic handoff` | Finalize the session handoff |
 | `holistic start-new` | Start a fresh tracked session while preserving unfinished work |
 | `holistic watch` | Foreground watch mode for automatic checkpoints |
+
+`bootstrap` writes outside the repo (a startup entry, git hooks, and Claude
+Desktop MCP config), so it shows you what it intends to change and does nothing
+until you pass `--yes`.
+
+## Andon: optional local monitoring
+
+The repo also contains **Andon**, an optional add-on that shows what your agents
+are doing right now: a Mission Control board, per-session timelines, and replay.
+
+Andon is **not part of the published npm package**. It lives in this repository
+and runs from source, so `npm install -g holistic` does not install it and the
+daemon skips it when it is absent.
+
+```bash
+npm run andon:dev     # API, dashboard, and runtime writer together
+```
+
+It runs three services bound to `127.0.0.1`: the API on 4318, a runtime service
+on 4320, and the dashboard on 5173. Because they are reachable from any page
+your browser loads, they enforce an origin allowlist and a loopback auth token
+created on first start. Read [SECURITY.md](SECURITY.md#network-surface) before
+running it, and set `HOLISTIC_ANDON=0` if you want the daemon to leave it alone.
 
 ## Example workflow
 
