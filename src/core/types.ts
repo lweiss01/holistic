@@ -283,10 +283,18 @@ export interface AutoHandoffDecision {
   reason: "idle-30min" | "work-milestone" | "completion-signal" | "";
 }
 
+/**
+ * "session-ended-mid-draft" marks answers rescued when the active session
+ * disappeared while the user was still filling in the handoff prompts. Unlike
+ * an auto-draft, it is not tied to the session that produced it, because that
+ * session no longer exists.
+ */
+export type DraftHandoffReason = AutoHandoffDecision["reason"] | "session-ended-mid-draft";
+
 export interface DraftHandoff {
   sourceSessionId: string;
   sourceSessionUpdatedAt: string;
-  reason: AutoHandoffDecision["reason"];
+  reason: DraftHandoffReason;
   createdAt: string;
   handoff: HandoffInput;
 }

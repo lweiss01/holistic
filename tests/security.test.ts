@@ -16,11 +16,21 @@ import {
   createInitialState,
   prunePendingWork,
   reactivateArchivedSession,
+  readDraftHandoff,
   runSessionHygiene,
   saveState,
   startNewSession,
+  writeDraftHandoff,
 } from "../src/core/state.ts";
-import { getSetupStatus, validateRuntimeConfig, writeAndonHookScripts } from "../src/core/setup.ts";
+import {
+  bootstrapHolistic,
+  getSetupStatus,
+  planBootstrap,
+  uninstallHolistic,
+  validateRuntimeConfig,
+  writeAndonHookScripts,
+} from "../src/core/setup.ts";
+import { draftIsApplicable } from "../src/cli.ts";
 import { isUserAuthoredDoc, untrusted, USER_EDITED_MARKER, writeDerivedDocs } from "../src/core/docs.ts";
 import { emitAndonEvent, pendingAndonEventCount, resolveAndonBaseUrl } from "../src/core/andon.ts";
 import { andonAuthHeaders, andonTokenFilePath, readAndonToken } from "../src/core/andon-token.ts";
@@ -543,6 +553,112 @@ export const tests = [
           `${runner.label}: turn hook must not modify state.json`,
         );
       }
+    }
+  },
+  {
+    name: "bootstrap dry run enumerates every target and changes nothing",
+    run: () => {
+      const { rootDir } = makeRepo();
+      const fakeHome = makeTempDir("holistic-plan-home");
+
+      const plan = planBootstrap(rootDir, { platform: "win32", homeDir: fakeHome });
+
+      // The paths outside the repo are the ones that need informed consent.
+      const outside = plan.entries.filter((entry) => entry.outsideRepo).map((entry) => entry.target);
+      assert.ok(outside.some((target) => target.includes("Startup")), "autostart entry must be disclosed");
+      assert.ok(outside.some((target) => target.includes("claude_desktop_config.json")), "MCP config must be disclosed");
+
+      const targets = plan.entries.map((entry) => entry.target);
+      assert.ok(targets.some((target) => target.endsWith("post-commit")), "git hooks must be disclosed");
+      assert.ok(targets.some((target) => target.endsWith(".gitattributes")), "gitattributes must be disclosed");
+
+      // Planning must be free of side effects, including the runtime directory
+      // that loadState would otherwise create.
+      assert.equal(fs.existsSync(path.join(rootDir, ".holistic")), false, "planning must not create the runtime directory");
+      assert.equal(fs.existsSync(path.join(rootDir, ".gitattributes")), false, "planning must not write .gitattributes");
+      assert.equal(fs.existsSync(path.join(rootDir, ".git", "hooks", "post-commit")), false, "planning must not install hooks");
+      assert.equal(fs.readdirSync(fakeHome).length, 0, "planning must not touch the home directory");
+    }
+  },
+  {
+    name: "uninstall removes Holistic artifacts while preserving user-owned files",
+    run: () => {
+      const { rootDir } = makeRepo();
+      const fakeHome = makeTempDir("holistic-uninstall-home");
+
+      bootstrapHolistic(rootDir, { platform: "win32", homeDir: fakeHome, installClaudeHooks: false });
+
+      // A neighbouring MCP server and a user-authored hook must both survive.
+      const mcpFile = path.join(fakeHome, "AppData", "Roaming", "Claude", "claude_desktop_config.json");
+      const mcpConfig = JSON.parse(fs.readFileSync(mcpFile, "utf8")) as { mcpServers: Record<string, unknown> };
+      mcpConfig.mcpServers.other = { command: "keep-me" };
+      fs.writeFileSync(mcpFile, JSON.stringify(mcpConfig, null, 2), "utf8");
+
+      const userHook = path.join(rootDir, ".git", "hooks", "pre-commit");
+      const userHookBody = "#!/usr/bin/env sh\n# user authored\nexit 0\n";
+      fs.writeFileSync(userHook, userHookBody, "utf8");
+
+      const startupEntry = path.join(fakeHome, "AppData", "Roaming", "Microsoft", "Windows", "Start Menu", "Programs", "Startup", `holistic-${path.basename(rootDir).toLowerCase().replace(/[^a-z0-9]+/g, "-")}.cmd`);
+      assert.equal(fs.existsSync(startupEntry), true, "bootstrap should have installed an autostart entry");
+
+      // A preview must remove nothing.
+      const preview = uninstallHolistic(rootDir, { platform: "win32", homeDir: fakeHome, dryRun: true });
+      assert.ok(preview.removed.length > 0);
+      assert.equal(fs.existsSync(startupEntry), true, "dry run must not remove the autostart entry");
+
+      const result = uninstallHolistic(rootDir, { platform: "win32", homeDir: fakeHome });
+      assert.equal(result.warnings.length, 0, `unexpected warnings: ${result.warnings.join("; ")}`);
+
+      assert.equal(fs.existsSync(startupEntry), false, "autostart entry must be removed");
+      assert.equal(fs.existsSync(path.join(rootDir, ".git", "hooks", "post-commit")), false, "managed hooks must be removed");
+      assert.equal(fs.readFileSync(userHook, "utf8"), userHookBody, "a user-authored hook must never be deleted");
+
+      const afterMcp = JSON.parse(fs.readFileSync(mcpFile, "utf8")) as { mcpServers: Record<string, unknown> };
+      assert.equal("holistic" in afterMcp.mcpServers, false, "the holistic MCP entry must be removed");
+      assert.equal("other" in afterMcp.mcpServers, true, "other MCP servers must be preserved");
+
+      // Memory is the point of the tool: uninstalling helpers must not delete it.
+      assert.equal(fs.existsSync(path.join(rootDir, ".holistic", "state.json")), true, "session memory must be kept by default");
+      assert.equal(fs.existsSync(path.join(rootDir, ".holistic", "system")), false, "regenerable helpers are removed");
+
+      // Purge is the explicit opt-in that does remove memory.
+      uninstallHolistic(rootDir, { platform: "win32", homeDir: fakeHome, purge: true });
+      assert.equal(fs.existsSync(path.join(rootDir, ".holistic")), false, "purge must remove the runtime directory");
+    }
+  },
+  {
+    name: "handoff answers are rescued when the session ends mid-draft",
+    run: () => {
+      const { rootDir } = makeRepo();
+      const { paths } = loadState(rootDir);
+
+      // An auto-draft belongs to its own session and must not leak into another.
+      const autoDraft = {
+        sourceSessionId: "session-old",
+        sourceSessionUpdatedAt: "2026-07-01T00:00:00.000Z",
+        reason: "idle-30min" as const,
+        createdAt: "2026-07-01T00:00:00.000Z",
+        handoff: { summary: "auto" },
+      };
+      assert.equal(draftIsApplicable(autoDraft, "session-old"), true);
+      assert.equal(draftIsApplicable(autoDraft, "session-new"), false, "an auto-draft must not apply to a different session");
+
+      // A rescued draft has no surviving session, so it applies to whichever
+      // session is active when the user returns for it.
+      const rescued = { ...autoDraft, reason: "session-ended-mid-draft" as const };
+      assert.equal(draftIsApplicable(rescued, "session-new"), true, "rescued answers must be recoverable in a new session");
+      assert.equal(draftIsApplicable(null, "session-new"), false);
+
+      // The rescued draft round-trips through disk intact.
+      writeDraftHandoff(paths, {
+        ...rescued,
+        handoff: { summary: "hand written", next: ["do the thing"], blockers: ["waiting on review"] },
+      });
+      const readBack = readDraftHandoff(paths);
+      assert.equal(readBack?.reason, "session-ended-mid-draft");
+      assert.equal(readBack?.handoff.summary, "hand written");
+      assert.deepEqual(readBack?.handoff.next, ["do the thing"]);
+      assert.equal(draftIsApplicable(readBack, "session-brand-new"), true);
     }
   },
   {

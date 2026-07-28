@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { renderRepoLocalCliCommands } from './core/cli-fallback.ts';
 import { captureRepoSnapshot, clearPendingCommit, commitPendingChanges, getBranchName, writePendingCommit } from './core/git.ts';
 import { writeDerivedDocs } from './core/docs.ts';
-import { bootstrapHolistic, checkHolisticHooksStatus, getSetupStatus, initializeHolistic, readExistingRuntimeConfig, refreshHolisticHooks, repairHolistic, validateRuntimeConfig, type SetupComponentStatus } from './core/setup.ts';
+import { bootstrapHolistic, checkHolisticHooksStatus, getSetupStatus, initializeHolistic, planBootstrap, readExistingRuntimeConfig, refreshHolisticHooks, repairHolistic, uninstallHolistic, validateRuntimeConfig, type SetupComponentStatus } from './core/setup.ts';
 import { printSplash, printSplashError, renderSplash } from './core/splash.ts';
 import { requestAutoSync } from './core/sync.ts';
 import { runDaemonTick } from './daemon.ts';
@@ -34,6 +34,7 @@ import {
   saveState,
   startNewSession,
   withStateLock,
+  writeDraftHandoff,
 } from './core/state.ts';
 import type { AgentName, CheckpointInput, DraftHandoff, HandoffInput, HolisticState, RuntimePaths, SessionDiff, SessionRecord } from './core/types.ts';
 
@@ -132,8 +133,9 @@ export function renderHelpText(): string {
 
 Setup Commands:
   holistic init [--install-daemon] [--install-hooks] [--platform win32|darwin|linux] [--interval 30] [--remote origin] [--state-ref refs/holistic/state] [--state-branch holistic/state]
-  holistic bootstrap [--platform win32|darwin|linux] [--interval 30] [--yes]
+  holistic bootstrap [--dry-run] [--platform win32|darwin|linux] [--interval 30] [--yes]
   holistic repair [--platform win32|darwin|linux] [--refresh-hooks false] [--install-daemon true] [--configure-mcp true]
+  holistic uninstall [--purge] [--yes] | Remove machine helpers, autostart, and MCP entry. Keeps session memory unless --purge.
 
 Read-Only & Diagnostic Commands:
   holistic status       | View current repository health and sync status.
@@ -245,6 +247,24 @@ function pickText(primary: string | undefined, fallback: string | undefined): st
 
 function draftMatchesSession(draft: DraftHandoff | null, sessionId: string): boolean {
   return Boolean(draft && draft.sourceSessionId === sessionId);
+}
+
+/**
+ * Whether a stored draft can be applied to the currently active session.
+ *
+ * An auto-draft belongs to the session that produced it. A draft rescued when
+ * a session ended mid-prompt has no surviving session to match, so it applies
+ * to whichever session is active when the user comes back for it. Without this
+ * the rescued answers would sit on disk with no command able to reach them.
+ */
+export function draftIsApplicable(draft: DraftHandoff | null, sessionId: string): boolean {
+  if (!draft) {
+    return false;
+  }
+  if (draft.reason === "session-ended-mid-draft") {
+    return true;
+  }
+  return draftMatchesSession(draft, sessionId);
 }
 
 export function finalizeDraftHandoffInput(session: SessionRecord, input: HandoffInput): HandoffInput {
@@ -463,6 +483,24 @@ async function handleBootstrap(rootDir: string, parsed: ParsedArgs): Promise<num
   const intervalSeconds = Number.parseInt(firstFlag(parsed.flags, "interval", "30"), 10);
   const confirmed = firstFlag(parsed.flags, "yes") === "true";
 
+  // Resolve the plan before anything that reads state: getSetupStatus calls
+  // loadState, which creates the runtime directories as a side effect, and a
+  // dry run that creates directories is not a dry run.
+  if (firstFlag(parsed.flags, "dry-run") === "true") {
+    const plan = planBootstrap(rootDir, { platform: platform as NodeJS.Platform, intervalSeconds });
+    printSplash({ message: "bootstrap dry run: no changes will be made" });
+    process.stdout.write("\nBootstrap would touch the following paths:\n\n");
+    for (const entry of plan.entries) {
+      const scope = entry.outsideRepo ? "OUTSIDE REPO" : "in repo";
+      process.stdout.write(`  ${entry.action.padEnd(6)} [${scope}] ${entry.target}\n`);
+      process.stdout.write(`         ${entry.description}\n`);
+    }
+    const outside = plan.entries.filter((entry) => entry.outsideRepo).length;
+    process.stdout.write(`\n${plan.entries.length} path(s), ${outside} outside this repository.\n`);
+    process.stdout.write("Nothing was changed. Re-run with --yes to apply.\n");
+    return 0;
+  }
+
   const status = getSetupStatus(rootDir, {
     platform: platform as NodeJS.Platform,
     intervalSeconds,
@@ -547,6 +585,51 @@ Repo-local CLI: ${bootstrapFallback}
 [TIP] To enable remote syncing (Portable State), set "portableState": true in .holistic/config.json
 `);
   return 0;
+}
+
+async function handleUninstall(rootDir: string, parsed: ParsedArgs): Promise<number> {
+  const platformFlag = firstFlag(parsed.flags, "platform", process.platform);
+  const platform = platformFlag === "windows" ? "win32" : platformFlag === "macos" ? "darwin" : platformFlag === "linux" ? "linux" : platformFlag;
+  const purge = firstFlag(parsed.flags, "purge") === "true";
+  const confirmed = firstFlag(parsed.flags, "yes") === "true";
+
+  const preview = uninstallHolistic(rootDir, {
+    platform: platform as NodeJS.Platform,
+    purge,
+    dryRun: true,
+  });
+
+  if (!confirmed) {
+    printSplash({ message: "uninstall pre-flight: nothing has been removed" });
+    process.stdout.write("\nUninstall would remove:\n\n");
+    for (const item of preview.removed) {
+      process.stdout.write(`  - ${item}\n`);
+    }
+    if (preview.removed.length === 0) {
+      process.stdout.write("  (nothing found to remove)\n");
+    }
+    process.stdout.write("\nLeft in place:\n\n");
+    for (const item of preview.skipped) {
+      process.stdout.write(`  - ${item}\n`);
+    }
+    process.stdout.write("\nRun with --yes to apply.");
+    process.stdout.write(purge ? " Session memory WILL be deleted (--purge).\n" : " Session memory is kept; add --purge to delete it too.\n");
+    return 1;
+  }
+
+  const result = uninstallHolistic(rootDir, { platform: platform as NodeJS.Platform, purge });
+
+  printSplash({ showStatus: true, statusItems: [`${result.removed.length} item(s) removed`] });
+  for (const item of result.removed) {
+    process.stdout.write(`Removed ${item}\n`);
+  }
+  for (const warning of result.warnings) {
+    process.stderr.write(`Warning: ${warning}\n`);
+  }
+  if (!purge) {
+    process.stdout.write("\nSession memory was kept. Re-run with --purge to delete it.\n");
+  }
+  return result.warnings.length > 0 ? 1 : 0;
 }
 
 async function handleDoctor(rootDir: string, parsed: ParsedArgs): Promise<number> {
@@ -796,7 +879,7 @@ async function handleHandoff(rootDir: string, parsed: ParsedArgs): Promise<numbe
 
   const requestedDraft = firstFlag(parsed.flags, "draft") === "true";
   const storedDraft = readDraftHandoff(paths);
-  const matchingDraft = draftMatchesSession(storedDraft, state.activeSession.id) ? storedDraft : null;
+  const matchingDraft = draftIsApplicable(storedDraft, state.activeSession.id) ? storedDraft : null;
   if (requestedDraft && !matchingDraft) {
     process.stderr.write(`No matching auto-drafted handoff found for ${state.activeSession.id}.\n`);
     return 1;
@@ -804,7 +887,10 @@ async function handleHandoff(rootDir: string, parsed: ParsedArgs): Promise<numbe
 
   const draftInput = matchingDraft?.handoff;
   if (matchingDraft && !requestedDraft) {
-    process.stdout.write(`Found auto-drafted handoff (${matchingDraft.reason}) at ${draftHandoffFile(paths)}. Using it as the review baseline.\n`);
+    const label = matchingDraft.reason === "session-ended-mid-draft"
+      ? "rescued handoff answers from a session that ended mid-draft"
+      : `auto-drafted handoff (${matchingDraft.reason})`;
+    process.stdout.write(`Found ${label} at ${draftHandoffFile(paths)}. Using it as the review baseline.\n`);
   }
 
   const rl = createInterface({ input, output });
@@ -855,7 +941,26 @@ async function handleHandoff(rootDir: string, parsed: ParsedArgs): Promise<numbe
       }
     }
 
+    // The prompts above can take minutes, and state is re-read under the lock
+    // below. Another agent running start-new or handoff in the meantime ends
+    // the session, and applyHandoff then returns state untouched. Detect that
+    // explicitly: reporting success while discarding everything the user just
+    // typed is the worst possible outcome for the most expensive artifact they
+    // produce.
+    let rescuedDraftPath: string | null = null;
     const mutateResult = mutateState(rootDir, (latestState, paths) => {
+      if (!latestState.activeSession) {
+        writeDraftHandoff(paths, {
+          sourceSessionId: state.activeSession?.id ?? "",
+          sourceSessionUpdatedAt: state.activeSession?.updatedAt ?? new Date().toISOString(),
+          reason: "session-ended-mid-draft",
+          createdAt: new Date().toISOString(),
+          handoff: handoffInput,
+        });
+        rescuedDraftPath = draftHandoffFile(paths);
+        return latestState;
+      }
+
       const result = applyHandoff(rootDir, latestState, handoffInput);
       if (result.pendingCommit) {
         writePendingCommit(paths, result.pendingCommit.message);
@@ -863,6 +968,15 @@ async function handleHandoff(rootDir: string, parsed: ParsedArgs): Promise<numbe
       clearDraftHandoff(paths);
       return result;
     });
+
+    if (rescuedDraftPath) {
+      process.stderr.write(
+        "Error: the active session ended while this handoff was being drafted, so it was not applied.\n"
+        + `Your answers were saved to ${rescuedDraftPath}.\n`
+        + "Start or resume a session and run 'holistic handoff --draft' to apply them.\n",
+      );
+      return 1;
+    }
 
     if (!mutateResult.success || !mutateResult.state) {
       process.stderr.write(`Error: Failed to apply handoff: ${mutateResult.error}\n`);
@@ -1160,6 +1274,8 @@ async function main(): Promise<number> {
       return handleDoctor(rootDir, parsed);
     case "repair":
       return handleRepair(rootDir, parsed);
+    case "uninstall":
+      return handleUninstall(rootDir, parsed);
     case "start":   // user-friendly alias for resume
     case "resume":
       return handleResume(rootDir, parsed);

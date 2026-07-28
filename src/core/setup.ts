@@ -2098,6 +2098,195 @@ export function bootstrapHolistic(rootDir: string, options: BootstrapOptions = {
   };
 }
 
+export interface BootstrapPlanEntry {
+  /** Absolute path this action would write to or remove. */
+  target: string;
+  action: "write" | "merge" | "remove";
+  description: string;
+  /** True when the path is outside the repository. */
+  outsideRepo: boolean;
+}
+
+export interface BootstrapPlan {
+  entries: BootstrapPlanEntry[];
+}
+
+function daemonStartupTarget(rootDir: string, platform: NodeJS.Platform, homeDir: string): string | null {
+  const slug = projectSlug(rootDir);
+  switch (platform) {
+    case "win32":
+      return path.join(homeDir, "AppData", "Roaming", "Microsoft", "Windows", "Start Menu", "Programs", "Startup", `holistic-${slug}.cmd`);
+    case "darwin":
+      return path.join(homeDir, "Library", "LaunchAgents", `com.holistic.${slug}.plist`);
+    case "linux":
+      return path.join(homeDir, ".config", "systemd", "user", `holistic-${slug}.service`);
+    default:
+      return null;
+  }
+}
+
+/**
+ * Enumerate everything bootstrap would touch, without touching any of it.
+ *
+ * bootstrap installs OS-level persistence and edits a config file belonging to
+ * another application. A confirmation gate that does not say which paths are
+ * involved asks the user to consent to something they cannot see.
+ */
+export function planBootstrap(rootDir: string, options: BootstrapOptions = {}): BootstrapPlan {
+  const platform = options.platform ?? process.platform;
+  const homeDir = options.homeDir ?? os.homedir();
+  const paths = getRuntimePaths(rootDir);
+  const entries: BootstrapPlanEntry[] = [];
+
+  const inRepo = (target: string): boolean => isPathInsideDirectory(target, rootDir) || path.resolve(target) === path.resolve(rootDir);
+  const add = (target: string, action: BootstrapPlanEntry["action"], description: string): void => {
+    entries.push({ target, action, description, outsideRepo: !inRepo(target) });
+  };
+
+  add(configFile(paths), "write", "Holistic runtime configuration");
+  add(systemDir(paths), "write", "Repo-local CLI wrappers, sync and hook scripts");
+
+  if (options.installGitAttributes !== false) {
+    add(path.join(rootDir, ".gitattributes"), "merge", "Holistic-managed line-ending block");
+  }
+
+  if (options.installGitHooks !== false) {
+    const gitDir = resolveGitDir(rootDir);
+    for (const hook of ["post-commit", "post-checkout", "pre-push"]) {
+      add(path.join(gitDir ?? path.join(rootDir, ".git"), "hooks", hook), "write", "Holistic-managed git hook");
+    }
+  }
+
+  if (options.installDaemon !== false) {
+    const target = daemonStartupTarget(rootDir, platform, homeDir);
+    if (target) {
+      add(target, "write", "Background daemon autostart entry");
+    }
+  }
+
+  if (options.configureMcp !== false) {
+    add(mcpConfigFile(platform, homeDir), "merge", "Claude Desktop MCP server entry");
+  }
+
+  if (fs.existsSync(path.join(rootDir, ".claude")) && options.installClaudeHooks !== false) {
+    add(path.join(rootDir, ".claude", "settings.json"), "merge", "Claude Code session and Andon hooks");
+  }
+
+  return { entries };
+}
+
+export interface UninstallOptions {
+  platform?: NodeJS.Platform;
+  homeDir?: string;
+  /** Also remove the Holistic runtime directory, including session memory. */
+  purge?: boolean;
+  dryRun?: boolean;
+}
+
+export interface UninstallResult {
+  removed: string[];
+  skipped: string[];
+  warnings: string[];
+}
+
+/**
+ * Remove what bootstrap installed.
+ *
+ * Session memory is left in place unless `purge` is set, because the memory is
+ * the point of the tool and uninstalling the machine helpers should not throw
+ * away months of project history. Only hooks carrying the HOLISTIC-MANAGED
+ * marker are removed, so a user-authored hook is never deleted.
+ */
+export function uninstallHolistic(rootDir: string, options: UninstallOptions = {}): UninstallResult {
+  const platform = options.platform ?? process.platform;
+  const homeDir = options.homeDir ?? os.homedir();
+  const dryRun = options.dryRun === true;
+  const paths = getRuntimePaths(rootDir);
+  const removed: string[] = [];
+  const skipped: string[] = [];
+  const warnings: string[] = [];
+
+  const removeFile = (target: string, label: string): void => {
+    if (!fs.existsSync(target)) {
+      skipped.push(`${label} (not present): ${target}`);
+      return;
+    }
+    if (dryRun) {
+      removed.push(`${label}: ${target}`);
+      return;
+    }
+    try {
+      fs.rmSync(target, { recursive: true, force: true });
+      removed.push(`${label}: ${target}`);
+    } catch (error) {
+      warnings.push(`Could not remove ${target}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  // 1. Daemon autostart entry.
+  const startupTarget = daemonStartupTarget(rootDir, platform, homeDir);
+  if (startupTarget) {
+    removeFile(startupTarget, "Daemon autostart entry");
+    if (platform === "linux") {
+      removeFile(
+        path.join(homeDir, ".config", "systemd", "user", "default.target.wants", path.basename(startupTarget)),
+        "Daemon autostart link",
+      );
+    }
+  }
+
+  // 2. Holistic entry in the Claude Desktop MCP config, preserving other servers.
+  const mcpPath = mcpConfigFile(platform, homeDir);
+  if (fs.existsSync(mcpPath)) {
+    const config = readJsonObject(mcpPath);
+    const servers = config.mcpServers && typeof config.mcpServers === "object"
+      ? { ...(config.mcpServers as Record<string, unknown>) }
+      : {};
+    if ("holistic" in servers) {
+      delete servers.holistic;
+      if (!dryRun) {
+        fs.writeFileSync(mcpPath, JSON.stringify({ ...config, mcpServers: servers }, null, 2) + "\n", "utf8");
+      }
+      removed.push(`MCP server entry: ${mcpPath}`);
+    } else {
+      skipped.push(`MCP server entry (not present): ${mcpPath}`);
+    }
+  } else {
+    skipped.push(`MCP config (not present): ${mcpPath}`);
+  }
+
+  // 3. Managed git hooks only. A user-authored hook must never be deleted.
+  const gitDir = resolveGitDir(rootDir);
+  if (gitDir) {
+    for (const hookName of SUPPORTED_UNINSTALL_HOOKS) {
+      const hookPath = path.join(gitDir, "hooks", hookName);
+      if (!fs.existsSync(hookPath)) {
+        continue;
+      }
+      const content = fs.readFileSync(hookPath, "utf8");
+      if (!content.includes("HOLISTIC-MANAGED")) {
+        skipped.push(`Git hook (user-managed, left alone): ${hookPath}`);
+        continue;
+      }
+      removeFile(hookPath, "Git hook");
+    }
+  }
+
+  // 4. Generated machine-local helpers. These are regenerable from config.
+  removeFile(systemDir(paths), "System helpers");
+
+  // 5. Session memory, only on explicit request.
+  if (options.purge) {
+    removeFile(paths.holisticDir, "Holistic runtime directory (including session memory)");
+  } else {
+    skipped.push(`Session memory kept: ${paths.holisticDir} (use --purge to remove)`);
+  }
+
+  return { removed, skipped, warnings };
+}
+
+const SUPPORTED_UNINSTALL_HOOKS = ["post-commit", "post-checkout", "pre-push"];
+
 export function getSetupStatus(rootDir: string, options: BootstrapOptions = {}): SetupComponentStatus[] {
   const { state, paths } = loadState(rootDir);
   const platform = options.platform ?? process.platform;
