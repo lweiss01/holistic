@@ -458,6 +458,23 @@ To add instructions for a new agent, create a file at:
 Copy any existing adapter as a template and customise the agent name and startup steps.
 Do not edit Holistic source files to register agents - adapters are data, not code.
 
+### Declaring what the agent can signal
+
+Every adapter must declare a \`capability\` tier in its Capability section:
+
+- \`realtime_hooks\`: the agent has working turn hooks. The adapter MUST include a
+  \`## Turn Hook Config\` section; the installer reads it and wires running/waiting
+  signals live.
+- \`session_lifecycle_only\`: the agent signals session start/end but has no
+  turn-boundary hooks. A Turn Hook Config is forbidden; status degrades to
+  completionSignal inference.
+- \`substrate_fallback\`: the agent exposes no usable lifecycle hooks. A Turn Hook
+  Config is forbidden; status relies on completionSignal inference only.
+
+Only claim \`realtime_hooks\` after verifying the agent's hook system actually
+fires (for example by inspecting its settings file format and observing a hook
+run). A wrong tier is worse than a conservative one.
+
 ### Keeping your edits
 
 Adapters that Holistic generated carry a \`${GENERATED_MARKER}\` comment and are
@@ -705,7 +722,10 @@ const ADAPTER_PROFILES: AdapterProfile[] = [
     appName: "Codex",
     commandName: "codex",
     hasMcp: false,
-    capability: "realtime_hooks",
+    // Confirmed 2026-06-01: ~/.codex/config.toml has no hooks section. Codex
+    // signals session lifecycle only; running/waiting degrades to
+    // completionSignal inference. Do not reintroduce a Turn Hook Config here.
+    capability: "session_lifecycle_only",
     toolingNotes: [
       "Codex is usually repo-instruction driven, so the first prompt matters more than custom app hooks.",
       "Prefer explicit Holistic recap commands before large context shifts or fresh chat starts.",
@@ -720,36 +740,6 @@ const ADAPTER_PROFILES: AdapterProfile[] = [
     handoffNotes: [
       "Treat the handoff as the durable replacement for a long final Codex recap message.",
     ],
-    turnHookConfigYaml: `turn_hooks:
-  - agent_hook: Stop
-    holistic_event: turn.ended
-    state_field: turn_state
-    state_value: waiting
-
-  - agent_hook: UserPromptSubmit
-    holistic_event: turn.started
-    state_field: turn_state
-    state_value: running
-
-  - agent_hook: PostToolUse
-    holistic_event: turn.started
-    state_field: turn_state
-    state_value: running
-    condition: first_per_turn
-
-install_targets:
-  - main
-  - worktrees
-
-hook_config:
-  windows:
-    path: .codex/hooks.json
-    format: json_merge
-    hook_key: (root)
-  posix:
-    path: .codex/hooks.json
-    format: json_merge
-    hook_key: (root)`,
   },
   {
     appName: "Claude/Cowork",

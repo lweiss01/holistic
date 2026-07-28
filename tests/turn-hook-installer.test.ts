@@ -202,7 +202,9 @@ export const tests: Array<{ name: string; run: () => void }> = [
       try {
         makeGitRepo(dir);
         const paths = setupHolisticWithAdapters(dir);
-        // writeDerivedDocs generates claude-cowork.md and codex.md with Turn Hook Config sections
+        // writeDerivedDocs generates claude-cowork.md with a Turn Hook Config section.
+        // codex.md is session_lifecycle_only: Codex has no hook system, so no
+        // Turn Hook Config is generated and nothing must be installed for it.
         // Pre-create agent config directories to simulate agents being initialized in this repo
         fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
         fs.mkdirSync(path.join(dir, ".codex"), { recursive: true });
@@ -220,13 +222,10 @@ export const tests: Array<{ name: string; run: () => void }> = [
         );
         assert.ok(claudeHasTurnHook, "Claude settings.json should have andon-turn-hook in Stop");
 
-        // Codex adapter installs to .codex/hooks.json at root level
+        // Codex is session_lifecycle_only: no turn hooks may be installed
         const codexHooks = path.join(dir, ".codex", "hooks.json");
-        assert.ok(fs.existsSync(codexHooks), ".codex/hooks.json should be created for Codex adapter");
-        const codexConfig = JSON.parse(fs.readFileSync(codexHooks, "utf8"));
-        const codexStopCmd = (codexConfig.Stop?.[0] as { command?: string } | undefined)?.command;
-        assert.ok(typeof codexStopCmd === "string" && codexStopCmd.includes("andon-turn-hook"),
-          "Codex hooks.json should have andon-turn-hook in Stop");
+        assert.equal(fs.existsSync(codexHooks), false,
+          "no .codex/hooks.json may be created: Codex has no hook system");
       } finally {
         fs.rmSync(dir, { recursive: true, force: true });
       }
