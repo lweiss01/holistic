@@ -1046,7 +1046,9 @@ Use 'holistic handoff --commit' next time to automate this step safely.
 }
 
 export function getSyncStatus(rootDir: string): { fileFound: boolean; lastLine: string | null; recentErrors: string[] } {
-  const syncLogPath = path.join(rootDir, ".holistic", "system", "sync.log");
+  // Resolve the configured runtime directory: a repo using .holistic-local
+  // otherwise always reported its sync log as missing.
+  const syncLogPath = path.join(getRuntimePaths(rootDir).holisticDir, "system", "sync.log");
   if (!fs.existsSync(syncLogPath)) {
     return { fileFound: false, lastLine: null, recentErrors: [] };
   }

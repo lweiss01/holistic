@@ -642,12 +642,17 @@ If the global \`holistic\` command is unavailable in this shell:
 
   const autoCheckpointShPath = path.join(sysDir, "auto-checkpoint.sh");
   const autoCheckpointPs1Path = path.join(sysDir, "auto-checkpoint.ps1");
+  // The generated scripts run with the repo as cwd, so they need the runtime
+  // directory NAME rather than an absolute path.
+  const runtimeDirName = path.basename(paths.holisticDir);
 
   const autoCheckpointSh = [
     "#!/bin/sh",
     "# HOLISTIC-MANAGED auto-checkpoint debounce script",
-    `STATE_FILE="$PWD/.holistic/state.json"`,
-    `HOLISTIC_CMD="$PWD/.holistic/system/holistic"`,
+    // Embed the repo's configured runtime directory. Assuming ".holistic"
+    // silently disabled auto-checkpoint in repos using ".holistic-local".
+    `STATE_FILE="$PWD/${runtimeDirName}/state.json"`,
+    `HOLISTIC_CMD="$PWD/${runtimeDirName}/system/holistic"`,
     "THRESHOLD=900  # 15 minutes in seconds",
     "",
     `if [ ! -f "$STATE_FILE" ]; then exit 0; fi`,
@@ -668,8 +673,8 @@ If the global \`holistic\` command is unavailable in this shell:
 
   const autoCheckpointPs1 = [
     "# HOLISTIC-MANAGED auto-checkpoint debounce script",
-    `$stateFile = Join-Path $PWD ".holistic\\state.json"`,
-    `$holisticCmd = Join-Path $PWD ".holistic\\system\\holistic.cmd"`,
+    `$stateFile = Join-Path $PWD "${runtimeDirName}\\state.json"`,
+    `$holisticCmd = Join-Path $PWD "${runtimeDirName}\\system\\holistic.cmd"`,
     "$threshold = 900",
     "",
     "if (-not (Test-Path $stateFile)) { exit 0 }",
@@ -784,8 +789,16 @@ WantedBy=default.target
   return target;
 }
 
+/**
+ * Path to the repo-local CLI wrapper, resolved from the repo's configured
+ * runtime directory rather than assuming ".holistic".
+ *
+ * Hardcoding the directory here installed a SessionStart hook pointing at
+ * ".holistic/system" in repos that actually use ".holistic-local", so the hook
+ * ran a stale copy that repair no longer regenerates, or nothing at all.
+ */
 function holisticCmdForPlatform(repoRoot: string, platform: NodeJS.Platform): string {
-  const sysDir = path.join(repoRoot, ".holistic", "system");
+  const sysDir = systemDir(getRuntimePaths(repoRoot));
   if (platform === "win32") {
     return path.join(sysDir, "holistic.cmd");
   }
@@ -818,7 +831,9 @@ function isAutoCheckpointCommand(command: string): boolean {
 }
 
 function autoCheckpointCommand(repoRoot: string, platform: NodeJS.Platform): string {
-  const sysDir = path.join(repoRoot, ".holistic", "system");
+  // Same reasoning as holisticCmdForPlatform: resolve the configured runtime
+  // directory instead of assuming ".holistic".
+  const sysDir = systemDir(getRuntimePaths(repoRoot));
   if (platform === "win32") {
     const scriptPath = path.join(sysDir, "auto-checkpoint.ps1");
     return `powershell -NoProfile -ExecutionPolicy RemoteSigned -File "${scriptPath}"`;
@@ -1777,7 +1792,7 @@ export function validateRuntimeConfig(paths: RuntimePaths): ConfigFinding[] {
       field: "mcpLogging", 
       message: "mcpLogging not specified; defaulting to 'minimal'.", 
       status: "missing",
-      fix: "Set 'mcpLogging' to off|minimal|default in .holistic/config.json"
+      fix: `Set 'mcpLogging' to off|minimal|default in ${relativePath(paths.rootDir, configFile(paths))}`
     });
   } else if (typeof raw.mcpLogging !== "string" || !["off", "minimal", "default"].includes(raw.mcpLogging)) {
     findings.push({ 
@@ -2295,8 +2310,19 @@ export function getSetupStatus(rootDir: string, options: BootstrapOptions = {}):
   const status: SetupComponentStatus[] = [];
 
   // 1. Git Attributes
+  // A repo whose runtime directory is not ".holistic" is deliberately excluded
+  // from gitattributes management, so report that as informational. Calling it
+  // "missing" implied a broken install and pointed users at bootstrap, which
+  // would skip it again.
   const attrPath = path.join(rootDir, ".gitattributes");
-  if (!fs.existsSync(attrPath)) {
+  if (!shouldManageGitAttributes(paths)) {
+    status.push({
+      component: "git-attributes",
+      status: "info",
+      details: "Not managed: this repo uses a custom runtime directory or doc names.",
+      description: "Registers Holistic files for correct line-ending handling in Git.",
+    });
+  } else if (!fs.existsSync(attrPath)) {
     status.push({
       component: "git-attributes",
       status: "missing",
@@ -2326,10 +2352,17 @@ export function getSetupStatus(rootDir: string, options: BootstrapOptions = {}):
     const hookResult = getGitHooksStatus(rootDir, gitDir, buildHookCommand(rootDir, paths));
     const missing = hookResult.hooks.length === 0;
     const outdated = hookResult.refreshed.length > 0;
+    // Hooks Holistic declined to touch are a deliberate choice, not a defect:
+    // refusing to overwrite a user-authored hook is the documented behaviour.
+    const userManaged = hookResult.warnings.some((warning) => warning.includes("user-managed"));
     status.push({
       component: "git-hooks",
-      status: missing ? "missing" : outdated ? "outdated" : "ok",
-      details: missing ? "No Holistic hooks installed" : outdated ? "Hooks need refresh" : "Hooks are up-to-date",
+      status: missing && userManaged ? "info" : missing ? "missing" : outdated ? "outdated" : "ok",
+      details: missing && userManaged
+        ? "Existing hooks are user-managed and were left untouched."
+        : missing
+          ? "No Holistic hooks installed"
+          : outdated ? "Hooks need refresh" : "Hooks are up-to-date",
       description: "Automates checkpoint creation and state syncing.",
     });
   }
@@ -2340,7 +2373,7 @@ export function getSetupStatus(rootDir: string, options: BootstrapOptions = {}):
   status.push({
     component: "system-helpers",
     status: helpersExist ? "ok" : "missing",
-    details: helpersExist ? "Scripts present in .holistic/system" : "Missing scripts",
+    details: helpersExist ? `Scripts present in ${relativePath(rootDir, sysDir)}` : "Missing scripts",
     description: "Repo-local CLI wrappers and sync scripts.",
   });
 
@@ -2445,7 +2478,7 @@ export function getSetupStatus(rootDir: string, options: BootstrapOptions = {}):
     component: "config-validation",
     status: configErrors > 0 ? "error" : configWarns > 0 ? "outdated" : "ok",
     details: configErrors > 0 ? `${configErrors} errors found` : configWarns > 0 ? `${configWarns} warnings (safe fallbacks applied)` : "Configuration is valid",
-    description: "Checks .holistic/config.json for schema compliance and safe fallbacks.",
+    description: `Checks ${relativePath(rootDir, configFile(paths))} for schema compliance and safe fallbacks.`,
   });
 
   // 9. Session Health (All files)
@@ -2466,7 +2499,7 @@ export function getSetupStatus(rootDir: string, options: BootstrapOptions = {}):
     component: "session-hygiene",
     status: sessionErrors > 0 ? "error" : "ok",
     details: sessionErrors > 0 ? `${sessionErrors} malformed session files detected` : "All session files are well-formed JSON",
-    description: "Scans .holistic/sessions/ to ensure all state files are readable.",
+    description: `Scans ${relativePath(rootDir, paths.sessionsDir)}/ to ensure all state files are readable.`,
   });
 
   // 10. State Integrity
