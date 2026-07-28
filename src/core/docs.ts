@@ -795,6 +795,8 @@ hook_config:
     appName: "Antigravity",
     commandName: "antigravity",
     hasMcp: false,
+    // Has a daemon, but no confirmed hook API; keep the conservative tier
+    // until a hook system is verified end to end.
     capability: "substrate_fallback",
     toolingNotes: [
       "Antigravity sessions tend to benefit from concise startup context and explicit next-step framing.",
@@ -862,6 +864,7 @@ hook_config:
     appName: "GitHub Copilot",
     commandName: "copilot",
     hasMcp: false,
+    // Extension wrapper without raw CLI hooks; no lifecycle signal to wire.
     capability: "substrate_fallback",
     toolingNotes: [
       "Copilot should pick up repo guidance from \`.github/copilot-instructions.md\` alongside the shared Holistic docs.",
@@ -881,6 +884,7 @@ hook_config:
     appName: "Cursor",
     commandName: "cursor",
     hasMcp: false,
+    // IDE extension without CLI hooks; no turn boundary is observable.
     capability: "substrate_fallback",
     toolingNotes: [
       "Cursor should combine Holistic repo memory with project-level editor rules from \`.cursorrules\`.",
@@ -900,6 +904,7 @@ hook_config:
     appName: "Goose",
     commandName: "goose",
     hasMcp: false,
+    // Out of scope for Andon turn-signal coverage this pass; conservative tier.
     capability: "substrate_fallback",
     toolingNotes: [
       "Goose is terminal-first, so explicit repo-local commands fit naturally here.",
@@ -919,6 +924,8 @@ hook_config:
     appName: "GSD",
     commandName: "gsd",
     hasMcp: false,
+    // GSD runs inside a host agent and inherits its adapter for turn signals;
+    // it has no independent session lifecycle of its own.
     capability: "substrate_fallback",
     toolingNotes: [
       "GSD has its own planning and workflow artifacts; Holistic should complement them, not replace them.",
@@ -938,6 +945,8 @@ hook_config:
     appName: "GSD2",
     commandName: "gsd2",
     hasMcp: false,
+    // Like GSD: runs inside a host agent and inherits its adapter for turn
+    // signals; no independent session lifecycle.
     capability: "substrate_fallback",
     toolingNotes: [
       "GSD2 should be treated as a distinct workflow surface, not an alias of GSD.",
