@@ -205,11 +205,15 @@ export const tests: Array<{ name: string; run: () => void }> = [
         // writeDerivedDocs generates claude-cowork.md with a Turn Hook Config section.
         // codex.md is session_lifecycle_only: Codex has no hook system, so no
         // Turn Hook Config is generated and nothing must be installed for it.
-        // Pre-create agent config directories to simulate agents being initialized in this repo
+        // Pre-create agent config directories to simulate agents being initialized in this repo.
+        // An isolated fake home keeps the generated Gemini adapter (global ~/ target)
+        // away from the real home directory.
         fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
         fs.mkdirSync(path.join(dir, ".codex"), { recursive: true });
-
-        installAllTurnHooks(dir, paths, "win32");
+        const fakeHome = makeTempDir();
+        fs.mkdirSync(path.join(fakeHome, ".gemini"), { recursive: true });
+        try {
+        installAllTurnHooks(dir, paths, "win32", fakeHome);
 
         // Claude adapter installs to .claude/settings.json under hooks key
         const claudeSettings = path.join(dir, ".claude", "settings.json");
@@ -226,8 +230,122 @@ export const tests: Array<{ name: string; run: () => void }> = [
         const codexHooks = path.join(dir, ".codex", "hooks.json");
         assert.equal(fs.existsSync(codexHooks), false,
           "no .codex/hooks.json may be created: Codex has no hook system");
+
+        // Gemini adapter targets the global ~/.gemini/settings.json
+        const geminiSettings = path.join(fakeHome, ".gemini", "settings.json");
+        assert.ok(fs.existsSync(geminiSettings), "~/.gemini/settings.json should be created for Gemini adapter");
+        const gemini = JSON.parse(fs.readFileSync(geminiSettings, "utf8"));
+        assert.ok(Array.isArray(gemini.hooks?.AfterTool), "AfterTool should be under hooks in Gemini settings");
+        assert.ok(Array.isArray(gemini.hooks?.SessionStart), "SessionStart should be under hooks in Gemini settings");
+        } finally {
+          fs.rmSync(fakeHome, { recursive: true, force: true });
+        }
       } finally {
         fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  },
+  {
+    name: "installAllTurnHooks expands ~/ targets into the home directory only when the agent dir exists",
+    run: () => {
+      const dir = makeTempDir();
+      const fakeHome = makeTempDir();
+      try {
+        makeGitRepo(dir);
+        const paths = getRuntimePaths(dir);
+        fs.mkdirSync(paths.adaptersDir, { recursive: true });
+        const homeDoc = MINIMAL_TURN_HOOK_DOC
+          .replaceAll(".test-hooks/hooks.json", "~/.test-agent/settings.json")
+          .replaceAll("hook_key: (root)", "hook_key: hooks");
+        fs.writeFileSync(path.join(paths.adaptersDir, "home-agent.md"), homeDoc, "utf8");
+        const sysDir = path.join(paths.holisticDir, "system");
+        fs.mkdirSync(sysDir, { recursive: true });
+        fs.writeFileSync(path.join(sysDir, "andon-turn-hook.ps1"), "# fake\n", "utf8");
+
+        // Agent not initialized in this home: nothing may be created
+        installAllTurnHooks(dir, paths, "win32", fakeHome);
+        const settingsPath = path.join(fakeHome, ".test-agent", "settings.json");
+        assert.equal(fs.existsSync(settingsPath), false, "no settings file before the agent dir exists");
+
+        fs.mkdirSync(path.join(fakeHome, ".test-agent"), { recursive: true });
+        installAllTurnHooks(dir, paths, "win32", fakeHome);
+        assert.ok(fs.existsSync(settingsPath), "settings.json should be created inside the fake home");
+        const config = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+        assert.ok(Array.isArray(config.hooks?.Stop), "hook events should be written under hooks");
+        // Nothing may leak into the repo from a ~/ target
+        assert.equal(fs.existsSync(path.join(dir, "~")), false, "no literal ~ directory in the repo");
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+        fs.rmSync(fakeHome, { recursive: true, force: true });
+      }
+    }
+  },
+  {
+    name: "installAllTurnHooks rejects ~/ targets that escape the home directory",
+    run: () => {
+      const dir = makeTempDir();
+      const fakeHome = makeTempDir();
+      try {
+        makeGitRepo(dir);
+        const paths = getRuntimePaths(dir);
+        fs.mkdirSync(paths.adaptersDir, { recursive: true });
+        const escapeDoc = MINIMAL_TURN_HOOK_DOC
+          .replaceAll(".test-hooks/hooks.json", "~/../escape-target/hooks.json");
+        fs.writeFileSync(path.join(paths.adaptersDir, "escape-agent.md"), escapeDoc, "utf8");
+        const sysDir = path.join(paths.holisticDir, "system");
+        fs.mkdirSync(sysDir, { recursive: true });
+        fs.writeFileSync(path.join(sysDir, "andon-turn-hook.ps1"), "# fake\n", "utf8");
+        const escapeDir = path.join(path.dirname(fakeHome), "escape-target");
+        fs.mkdirSync(escapeDir, { recursive: true });
+
+        installAllTurnHooks(dir, paths, "win32", fakeHome);
+
+        assert.equal(
+          fs.existsSync(path.join(escapeDir, "hooks.json")),
+          false,
+          "a ~/.. traversal must not write outside the home directory",
+        );
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+        fs.rmSync(fakeHome, { recursive: true, force: true });
+        fs.rmSync(path.join(path.dirname(fakeHome), "escape-target"), { recursive: true, force: true });
+      }
+    }
+  },
+  {
+    name: "installAllTurnHooks writes a ~/ target once and never resolves it against worktrees",
+    run: () => {
+      const dir = makeTempDir();
+      const wtDir = makeTempDir();
+      const fakeHome = makeTempDir();
+      try {
+        makeGitRepo(dir);
+        execFileSync("git", ["worktree", "add", wtDir, "HEAD"], { cwd: dir });
+
+        const paths = getRuntimePaths(dir);
+        fs.mkdirSync(paths.adaptersDir, { recursive: true });
+        const globalWorktreeDoc = MINIMAL_TURN_HOOK_DOC
+          .replaceAll(".test-hooks/hooks.json", "~/.test-agent/settings.json")
+          .replace("install_targets:\n  - main", "install_targets:\n  - main\n  - worktrees");
+        fs.writeFileSync(path.join(paths.adaptersDir, "global-agent.md"), globalWorktreeDoc, "utf8");
+        const sysDir = path.join(paths.holisticDir, "system");
+        fs.mkdirSync(sysDir, { recursive: true });
+        fs.writeFileSync(path.join(sysDir, "andon-turn-hook.ps1"), "# fake\n", "utf8");
+        fs.mkdirSync(path.join(fakeHome, ".test-agent"), { recursive: true });
+
+        installAllTurnHooks(dir, paths, "win32", fakeHome);
+
+        assert.ok(
+          fs.existsSync(path.join(fakeHome, ".test-agent", "settings.json")),
+          "global settings should be written once into the home directory",
+        );
+        assert.equal(fs.existsSync(path.join(wtDir, "~")), false, "no literal ~ directory in the worktree");
+        assert.equal(fs.existsSync(path.join(dir, "~")), false, "no literal ~ directory in the main repo");
+      } finally {
+        try { execFileSync("git", ["worktree", "remove", "--force", wtDir], { cwd: dir }); } catch { /* ignore */ }
+        fs.rmSync(dir, { recursive: true, force: true });
+        fs.rmSync(wtDir, { recursive: true, force: true });
+        fs.rmSync(fakeHome, { recursive: true, force: true });
       }
     }
   },

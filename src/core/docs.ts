@@ -813,10 +813,16 @@ hook_config:
     appName: "Gemini",
     commandName: "gemini",
     hasMcp: false,
-    capability: "substrate_fallback",
+    // Confirmed 2026-06-01: ~/.gemini/settings.json uses the same hooks format
+    // as Claude Code. AfterTool is the PostToolUse equivalent; there is no Stop
+    // equivalent, so waiting degrades to completionSignal inference. The
+    // settings file is global (~/), not per-project, hence the ~/ paths below.
+    capability: "realtime_hooks",
     toolingNotes: [
       "Gemini should use repo-visible docs first: \`HOLISTIC.md\`, \`GEMINI.md\`, and the Holistic context folder.",
       "Treat \`GEMINI.md\` as the app-local companion to the shared Holistic memory.",
+      "Gemini hooks live in the global \`~/.gemini/settings.json\`, so the turn hook fires in every repo; it exits silently where Holistic is not installed.",
+      "Gemini hook payloads do not include \`cwd\`; the turn-hook scripts fall back to the process working directory.",
     ],
     startupNotes: [
       "Open with the shared Holistic recap, then align Gemini-specific behavior from \`GEMINI.md\`.",
@@ -827,6 +833,30 @@ hook_config:
     handoffNotes: [
       "Use the handoff to leave a crisp resume point for the next non-Gemini agent too, not just Gemini.",
     ],
+    turnHookConfigYaml: `turn_hooks:
+  - agent_hook: AfterTool
+    holistic_event: turn.started
+    state_field: turn_state
+    state_value: running
+    condition: first_per_turn
+
+  - agent_hook: SessionStart
+    holistic_event: turn.started
+    state_field: turn_state
+    state_value: running
+
+install_targets:
+  - main
+
+hook_config:
+  windows:
+    path: ~/.gemini/settings.json
+    format: json_merge
+    hook_key: hooks
+  posix:
+    path: ~/.gemini/settings.json
+    format: json_merge
+    hook_key: hooks`,
   },
   {
     appName: "GitHub Copilot",

@@ -1150,7 +1150,8 @@ function renderAndonHookSh(): string {
 function renderAndonTurnHookPs1(): string {
   return [
     "# andon-turn-hook.ps1 -- records the agent turn boundary for Andon",
-    "# Stop -> waiting, UserPromptSubmit/PostToolUse -> running.",
+    "# Stop -> waiting; everything else (UserPromptSubmit/PostToolUse,",
+    "# Gemini AfterTool/SessionStart) -> running.",
     "# Must exit 0 always and be silent on failure.",
     "#",
     "# This hook writes a dedicated sidecar and MUST NOT edit state.json. It fires",
@@ -1170,9 +1171,12 @@ function renderAndonTurnHookPs1(): string {
     "$hookName = $hookData.hook_event_name",
     "$turnStateValue = if ($hookName -eq 'Stop') { 'waiting' } else { 'running' }",
     "",
-    "# 3. Find the Holistic runtime directory via walk-up from hookData.cwd",
-    "# IMPORTANT: Never use $PWD here -- in worktrees $PWD is the worktree directory.",
+    "# 3. Find the Holistic runtime directory via walk-up from hookData.cwd.",
+    "# Prefer the hook-provided cwd: in worktrees $PWD can be the wrong tree.",
+    "# Some agents (Gemini) omit cwd from the stdin payload entirely; for them",
+    "# $PWD is the only signal available, so fall back to it.",
     "$dir = $hookData.cwd",
+    "if (-not $dir) { $dir = (Get-Location).Path }",
     "$runtimeDir = $null",
     "$level = 0",
     "while ($dir -and $level -lt 5) {",
@@ -1203,7 +1207,8 @@ function renderAndonTurnHookSh(): string {
   return [
     "#!/usr/bin/env sh",
     "# andon-turn-hook.sh -- records the agent turn boundary for Andon (POSIX parity)",
-    "# Stop -> waiting, UserPromptSubmit/PostToolUse -> running.",
+    "# Stop -> waiting; everything else (UserPromptSubmit/PostToolUse,",
+    "# Gemini AfterTool/SessionStart) -> running.",
     "# Must exit 0 always and be silent on failure.",
     "#",
     "# This hook writes a dedicated sidecar and MUST NOT edit state.json. It fires",
@@ -1224,10 +1229,12 @@ function renderAndonTurnHookSh(): string {
     "    turn_state_value='running'",
     "fi",
     "",
-    "# 3. Find the Holistic runtime directory via walk-up from hookData.cwd",
-    "# IMPORTANT: Never use $PWD here -- in worktrees $PWD is the worktree directory.",
+    "# 3. Find the Holistic runtime directory via walk-up from hookData.cwd.",
+    "# Prefer the hook-provided cwd: in worktrees $PWD can be the wrong tree.",
+    "# Some agents (Gemini) omit cwd from the stdin payload entirely; for them",
+    "# $PWD is the only signal available, so fall back to it.",
     "cwd=$(echo \"$input\" | jq -r '.cwd // empty' 2>/dev/null)",
-    "if [ -z \"$cwd\" ]; then exit 0; fi",
+    "if [ -z \"$cwd\" ]; then cwd=\"$PWD\"; fi",
     "",
     "runtime_dir=''",
     "dir=\"$cwd\"",
@@ -1328,6 +1335,20 @@ function parseTurnHookConfigYaml(yaml: string): TurnHookConfig {
   return { hookEvents, installTargets, hookConfigWindows: toTarget(windowsCfg), hookConfigPosix: toTarget(posixCfg) };
 }
 
+/**
+ * Global agent configs (for example Gemini's ~/.gemini/settings.json) live in
+ * the user's home directory rather than the repo. Only a leading "~/" (or
+ * "~\\") is treated as home-relative; "~user" forms are not supported.
+ */
+function isHomeTargetPath(rawPath: string): boolean {
+  return rawPath.startsWith("~/") || rawPath.startsWith("~\\");
+}
+
+function expandHomeTargetPath(rawPath: string, homeDir: string): string | null {
+  const expanded = path.resolve(homeDir, rawPath.slice(2));
+  return isPathInsideDirectory(expanded, homeDir) ? expanded : null;
+}
+
 function parseTurnHookConfigFromDoc(docContent: string): TurnHookConfig | null {
   const m = docContent.match(/## Turn Hook Config[\s\S]*?```yaml\n([\s\S]*?)```/);
   if (!m) return null;
@@ -1382,7 +1403,7 @@ function applyTurnHookToConfig(configPath: string, turnHookCmd: string, hookEven
   }
 }
 
-export function installAllTurnHooks(repoRoot: string, paths: RuntimePaths, platform: NodeJS.Platform = process.platform): void {
+export function installAllTurnHooks(repoRoot: string, paths: RuntimePaths, platform: NodeJS.Platform = process.platform, homeDir: string = os.homedir()): void {
   const adaptersDir = paths.adaptersDir;
   if (!fs.existsSync(adaptersDir)) return;
 
@@ -1404,14 +1425,25 @@ export function installAllTurnHooks(repoRoot: string, paths: RuntimePaths, platf
 
       // The path comes from an adapter doc, which is data anyone with repo
       // write access can author, so it must not be able to direct a config
-      // write anywhere on disk. Each write is confined to the tree it targets.
-      const configPath = path.resolve(repoRoot, target.path);
-      if (!isPathInsideDirectory(configPath, repoRoot)) {
-        continue;
+      // write anywhere on disk. Each write is confined to the tree it targets:
+      // repo-relative paths stay inside the repo, and ~/ paths (global agent
+      // configs such as ~/.gemini/settings.json) stay inside the home directory.
+      let configPath: string;
+      if (isHomeTargetPath(target.path)) {
+        const expanded = expandHomeTargetPath(target.path, homeDir);
+        if (!expanded) continue;
+        configPath = expanded;
+      } else {
+        configPath = path.resolve(repoRoot, target.path);
+        if (!isPathInsideDirectory(configPath, repoRoot)) {
+          continue;
+        }
       }
       applyTurnHookToConfig(configPath, turnHookCmd, config.hookEvents, target.hookKey);
 
-      if (config.installTargets.includes("worktrees")) {
+      // A home-based config is global: one write covers every worktree, and
+      // resolving "~/..." against a worktree would create a literal "~" dir.
+      if (config.installTargets.includes("worktrees") && !isHomeTargetPath(target.path)) {
         for (const worktreePath of enumerateGitWorktrees(repoRoot)) {
           if (!fs.existsSync(worktreePath)) continue;
           const worktreeConfigPath = path.resolve(worktreePath, target.path);
@@ -1998,7 +2030,7 @@ export function repairHolistic(rootDir: string, options: RepairOptions = {}): Re
     installClaudeCodeHooks(rootDir, holisticCmd, platform);
     installAndonHooks(rootDir, paths, platform);
   }
-  installAllTurnHooks(rootDir, paths, platform);
+  installAllTurnHooks(rootDir, paths, platform, homeDir);
 
   const configuredMcpPath = options.configureMcp
     ? writeClaudeDesktopMcpConfig(rootDir, platform, homeDir)
@@ -2098,7 +2130,7 @@ export function bootstrapHolistic(rootDir: string, options: BootstrapOptions = {
     installAndonHooks(rootDir, getRuntimePaths(rootDir), platform);
     console.log("\u2713 Andon PostToolUse and Stop hooks installed");
   }
-  installAllTurnHooks(rootDir, getRuntimePaths(rootDir), platform);
+  installAllTurnHooks(rootDir, getRuntimePaths(rootDir), platform, homeDir);
 
   const configuredMcpPath = configureMcp
     ? writeClaudeDesktopMcpConfig(rootDir, platform, homeDir)

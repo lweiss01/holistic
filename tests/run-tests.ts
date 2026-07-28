@@ -146,7 +146,9 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       fs.writeFileSync(posixHelperPath, "#!/usr/bin/env sh\nexec '/broken/node' '/old/dist/cli.ts' \"$@\"\n", "utf8");
       fs.writeFileSync(windowsHelperPath, "@echo off\r\n\"C:\\broken\\node.exe\" \"D:\\old\\dist\\cli.ts\" %*\r\n", "utf8");
 
-      const result = repairHolistic(rootDir);
+      // Isolated home: repair installs turn hooks for global agent configs
+      // (e.g. ~/.gemini) and must never touch the real home in tests.
+      const result = repairHolistic(rootDir, { homeDir: makeTempDir("holistic-fake-home") });
       assert.equal(result.checks.includes("system-artifacts"), true);
       assert.equal(result.gitHooksInstalled, true);
 
