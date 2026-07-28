@@ -21,7 +21,8 @@ import {
   startNewSession,
 } from "../src/core/state.ts";
 import { getSetupStatus, validateRuntimeConfig, writeAndonHookScripts } from "../src/core/setup.ts";
-import { untrusted, writeDerivedDocs } from "../src/core/docs.ts";
+import { isUserAuthoredDoc, untrusted, USER_EDITED_MARKER, writeDerivedDocs } from "../src/core/docs.ts";
+import { emitAndonEvent, pendingAndonEventCount, resolveAndonBaseUrl } from "../src/core/andon.ts";
 import { andonAuthHeaders, andonTokenFilePath, readAndonToken } from "../src/core/andon-token.ts";
 import { getOrCreateToken } from "../services/shared/auth.ts";
 import { resolveLocalProcessCommand } from "../packages/runtime-local/src/process.ts";
@@ -542,6 +543,152 @@ export const tests = [
           `${runner.label}: turn hook must not modify state.json`,
         );
       }
+    }
+  },
+  {
+    name: "hand-authored adapter docs survive regeneration",
+    run: () => {
+      const { rootDir } = makeRepo();
+      const { paths } = loadState(rootDir);
+      const state = createInitialState(rootDir);
+
+      writeDerivedDocs(paths, state);
+      const geminiPath = path.join(paths.adaptersDir, "gemini.md");
+      const codexPath = path.join(paths.adaptersDir, "codex.md");
+      assert.equal(fs.existsSync(geminiPath), true);
+      assert.match(fs.readFileSync(geminiPath, "utf8"), /HOLISTIC-GENERATED/);
+
+      // A file that lost the generated marker is user-authored: this is how an
+      // adapter for a new agent gets customised, which the docs promise works.
+      const handAuthored = "# Gemini Adapter\n\nturn_hook_config lives here.\n";
+      fs.writeFileSync(geminiPath, handAuthored, "utf8");
+
+      // A file that keeps the generated marker but adds the opt-out marker.
+      const optedOut = `<!-- HOLISTIC-GENERATED -->\n<!-- ${USER_EDITED_MARKER} -->\n\n# Codex, customised\n`;
+      fs.writeFileSync(codexPath, optedOut, "utf8");
+
+      writeDerivedDocs(paths, state);
+
+      assert.equal(fs.readFileSync(geminiPath, "utf8"), handAuthored, "adapter without the generated marker must be left alone");
+      assert.equal(fs.readFileSync(codexPath, "utf8"), optedOut, "explicit user-edited marker must be honored");
+
+      // An untouched generated adapter still receives template updates.
+      const cursorPath = path.join(paths.adaptersDir, "cursor.md");
+      fs.writeFileSync(cursorPath, "<!-- HOLISTIC-GENERATED -->\nstale body\n", "utf8");
+      writeDerivedDocs(paths, state);
+      assert.match(fs.readFileSync(cursorPath, "utf8"), /Cursor Adapter/, "generated adapters must still refresh");
+
+      assert.equal(isUserAuthoredDoc(geminiPath), true);
+      assert.equal(isUserAuthoredDoc(cursorPath), false);
+    }
+  },
+  {
+    name: "andon event dispatches remove themselves so long-lived processes do not leak",
+    run: async () => {
+      const previousBase = process.env.ANDON_API_BASE_URL;
+      const previousDisabled = process.env.ANDON_DISABLED;
+      // Point at a closed loopback port so each dispatch fails fast.
+      process.env.ANDON_API_BASE_URL = "http://127.0.0.1:1";
+      delete process.env.ANDON_DISABLED;
+
+      try {
+        for (let index = 0; index < 5; index += 1) {
+          emitAndonEvent({ type: "session.checkpoint_created", sessionId: `session-leak-${index}` });
+        }
+        assert.ok(pendingAndonEventCount() > 0, "dispatches should be tracked while in flight");
+
+        const deadline = Date.now() + 10_000;
+        while (pendingAndonEventCount() > 0 && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+
+        assert.equal(
+          pendingAndonEventCount(),
+          0,
+          "settled dispatches must remove themselves without waiting for a flush",
+        );
+      } finally {
+        if (previousBase === undefined) delete process.env.ANDON_API_BASE_URL;
+        else process.env.ANDON_API_BASE_URL = previousBase;
+        if (previousDisabled !== undefined) process.env.ANDON_DISABLED = previousDisabled;
+      }
+    }
+  },
+  {
+    name: "session content is not sent to a non-loopback host without explicit opt-in",
+    run: () => {
+      const previousBase = process.env.ANDON_API_BASE_URL;
+      const previousRemote = process.env.ANDON_ALLOW_REMOTE;
+
+      try {
+        delete process.env.ANDON_API_BASE_URL;
+        delete process.env.ANDON_ALLOW_REMOTE;
+        assert.equal(resolveAndonBaseUrl(), "http://127.0.0.1:4318", "default target is loopback");
+
+        for (const host of ["http://evil.example", "https://collector.example.com:443", "http://10.0.0.5:4318"]) {
+          process.env.ANDON_API_BASE_URL = host;
+          assert.equal(resolveAndonBaseUrl(), null, `${host} must be refused`);
+        }
+
+        // Loopback spellings stay allowed.
+        for (const host of ["http://localhost:4318", "http://127.0.0.1:9999"]) {
+          process.env.ANDON_API_BASE_URL = host;
+          assert.equal(resolveAndonBaseUrl(), host, `${host} must be allowed`);
+        }
+
+        // Explicit opt-in restores remote delivery.
+        process.env.ANDON_API_BASE_URL = "http://collector.example.com";
+        process.env.ANDON_ALLOW_REMOTE = "1";
+        assert.equal(resolveAndonBaseUrl(), "http://collector.example.com");
+
+        // A malformed value is refused rather than concatenated into a request.
+        delete process.env.ANDON_ALLOW_REMOTE;
+        process.env.ANDON_API_BASE_URL = "not a url";
+        assert.equal(resolveAndonBaseUrl(), null);
+      } finally {
+        if (previousBase === undefined) delete process.env.ANDON_API_BASE_URL;
+        else process.env.ANDON_API_BASE_URL = previousBase;
+        if (previousRemote === undefined) delete process.env.ANDON_ALLOW_REMOTE;
+        else process.env.ANDON_ALLOW_REMOTE = previousRemote;
+      }
+    }
+  },
+  {
+    name: "containment resolves symlinks so a linked directory cannot redirect writes",
+    run: () => {
+      const { rootDir } = makeRepo();
+      const outside = makeTempDir("holistic-outside");
+
+      // Symlink creation needs privileges on Windows; skip cleanly if denied.
+      const linkPath = path.join(rootDir, "linked-docs");
+      try {
+        fs.symlinkSync(outside, linkPath, "junction");
+      } catch {
+        try {
+          fs.symlinkSync(outside, linkPath, "dir");
+        } catch {
+          return;
+        }
+      }
+
+      fs.writeFileSync(
+        path.join(rootDir, "holistic.repo.json"),
+        JSON.stringify({ runtime: { holisticDir: "linked-docs" } }),
+        "utf8",
+      );
+
+      const diagnostics: string[] = [];
+      const paths = getRuntimePaths(rootDir, diagnostics);
+
+      assert.equal(
+        paths.holisticDir,
+        path.join(path.normalize(rootDir), ".holistic"),
+        "a symlinked directory pointing outside the repo must fall back to the safe default",
+      );
+      assert.ok(
+        diagnostics.some((entry) => entry.includes("attempted to escape repository root")),
+        "the escape must be reported as a diagnostic",
+      );
     }
   },
   {

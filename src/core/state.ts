@@ -107,13 +107,44 @@ export function assertSafeSessionId(sessionId: unknown): asserts sessionId is st
 }
 
 /** True when `candidate` resolves to a path strictly inside `directory`. */
-function isPathInsideDirectory(candidate: string, directory: string): boolean {
+export function isPathInsideDirectory(candidate: string, directory: string): boolean {
   const resolvedDirectory = path.resolve(directory);
   const resolved = path.resolve(candidate);
   const directoryWithSeparator = resolvedDirectory.endsWith(path.sep)
     ? resolvedDirectory
     : resolvedDirectory + path.sep;
   return resolved.startsWith(directoryWithSeparator);
+}
+
+/** realpath when the path exists, otherwise the input unchanged. */
+function realPathOrSelf(target: string): string {
+  try {
+    return fs.realpathSync.native(target);
+  } catch {
+    return target;
+  }
+}
+
+/**
+ * Resolve a path's true location, following symlinks on the deepest ancestor
+ * that actually exists. path.resolve alone is purely lexical, so a repo
+ * containing a committed symlink such as `docs -> /etc` produced a path that
+ * looked contained while writes landed outside. Holistic files are meant to be
+ * committed and synced, so such a symlink can arrive from a remote.
+ */
+function realResolve(target: string): string {
+  const resolved = path.resolve(target);
+
+  let probe = resolved;
+  while (!fs.existsSync(probe)) {
+    const parent = path.dirname(probe);
+    if (parent === probe) {
+      return resolved;
+    }
+    probe = parent;
+  }
+
+  return path.join(realPathOrSelf(probe), path.relative(probe, resolved));
 }
 
 /**
@@ -123,10 +154,15 @@ function isPathInsideDirectory(candidate: string, directory: string): boolean {
 function resolvePathInsideRoot(rootDir: string, candidate: string, defaultBasename: string, diagnostics?: string[]): string {
   const normalizedRoot = path.normalize(rootDir);
   const resolved = path.resolve(normalizedRoot, candidate);
-  
+
+  // Compare real locations so a symlinked component cannot smuggle the target
+  // outside the root while passing a lexical check.
+  const realRoot = realResolve(normalizedRoot);
+  const realTarget = realResolve(resolved);
+
   // Ensure we check with a trailing separator to prevent matching /path/repo-sibling
-  const rootWithSlash = normalizedRoot.endsWith(path.sep) ? normalizedRoot : normalizedRoot + path.sep;
-  const isInside = resolved === normalizedRoot || resolved.startsWith(rootWithSlash);
+  const rootWithSlash = realRoot.endsWith(path.sep) ? realRoot : realRoot + path.sep;
+  const isInside = realTarget === realRoot || realTarget.startsWith(rootWithSlash);
 
   if (!isInside) {
     if (diagnostics) {
@@ -134,7 +170,7 @@ function resolvePathInsideRoot(rootDir: string, candidate: string, defaultBasena
     }
     return path.join(normalizedRoot, defaultBasename);
   }
-  
+
   return resolved;
 }
 

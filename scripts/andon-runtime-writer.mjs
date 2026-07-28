@@ -4,7 +4,32 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { andonAuthHeaders } from "./andon-auth.mjs";
 
-const apiBaseUrl = (process.env.ANDON_API_BASE_URL ?? "http://127.0.0.1:4318").replace(/\/$/, "");
+const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "::1", "[::1]", "localhost", "0.0.0.0"]);
+
+/**
+ * Refuse to forward session liveness anywhere but loopback. Mirrors
+ * resolveAndonBaseUrl in src/core/andon.ts; see that function for the
+ * reasoning. Returns null when delivery is not permitted.
+ */
+export function resolveWriterApiBaseUrl(raw = process.env.ANDON_API_BASE_URL ?? "http://127.0.0.1:4318") {
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    process.stderr.write(`[andon-runtime-writer] ignoring malformed ANDON_API_BASE_URL (${raw}).\n`);
+    return null;
+  }
+  if (!LOOPBACK_HOSTNAMES.has(url.hostname) && process.env.ANDON_ALLOW_REMOTE !== "1") {
+    process.stderr.write(
+      `[andon-runtime-writer] refusing to send session data to non-loopback host ${url.hostname}. `
+      + "Set ANDON_ALLOW_REMOTE=1 to override.\n"
+    );
+    return null;
+  }
+  return raw.replace(/\/$/, "");
+}
+
+const apiBaseUrl = resolveWriterApiBaseUrl();
 
 function findNearestHolisticRoot(startDir) {
   let dir = path.resolve(startDir);
@@ -443,6 +468,10 @@ export function buildRuntimeWriterEvents(session, nowMs, writerState, heartbeatI
 async function postEvents(events) {
   if (events.length === 0) {
     return true;
+  }
+  if (!apiBaseUrl) {
+    // Destination refused at startup; stay quiet rather than retrying forever.
+    return false;
   }
   try {
     const response = await fetch(`${apiBaseUrl}/events`, {

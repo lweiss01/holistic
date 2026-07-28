@@ -7,7 +7,54 @@ interface AndonEventPayload {
   payload?: Record<string, unknown>;
 }
 
+/**
+ * In-flight dispatches awaited by flushAndonEvents.
+ *
+ * flushAndonEvents is only called from the CLI, which exits afterwards. The
+ * daemon and the MCP server are long-lived and emit on every checkpoint, so
+ * without self-removal this array grew for the life of the process. Entries
+ * remove themselves on settle, and the cap bounds a pathological backlog when
+ * the API is unreachable and dispatches are slow to time out.
+ */
 const pendingEvents: Promise<void>[] = [];
+const MAX_PENDING_EVENTS = 100;
+
+const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "::1", "[::1]", "localhost", "0.0.0.0"]);
+
+/**
+ * Resolve the Andon endpoint, refusing to send anywhere but loopback.
+ *
+ * Events carry the session objective, latest status, agent name, and branch:
+ * a readable summary of what is being built. ANDON_API_BASE_URL previously
+ * accepted any host with no restriction, and delivery failures were invisible
+ * unless ANDON_DEBUG was set, so pointing it at a remote host silently
+ * exfiltrated every checkpoint. Set ANDON_ALLOW_REMOTE=1 to opt in.
+ *
+ * Returns null when the destination is not permitted, in which case no request
+ * is made. The warning is unconditional because silence is the failure mode
+ * worth being loud about.
+ */
+export function resolveAndonBaseUrl(): string | null {
+  const raw = process.env.ANDON_API_BASE_URL ?? "http://127.0.0.1:4318";
+
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    process.stderr.write(`Holistic: ignoring malformed ANDON_API_BASE_URL (${raw}).\n`);
+    return null;
+  }
+
+  if (!LOOPBACK_HOSTNAMES.has(url.hostname) && process.env.ANDON_ALLOW_REMOTE !== "1") {
+    process.stderr.write(
+      `Holistic: refusing to send session data to non-loopback host ${url.hostname}. `
+      + "Set ANDON_ALLOW_REMOTE=1 to override.\n",
+    );
+    return null;
+  }
+
+  return raw.replace(/\/$/, "");
+}
 
 export function emitAndonEvent(
   event: AndonEventPayload
@@ -16,7 +63,10 @@ export function emitAndonEvent(
     return;
   }
 
-  const baseUrl = process.env.ANDON_API_BASE_URL ?? "http://127.0.0.1:4318";
+  const baseUrl = resolveAndonBaseUrl();
+  if (!baseUrl) {
+    return;
+  }
 
   const fullEvent = {
     ...event,
@@ -49,7 +99,22 @@ export function emitAndonEvent(
     }
   };
 
-  pendingEvents.push(dispatch());
+  if (pendingEvents.length >= MAX_PENDING_EVENTS) {
+    pendingEvents.shift();
+  }
+
+  const inFlight: Promise<void> = dispatch().finally(() => {
+    const index = pendingEvents.indexOf(inFlight);
+    if (index !== -1) {
+      pendingEvents.splice(index, 1);
+    }
+  });
+  pendingEvents.push(inFlight);
+}
+
+/** Test seam: number of dispatches still in flight. */
+export function pendingAndonEventCount(): number {
+  return pendingEvents.length;
 }
 
 export async function flushAndonEvents(): Promise<void> {

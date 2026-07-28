@@ -6,7 +6,7 @@ import { repoLocalCliPaths } from './cli-fallback.ts';
 import { writeDerivedDocs } from './docs.ts';
 import { captureRepoSnapshot, enumerateGitWorktrees, resolveGitDir } from './git.ts';
 import { installGitHooks, refreshGitHooks, getGitHooksStatus, type GitHookInstallResult, type HookCommand } from './git-hooks.ts';
-import { getRuntimePaths, loadState, saveState } from './state.ts';
+import { getRuntimePaths, isPathInsideDirectory, loadState, saveState } from './state.ts';
 import type { AgentName, HolisticState, RuntimePaths } from './types.ts';
 
 const DEFAULT_STATE_REF = "refs/holistic/state";
@@ -1387,19 +1387,26 @@ export function installAllTurnHooks(repoRoot: string, paths: RuntimePaths, platf
       const target = platform === "win32" ? config.hookConfigWindows : config.hookConfigPosix;
       if (!target) continue;
 
+      // The path comes from an adapter doc, which is data anyone with repo
+      // write access can author, so it must not be able to direct a config
+      // write anywhere on disk. Each write is confined to the tree it targets.
       const configPath = path.resolve(repoRoot, target.path);
+      if (!isPathInsideDirectory(configPath, repoRoot)) {
+        continue;
+      }
       applyTurnHookToConfig(configPath, turnHookCmd, config.hookEvents, target.hookKey);
 
       if (config.installTargets.includes("worktrees")) {
         for (const worktreePath of enumerateGitWorktrees(repoRoot)) {
-          if (fs.existsSync(worktreePath)) {
-            applyTurnHookToConfig(
-              path.resolve(worktreePath, target.path),
-              turnHookCmd,
-              config.hookEvents,
-              target.hookKey,
-            );
-          }
+          if (!fs.existsSync(worktreePath)) continue;
+          const worktreeConfigPath = path.resolve(worktreePath, target.path);
+          if (!isPathInsideDirectory(worktreeConfigPath, worktreePath)) continue;
+          applyTurnHookToConfig(
+            worktreeConfigPath,
+            turnHookCmd,
+            config.hookEvents,
+            target.hookKey,
+          );
         }
       }
     } catch { /* skip malformed adapter docs */ }
