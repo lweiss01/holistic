@@ -568,15 +568,52 @@ ${handoffFallbackNote}
 `;
 }
 
-interface AdapterProfile {
+export type AdapterCapability = "realtime_hooks" | "session_lifecycle_only" | "substrate_fallback";
+
+export interface AdapterProfile {
   appName: string;
   commandName: string;
   hasMcp: boolean;
+  capability: AdapterCapability;
   toolingNotes: string[];
   startupNotes: string[];
   checkpointNotes: string[];
   handoffNotes: string[];
   turnHookConfigYaml?: string;
+}
+
+const CAPABILITY_NOTES: Record<AdapterCapability, string> = {
+  realtime_hooks:
+    "This agent exposes working turn hooks. Andon flips running/waiting live at turn boundaries via the Turn Hook Config below.",
+  session_lifecycle_only:
+    "This agent signals session start/end only; it has no turn-boundary hooks. Running/waiting degrades to completionSignal inference.",
+  substrate_fallback:
+    "This agent exposes no usable lifecycle hooks. Session status relies on completionSignal inference only.",
+};
+
+/**
+ * Invariant enforced at generation time: realtime_hooks is the only tier that
+ * carries a Turn Hook Config, and it must carry one. The runtime-writer never
+ * reads capability -- it degrades gracefully -- so this stays a docs-time check.
+ */
+export function validateAdapterProfile(profile: Pick<AdapterProfile, "appName" | "capability" | "turnHookConfigYaml">): void {
+  if (profile.capability === "realtime_hooks" && !profile.turnHookConfigYaml) {
+    throw new Error(`Adapter ${profile.appName}: capability realtime_hooks requires turn_hook_config`);
+  }
+  if (profile.capability !== "realtime_hooks" && profile.turnHookConfigYaml) {
+    throw new Error(`Adapter ${profile.appName}: capability ${profile.capability} forbids turn_hook_config`);
+  }
+}
+
+function renderCapabilitySection(capability: AdapterCapability): string {
+  return `## Capability
+
+\`\`\`yaml
+capability: ${capability}
+\`\`\`
+
+${CAPABILITY_NOTES[capability]}
+`;
 }
 
 function renderTurnHookConfigSection(yaml: string): string {
@@ -595,7 +632,8 @@ ${yaml.trimEnd()}
 }
 
 function renderAdapter(state: HolisticState, profile: AdapterProfile): string {
-  const { appName, commandName, hasMcp, toolingNotes, startupNotes, checkpointNotes, handoffNotes, turnHookConfigYaml } = profile;
+  validateAdapterProfile(profile);
+  const { appName, commandName, hasMcp, capability, toolingNotes, startupNotes, checkpointNotes, handoffNotes, turnHookConfigYaml } = profile;
   const resumeFallbackNote = renderCliFallbackNote(state.docIndex.contextDir, `resume --agent ${commandName}`);
   const checkpointFallbackNote = renderCliFallbackNote(state.docIndex.contextDir, "checkpoint --reason \"<what changed>\"");
   const handoffFallbackNote = renderCliFallbackNote(state.docIndex.contextDir, "handoff");
@@ -607,6 +645,7 @@ Open repo, start working, Holistic quietly keeps continuity alive.
 
 Use this adapter to move toward that outcome: less manual setup, less re-briefing, and more continuity preserved by default.
 
+${renderCapabilitySection(capability)}
 ## Tool-Specific Notes
 
 ${renderList(toolingNotes, "No tool-specific notes recorded.")}
@@ -666,6 +705,7 @@ const ADAPTER_PROFILES: AdapterProfile[] = [
     appName: "Codex",
     commandName: "codex",
     hasMcp: false,
+    capability: "realtime_hooks",
     toolingNotes: [
       "Codex is usually repo-instruction driven, so the first prompt matters more than custom app hooks.",
       "Prefer explicit Holistic recap commands before large context shifts or fresh chat starts.",
@@ -715,6 +755,7 @@ hook_config:
     appName: "Claude/Cowork",
     commandName: "claude",
     hasMcp: true,
+    capability: "realtime_hooks",
     toolingNotes: [
       "Claude/Cowork can use Holistic through MCP-style tool calls when available.",
       "When MCP is active, prefer Holistic tools over free-form summaries for startup and session close.",
@@ -764,6 +805,7 @@ hook_config:
     appName: "Antigravity",
     commandName: "antigravity",
     hasMcp: false,
+    capability: "substrate_fallback",
     toolingNotes: [
       "Antigravity sessions tend to benefit from concise startup context and explicit next-step framing.",
     ],
@@ -781,6 +823,7 @@ hook_config:
     appName: "Gemini",
     commandName: "gemini",
     hasMcp: false,
+    capability: "substrate_fallback",
     toolingNotes: [
       "Gemini should use repo-visible docs first: \`HOLISTIC.md\`, \`GEMINI.md\`, and the Holistic context folder.",
       "Treat \`GEMINI.md\` as the app-local companion to the shared Holistic memory.",
@@ -799,6 +842,7 @@ hook_config:
     appName: "GitHub Copilot",
     commandName: "copilot",
     hasMcp: false,
+    capability: "substrate_fallback",
     toolingNotes: [
       "Copilot should pick up repo guidance from \`.github/copilot-instructions.md\` alongside the shared Holistic docs.",
       "Keep Holistic as the continuity layer and Copilot instructions as the tool-specific behavior layer.",
@@ -817,6 +861,7 @@ hook_config:
     appName: "Cursor",
     commandName: "cursor",
     hasMcp: false,
+    capability: "substrate_fallback",
     toolingNotes: [
       "Cursor should combine Holistic repo memory with project-level editor rules from \`.cursorrules\`.",
       "Use Holistic for continuity and \`.cursorrules\` for Cursor-specific operating guidance.",
@@ -835,6 +880,7 @@ hook_config:
     appName: "Goose",
     commandName: "goose",
     hasMcp: false,
+    capability: "substrate_fallback",
     toolingNotes: [
       "Goose is terminal-first, so explicit repo-local commands fit naturally here.",
       "Prefer concrete CLI invocations over implicit editor state when refreshing continuity.",
@@ -853,6 +899,7 @@ hook_config:
     appName: "GSD",
     commandName: "gsd",
     hasMcp: false,
+    capability: "substrate_fallback",
     toolingNotes: [
       "GSD has its own planning and workflow artifacts; Holistic should complement them, not replace them.",
       "Use Holistic for cross-agent continuity and GSD for execution structure inside a session.",
@@ -871,6 +918,7 @@ hook_config:
     appName: "GSD2",
     commandName: "gsd2",
     hasMcp: false,
+    capability: "substrate_fallback",
     toolingNotes: [
       "GSD2 should be treated as a distinct workflow surface, not an alias of GSD.",
       "Use Holistic as the shared continuity layer across GSD2 sessions and across non-GSD2 agents touching the same repo.",
