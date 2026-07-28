@@ -30,7 +30,7 @@ import {
   insertRuntimeEvent,
   listRuntimeSessions,
   upsertRuntimeSession
-} from "./runtime-repository.ts";
+} from "../../shared/runtime-repository.ts";
 import type { RuntimeId, RuntimeSession } from "../../../packages/runtime-core/src/index.ts";
 import {
   classifyReplayEventType,
@@ -2109,84 +2109,118 @@ function legacyAgentEventToMirrorRuntimeStatus(
   return "running";
 }
 
-function legacyEventToRuntimeEventType(type: AgentEvent["type"]): HolisticRuntimeEvent["type"] {
-  switch (type) {
-    case "session.started":
-    case "session.heartbeat":
-    case "session.status_changed":
-    case "session.needs_input":
-    case "session.needs_review":
-    case "session.failed_proof":
-    case "session.paused":
-    case "session.resumed":
-    case "session.parked":
-    case "session.error":
-    case "session.completed":
-    case "session.failed":
-    case "session.cancelled":
-    case "session.terminated":
-    case "work.started":
-    case "work.completed":
-    case "task.started":
-    case "task.updated":
-    case "task.completed":
-    case "phase.changed":
-    case "tool.started":
-    case "tool.completed":
-    case "tool.failed":
-    case "command.started":
-    case "command.completed":
-    case "command.failed":
-    case "file.changed":
-    case "test.started":
-    case "test.completed":
-    case "test.failed":
-    case "input.requested":
-    case "input.resolved":
-    case "review.requested":
-    case "review.resolved":
-    case "validation.passed":
-    case "validation.failed":
-    case "git.branch_created":
-    case "context.branch_changed":
-    case "context.environment_changed":
-    case "git.commit_created":
-    case "git.conflict_detected":
-    case "agent.question":
-    case "agent.summary":
-    case "agent.warning":
-    case "agent.blocked":
-    case "holistic.checkpoint":
-    case "telemetry.noop":
-      return type;
-    case "session.ended":
-      return "session.completed";
-    case "session.checkpoint_created":
-      return "holistic.checkpoint";
-    case "session.idle_detected":
-      return "telemetry.noop";
-    case "command.finished":
-      return "command.completed";
-    case "test.finished":
-      return "test.completed";
-    case "agent.question_asked":
-      return "agent.question";
-    case "agent.summary_emitted":
-      return "agent.summary";
-    case "agent.retry_pattern_detected":
-    case "agent.scope_expansion_detected":
-      return "agent.warning";
-    case "user.resumed":
-      return "user.action";
-    default:
-      return "telemetry.noop";
+/**
+ * Andon event names that exist unchanged in the runtime vocabulary. These pass
+ * through untouched; only the renames below need a rule.
+ */
+const RUNTIME_EVENT_PASSTHROUGH: ReadonlySet<string> = new Set<AgentEvent["type"]>([
+  "session.started",
+  "session.heartbeat",
+  "session.status_changed",
+  "session.needs_input",
+  "session.needs_review",
+  "session.failed_proof",
+  "session.paused",
+  "session.resumed",
+  "session.parked",
+  "session.error",
+  "session.completed",
+  "session.failed",
+  "session.cancelled",
+  "session.terminated",
+  "work.started",
+  "work.completed",
+  "task.started",
+  "task.updated",
+  "task.completed",
+  "phase.changed",
+  "tool.started",
+  "tool.completed",
+  "tool.failed",
+  "command.started",
+  "command.completed",
+  "command.failed",
+  "file.changed",
+  "test.started",
+  "test.completed",
+  "test.failed",
+  "input.requested",
+  "input.resolved",
+  "review.requested",
+  "review.resolved",
+  "validation.passed",
+  "validation.failed",
+  "git.branch_created",
+  "context.branch_changed",
+  "context.environment_changed",
+  "git.commit_created",
+  "git.conflict_detected",
+  "agent.question",
+  "agent.summary",
+  "agent.warning",
+  "agent.blocked",
+  "holistic.checkpoint",
+  "telemetry.noop"
+]);
+
+/**
+ * Andon event names that differ from their runtime equivalent. Every entry is a
+ * historical naming divergence between the two vocabularies, not a semantic
+ * change; see docs/status-vocabularies.md.
+ */
+const RUNTIME_EVENT_RENAMES: Partial<Record<AgentEvent["type"], HolisticRuntimeEvent["type"]>> = {
+  "session.ended": "session.completed",
+  "session.checkpoint_created": "holistic.checkpoint",
+  "session.idle_detected": "telemetry.noop",
+  "command.finished": "command.completed",
+  "test.finished": "test.completed",
+  "agent.question_asked": "agent.question",
+  "agent.summary_emitted": "agent.summary",
+  "agent.retry_pattern_detected": "agent.warning",
+  "agent.scope_expansion_detected": "agent.warning",
+  "user.resumed": "user.action"
+};
+
+export function legacyEventToRuntimeEventType(type: AgentEvent["type"]): HolisticRuntimeEvent["type"] {
+  const renamed = RUNTIME_EVENT_RENAMES[type];
+  if (renamed) {
+    return renamed;
   }
+  // Anything unrecognised is telemetry rather than a guess, so an unknown
+  // event can never masquerade as a meaningful one in replay.
+  return RUNTIME_EVENT_PASSTHROUGH.has(type) ? (type as HolisticRuntimeEvent["type"]) : "telemetry.noop";
 }
 
 /**
- * When legacy Andon events arrive via POST /events, upsert a minimal runtime_sessions row so Mission Control
- * has a real fleet card without requiring a separate runtime-service task start. Rows are tagged in metadata
- * so runtime-service (non-mirror) sessions are never overwritten.
+ * Mirror an inbound Andon event into a runtime_sessions row.
+ *
+ * NAMING: "legacy" throughout this file means the HTTP event vocabulary, not
+ * dead code. It is the primary live ingest path: the runtime-writer, the shell
+ * hooks, the beacon, and the collector all POST /events. The runtime-service
+ * task API is the other, newer path. Read "legacy" as "event-shaped" rather
+ * than "obsolete"; renaming it is tracked separately because the term appears
+ * in stored payloads.
+ *
+ * WHO MAY WRITE A ROW. Several sources can describe the same session, so a
+ * later event must not clobber a better-informed one. Ownership is decided by
+ * the table below, evaluated top to bottom:
+ *
+ *   | Existing row owner        | Incoming event         | Outcome |
+ *   |---------------------------|------------------------|---------|
+ *   | none                      | any                     | write   |
+ *   | ingest mirror             | any                     | write   |
+ *   | runtime-writer            | any                     | write   |
+ *   | direct source, same id    | same source             | write   |
+ *   | direct source, other id   | runtime-writer          | write   |
+ *   | direct source, other id   | anything else           | skip    |
+ *
+ * The runtime-writer is allowed to take over a row owned by a direct source
+ * because it is Holistic's canonical agent-agnostic liveness signal, derived
+ * from state.json. Without that rule a stale row left by the retired per-agent
+ * hook would block every writer update and freeze the session's status.
+ *
+ * Regardless of ownership, an event older than the row's updatedAt is dropped,
+ * so out-of-order delivery cannot rewind status.
  */
 function maybeUpsertMirrorRuntimeFromLegacyEvent(database: DatabaseSync, event: AgentEvent): void {
   const sessionRow = getSessionRow(database, event.sessionId);

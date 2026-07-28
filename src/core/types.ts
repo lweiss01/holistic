@@ -10,7 +10,18 @@ export type AgentName =
   | "gsd2"
   | "unknown";
 
-export type SessionStatus = "active" | "handed_off" | "superseded";
+/**
+ * Lifecycle of a Holistic session record.
+ *
+ * Deliberately NOT named SessionStatus. Andon defines its own SessionStatus
+ * (running, needs_input, blocked, ...) describing what an agent is doing right
+ * now, and two different types sharing one name across the repo was a standing
+ * source of confusion. This one answers "where is this record in its life",
+ * not "what is the agent doing".
+ *
+ * See docs/status-vocabularies.md for how the four status types relate.
+ */
+export type HolisticSessionLifecycle = "active" | "handed_off" | "superseded";
 
 export type Priority = "high" | "medium" | "low";
 
@@ -118,7 +129,7 @@ export interface SessionRecord {
   startedAt: string;
   updatedAt: string;
   endedAt: string | null;
-  status: SessionStatus;
+  status: HolisticSessionLifecycle;
   title: string;
   currentGoal: string;
   currentPlan: string[];

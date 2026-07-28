@@ -1,10 +1,29 @@
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { renderCliFallbackNote } from './cli-fallback.ts';
 import { readAllSessions } from './state.ts';
 import type { HolisticState, ImpactNote, RegressionRisk, RuntimePaths, SessionRecord, ValidationItem } from './types.ts';
 
-const VERSION = "0.6.5";
+/**
+ * Read from package.json rather than duplicating the literal here. A hardcoded
+ * copy is stamped into every generated document, so drift would silently
+ * mislabel them. Resolved once at module load; falls back only if the manifest
+ * cannot be read, which in practice means a broken install.
+ */
+function readPackageVersion(): string {
+  try {
+    const currentFile = fileURLToPath(import.meta.url);
+    // src/core/docs.ts and dist/core/docs.js are both two levels below the root.
+    const manifest = path.resolve(path.dirname(currentFile), "..", "..", "package.json");
+    const parsed = JSON.parse(fs.readFileSync(manifest, "utf8")) as { version?: string };
+    return parsed.version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+const VERSION = readPackageVersion();
 
 const GENERATED_MARKER = "HOLISTIC-GENERATED";
 export const USER_EDITED_MARKER = "HOLISTIC-USER-EDITED";

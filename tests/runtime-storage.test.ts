@@ -18,7 +18,7 @@ import {
   insertRuntimeEvent,
   type RuntimeApprovalRecord,
   type RuntimeProcessRecord
-} from "../services/andon-api/src/runtime-repository.ts";
+} from "../services/shared/runtime-repository.ts";
 
 function makeTempDir(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), `${prefix}-`));

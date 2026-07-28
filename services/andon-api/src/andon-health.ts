@@ -3,7 +3,7 @@ import type { DatabaseSync } from "node:sqlite";
 
 import { DATABASE_PATH } from "./config.ts";
 import { getHistory, getMissionControl } from "./repository.ts";
-import { listRuntimeSessions } from "./runtime-repository.ts";
+import { listRuntimeSessions } from "../../shared/runtime-repository.ts";
 
 function resolveOpenDatabasePath(database: DatabaseSync): string {
   const rows = database.prepare("PRAGMA database_list").all() as Array<{ name: string; file: string | null }>;

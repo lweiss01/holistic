@@ -1,3 +1,10 @@
+/**
+ * Runtime session storage, shared by the Andon API and the runtime service.
+ *
+ * This used to live under services/andon-api/src, so runtime-service reached
+ * across a service boundary to import it while both processes wrote the same
+ * SQLite file. It belongs to neither service.
+ */
 import type { DatabaseSync } from "node:sqlite";
 
 import type {
@@ -5,7 +12,7 @@ import type {
   RuntimeActivity,
   RuntimeSession,
   RuntimeStatus
-} from "../../../packages/runtime-core/src/index.ts";
+} from "../../packages/runtime-core/src/index.ts";
 
 function parseJson(text: string): Record<string, unknown> {
   return JSON.parse(text) as Record<string, unknown>;

@@ -83,3 +83,17 @@ services/andon-api/data/
 # Andon dashboard local work (redesign WIP + original backup files)
 apps/andon-dashboard/src/holistic-andon-redesign/
 apps/andon-dashboard/src/original files/
+
+# Prevent compiled TS artifacts in source directories.
+# The root src/ rules cover the published package; the packages/ and services/
+# rules stop tsc output being committed back into a workspace source tree,
+# which is how packages/*/src/*.js ended up tracked.
+src/**/*.js
+src/**/*.d.ts
+src/**/*.js.map
+packages/*/src/**/*.js
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.js.map
+packages/*/src/**/*.d.ts.map
+packages/*/dist/
+services/*/dist/

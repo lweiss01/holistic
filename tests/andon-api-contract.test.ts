@@ -8,7 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { HolisticRuntimeEvent, RuntimeSession } from "../packages/runtime-core/src/index.ts";
 import { createAndonHandler } from "../services/andon-api/src/server.ts";
 import { ingestEvents } from "../services/andon-api/src/repository.ts";
-import { insertRuntimeEvent, upsertRuntimeSession } from "../services/andon-api/src/runtime-repository.ts";
+import { insertRuntimeEvent, upsertRuntimeSession } from "../services/shared/runtime-repository.ts";
 
 function makeTempDir(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), `${prefix}-`));

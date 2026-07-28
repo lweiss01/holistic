@@ -76,7 +76,8 @@
     "CONTRIBUTING.md",
     "SECURITY.md",
     "docs/handoff-walkthrough.md",
-    "docs/structured-metadata.md"
+    "docs/structured-metadata.md",
+    "docs/status-vocabularies.md"
   ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0"

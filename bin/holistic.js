@@ -46,6 +46,10 @@ function resolveRepoPaths(rootDir) {
   return defaults;
 }
 
+// Tracks whether the handoff post-processing below succeeded. Exiting 0
+// unconditionally hid failures of the git and sync commands from CI.
+let postHandoffFailed = false;
+
 if (args[0] === "handoff") {
   const rootDir = process.cwd();
   const repoPaths = resolveRepoPaths(rootDir);
@@ -57,34 +61,41 @@ if (args[0] === "handoff") {
         stdio: "inherit",
         cwd: rootDir,
       });
-      if ((addResult.status ?? 1) === 0) {
+      if ((addResult.status ?? 1) !== 0) {
+        process.stderr.write("holistic: failed to stage Holistic docs for the handoff commit.\n");
+        postHandoffFailed = true;
+      } else {
         const commitResult = spawnSync("git", ["commit", "-m", message], {
           stdio: "inherit",
           cwd: rootDir,
         });
-        if ((commitResult.status ?? 1) === 0) {
+        if ((commitResult.status ?? 1) !== 0) {
+          process.stderr.write("holistic: handoff docs were staged but the commit failed.\n");
+          postHandoffFailed = true;
+        } else {
           const syncScript = path.join(rootDir, repoPaths.holisticDir, "system", process.platform === "win32" ? "sync-state.ps1" : "sync-state.sh");
           if (fs.existsSync(syncScript)) {
-            if (process.platform === "win32") {
-              spawnSync("powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", syncScript], {
-                stdio: "inherit",
-                cwd: rootDir,
-              });
-            } else {
-              spawnSync("/bin/sh", [syncScript], {
-                stdio: "inherit",
-                cwd: rootDir,
-              });
+            const syncResult = process.platform === "win32"
+              ? spawnSync("powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", syncScript], { stdio: "inherit", cwd: rootDir })
+              : spawnSync("/bin/sh", [syncScript], { stdio: "inherit", cwd: rootDir });
+            if ((syncResult.status ?? 1) !== 0) {
+              // Sync is best effort: the commit already landed, so report it
+              // without failing the command.
+              process.stderr.write("holistic: portable state sync did not complete.\n");
             }
           }
-          spawnSync(process.execPath, [cliPath, "internal-mark-commit", "--message", message], {
+          const markResult = spawnSync(process.execPath, [cliPath, "internal-mark-commit", "--message", message], {
             stdio: "inherit",
             cwd: rootDir,
           });
+          if ((markResult.status ?? 1) !== 0) {
+            process.stderr.write("holistic: could not clear the pending handoff commit.\n");
+            postHandoffFailed = true;
+          }
         }
       }
     }
   }
 }
 
-process.exit(0);
+process.exit(postHandoffFailed ? 1 : 0);

@@ -19,7 +19,7 @@ import {
 } from "../packages/andon-core/src/index.ts";
 import type { HolisticRuntimeEvent, RuntimeSession } from "../packages/runtime-core/src/index.ts";
 import { getSessionTimeline, ingestEvents, mapFleetHeatmapRows, mapRecentFleetEvents } from "../services/andon-api/src/repository.ts";
-import { insertRuntimeEvent, upsertRuntimeSession } from "../services/andon-api/src/runtime-repository.ts";
+import { insertRuntimeEvent, upsertRuntimeSession } from "../services/shared/runtime-repository.ts";
 import { createAndonHandler } from "../services/andon-api/src/server.ts";
 import { shouldPostProgressHeartbeat } from "../services/andon-collector/src/index.ts";
 import { normalizeOpenHarnessStreamEvent } from "../services/andon-collector/src/openharness-adapter.ts";

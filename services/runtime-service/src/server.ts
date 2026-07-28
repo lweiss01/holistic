@@ -20,7 +20,7 @@ import {
   upsertRuntimeSession,
   insertRuntimeEvent,
   type RuntimeApprovalRecord
-} from "../../andon-api/src/runtime-repository.ts";
+} from "../../shared/runtime-repository.ts";
 import { LocalRuntimeAdapter } from "../../../packages/runtime-local/src/index.ts";
 import {
   corsHeaders,

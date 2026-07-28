@@ -39,6 +39,7 @@ import { resolveLocalProcessCommand } from "../packages/runtime-local/src/proces
 import { createRuntimeAdapterRegistry } from "../services/runtime-service/src/adapter-registry.ts";
 import { createRuntimeServiceHandler } from "../services/runtime-service/src/server.ts";
 import { createAndonHandler } from "../services/andon-api/src/server.ts";
+import { legacyEventToRuntimeEventType } from "../services/andon-api/src/repository.ts";
 import type { HolisticState } from "../src/core/types.ts";
 
 function makeTempDir(prefix: string): string {
@@ -551,6 +552,49 @@ export const tests = [
           fs.readFileSync(stateFile, "utf8"),
           original,
           `${runner.label}: turn hook must not modify state.json`,
+        );
+      }
+    }
+  },
+  {
+    name: "legacy to runtime event mapping preserves the documented contract",
+    run: () => {
+      // Renames: the ten names that differ between the two vocabularies.
+      const renames: Array<[string, string]> = [
+        ["session.ended", "session.completed"],
+        ["session.checkpoint_created", "holistic.checkpoint"],
+        ["session.idle_detected", "telemetry.noop"],
+        ["command.finished", "command.completed"],
+        ["test.finished", "test.completed"],
+        ["agent.question_asked", "agent.question"],
+        ["agent.summary_emitted", "agent.summary"],
+        ["agent.retry_pattern_detected", "agent.warning"],
+        ["agent.scope_expansion_detected", "agent.warning"],
+        ["user.resumed", "user.action"],
+      ];
+      for (const [input, expected] of renames) {
+        assert.equal(
+          legacyEventToRuntimeEventType(input as Parameters<typeof legacyEventToRuntimeEventType>[0]),
+          expected,
+          `${input} should map to ${expected}`,
+        );
+      }
+
+      // Passthrough: identical names survive unchanged.
+      for (const input of ["session.started", "file.changed", "test.failed", "holistic.checkpoint", "work.started"]) {
+        assert.equal(
+          legacyEventToRuntimeEventType(input as Parameters<typeof legacyEventToRuntimeEventType>[0]),
+          input,
+          `${input} should pass through unchanged`,
+        );
+      }
+
+      // Unknown input must degrade to telemetry, never masquerade as meaningful.
+      for (const input of ["totally.unknown", "", "session.STARTED"]) {
+        assert.equal(
+          legacyEventToRuntimeEventType(input as Parameters<typeof legacyEventToRuntimeEventType>[0]),
+          "telemetry.noop",
+          `${JSON.stringify(input)} should degrade to telemetry.noop`,
         );
       }
     }

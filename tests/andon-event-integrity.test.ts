@@ -7,7 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { AgentEvent } from "../packages/andon-core/src/index.ts";
 import { classifyReplayEventType } from "../services/andon-api/src/event-integrity.ts";
 import { getSessionReplay, getSessionTimeline, ingestEvents } from "../services/andon-api/src/repository.ts";
-import { getRuntimeEvents } from "../services/andon-api/src/runtime-repository.ts";
+import { getRuntimeEvents } from "../services/shared/runtime-repository.ts";
 
 function makeTempDir(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), `${prefix}-`));

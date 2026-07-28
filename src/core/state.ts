@@ -183,13 +183,37 @@ function resolvePathInsideRoot(rootDir: string, candidate: string, defaultBasena
  * state.json instead of minting a fresh session id that diverges from the
  * daemon/writer, which is the root cause of the two-card Mission Control bug.
  */
+/**
+ * Directory names that mark a Holistic runtime, in resolution order.
+ *
+ * `.holistic-local` is the convention this product repo uses so a
+ * contributor's own session state never lands in the public tree;
+ * `.holistic` is what a normal install uses. Both existed as implicit
+ * assumptions scattered through the code, which is how the daemon ended up
+ * hardcoding a pidfile into a directory most repos do not have.
+ */
+export const HOLISTIC_RUNTIME_DIR_NAMES = [".holistic-local", ".holistic"] as const;
+
+/**
+ * The runtime directory a repo is actually using, preferring a local-only
+ * override when present. Use this instead of joining a directory name by hand.
+ */
+export function resolveRuntimeDirectory(rootDir: string): string {
+  for (const name of HOLISTIC_RUNTIME_DIR_NAMES) {
+    const candidate = path.join(rootDir, name);
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return getRuntimePaths(rootDir).holisticDir;
+}
+
 export function findNearestHolisticRoot(startDir: string): string {
   let dir = path.resolve(startDir);
   for (let level = 0; level < 10; level++) {
     if (
       fs.existsSync(path.join(dir, "holistic.repo.json")) ||
-      fs.existsSync(path.join(dir, ".holistic-local")) ||
-      fs.existsSync(path.join(dir, ".holistic"))
+      HOLISTIC_RUNTIME_DIR_NAMES.some((name) => fs.existsSync(path.join(dir, name)))
     ) {
       return dir;
     }
@@ -486,31 +510,51 @@ export function stateLockFile(paths: RuntimePaths): string {
 
 const CURRENT_STATE_VERSION = 2;
 
-function migrateState(state: HolisticState, fromVersion: number, toVersion: number): HolisticState {
-  let migrated = { ...state };
+/**
+ * Step migrations keyed by the version they upgrade FROM.
+ *
+ * v1 to v2 removed first-class phase tracking. Old files carrying phaseTracker
+ * need no transformation because hydrateState ignores unknown fields, so the
+ * step is a no-op recorded explicitly rather than left implicit.
+ */
+const STATE_MIGRATIONS: Record<number, (state: HolisticState) => HolisticState> = {
+  1: (state) => state,
+};
 
-  // Phase tracking was removed in a cleanup refactor
-  // Old state files with phaseTracker will simply ignore those fields
-  
+/**
+ * Apply each step in turn. Previously this stamped the target version onto the
+ * state without transforming anything, which meant a state file from a NEWER
+ * version would be silently relabelled as current while keeping its unknown
+ * shape. A forward-version file is now left alone instead.
+ */
+function migrateState(state: HolisticState, fromVersion: number, toVersion: number): HolisticState {
+  if (fromVersion > toVersion) {
+    process.stderr.write(
+      `Holistic state is version ${fromVersion}, newer than this build understands (${toVersion}). `
+      + "Leaving it untouched; upgrade Holistic to use this repo.\n",
+    );
+    return state;
+  }
+
+  let migrated = { ...state };
+  for (let version = fromVersion; version < toVersion; version += 1) {
+    const step = STATE_MIGRATIONS[version];
+    if (!step) {
+      process.stderr.write(`Holistic: no migration registered for state v${version}; continuing without transforming.\n`);
+      continue;
+    }
+    migrated = step(migrated);
+  }
+
   migrated.version = toVersion;
   migrated.updatedAt = now();
-  
-  // Log migration for debugging
+
   if (fromVersion !== toVersion) {
     process.stdout.write(`Migrated Holistic state from v${fromVersion} to v${toVersion}\n`);
   }
-  
+
   return migrated;
 }
-
-// Future migration example (commented out until needed):
-// function migrateV1ToV2(state: HolisticState): HolisticState {
-//   return {
-//     ...state,
-//     // Add new fields with defaults
-//     // newField: "default value",
-//   };
-// }
 
 function hydrateState(state: HolisticState, paths: RuntimePaths): HolisticState {
   if (state.version < CURRENT_STATE_VERSION) {
@@ -707,8 +751,19 @@ function recentFirstMerge(current: string[], incoming: string[]): string[] {
   return [...incomingUnique, ...remaining];
 }
 
-const sessionDirListCache = new Map<string, { signature: string; sessions: SessionRecord[] }>();
+const sessionDirListCache = new Map<string, { signature: string; sessions: SessionRecord[]; verifiedAtMs: number }>();
 const MAX_SESSION_DIR_CACHE_ENTRIES = 50;
+
+/**
+ * How long a verified cache entry is trusted without re-stating the directory.
+ *
+ * Building the cache signature stats every file, and writeDerivedDocs calls
+ * readAllSessions several times within a single checkpoint, so the archive
+ * directory was fully stat-ed repeatedly milliseconds apart. In-process writes
+ * still invalidate immediately, so this window only affects a write made by
+ * another process, which was already only detected on the next call.
+ */
+const SESSION_DIR_SIGNATURE_TTL_MS = 500;
 
 /** Drop cached session JSON lists (call after writes under `.holistic/sessions/`). */
 export function invalidateSessionDirectoryCache(directory?: string): void {
@@ -727,15 +782,24 @@ function cacheSessions(resolved: string, signature: string, sessions: SessionRec
       sessionDirListCache.delete(firstKey);
     }
   }
-  sessionDirListCache.set(resolved, { signature, sessions });
+  sessionDirListCache.set(resolved, { signature, sessions, verifiedAtMs: Date.now() });
 }
 
-function readSessionsFromDir(directory: string): SessionRecord[] {
+function readSessionsFromDir(directory: string, currentTimeMs: number = Date.now()): SessionRecord[] {
   if (!fs.existsSync(directory)) {
     return [];
   }
 
   const resolved = path.resolve(directory);
+  const cached = sessionDirListCache.get(resolved);
+
+  // Recently verified: skip the stat sweep entirely. Writes from this process
+  // call invalidateSessionDirectoryCache, so this only defers noticing another
+  // process's write by at most the TTL.
+  if (cached && currentTimeMs - cached.verifiedAtMs < SESSION_DIR_SIGNATURE_TTL_MS) {
+    return cached.sessions;
+  }
+
   let signature = "";
   try {
     const names = fs.readdirSync(resolved).filter((f) => f.endsWith(".json")).sort();
@@ -750,8 +814,10 @@ function readSessionsFromDir(directory: string): SessionRecord[] {
     return [];
   }
 
-  const cached = sessionDirListCache.get(resolved);
   if (cached && cached.signature === signature) {
+    // Unchanged on disk: refresh the verification stamp so a burst of calls
+    // does not re-stat on every one.
+    cached.verifiedAtMs = currentTimeMs;
     return cached.sessions;
   }
 

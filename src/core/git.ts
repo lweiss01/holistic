@@ -79,25 +79,10 @@ export function isPortableHolisticPath(file: string): boolean {
   return file.startsWith(".holistic/") || file.startsWith(".holistic-local/") || HOLISTIC_PORTABLE_PATHS.has(file);
 }
 
-// Directories that are always large, generated, and irrelevant to
-// Holistic's change-detection. Skipping them avoids stat-ing tens of
-// thousands of files on every checkpoint and daemon tick.
-const SKIP_DIRS = new Set([
-  ".git",
-  "node_modules",
-  ".next",
-  "dist",
-  "build",
-  "__pycache__",
-  ".venv",
-  "venv",
-  "target",
-  "vendor",
-  "coverage",
-  ".cache",
-  ".tmp-tests",
-]);
-
+// Change detection deliberately delegates to `git ls-files`, which already
+// honours .gitignore, so Holistic never walks node_modules or build output.
+// A manual skip list used to sit here describing a directory walk that does
+// not exist; it was removed rather than left to mislead.
 export function captureRepoSnapshot(rootDir: string): Record<string, string> {
   let output: string;
   try {
