@@ -5,7 +5,7 @@ import { createInterface, type Interface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { renderRepoLocalCliCommands } from './core/cli-fallback.ts';
-import { captureRepoSnapshot, clearPendingCommit, commitPendingChanges, getBranchName, writePendingCommit } from './core/git.ts';
+import { captureRepoSnapshot, clearPendingCommit, commitPendingChanges, getBranchName, pendingCommitFile, writePendingCommit } from './core/git.ts';
 import { writeDerivedDocs } from './core/docs.ts';
 import { bootstrapHolistic, checkHolisticHooksStatus, getSetupStatus, initializeHolistic, planBootstrap, readExistingRuntimeConfig, refreshHolisticHooks, repairHolistic, uninstallHolistic, validateRuntimeConfig, type SetupComponentStatus } from './core/setup.ts';
 import { printSplash, printSplashError, renderSplash } from './core/splash.ts';
@@ -1008,13 +1008,19 @@ async function handleHandoff(rootDir: string, parsed: ParsedArgs): Promise<numbe
     }
 
     if (nextState.pendingCommit && !shouldCommit) {
+      // Resolve the configured runtime directory: printing a hardcoded
+      // .holistic path told users to run a command against a file that does
+      // not exist in repos using a custom runtime directory.
+      const pendingCommitRelative = path
+        .relative(rootDir, pendingCommitFile(getRuntimePaths(rootDir)))
+        .replaceAll("\\", "/");
       process.stdout.write(`
 Handoff prepared successfully!
 Docs updated: ${nextState.pendingCommit.files.join(", ")}
 
 To complete the handoff, review your changes and commit:
 git add .
-git commit -F .holistic/context/pending-commit.txt
+git commit -F ${pendingCommitRelative}
 
 Use 'holistic handoff --commit' next time to automate this step safely.
 `);
