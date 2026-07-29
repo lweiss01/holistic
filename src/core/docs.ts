@@ -795,8 +795,11 @@ hook_config:
     appName: "Antigravity",
     commandName: "antigravity",
     hasMcp: false,
-    // Has a daemon, but no confirmed hook API; keep the conservative tier
-    // until a hook system is verified end to end.
+    // Confirmed empirically 2026-07-29: Antigravity stores its runtime under
+    // ~/.gemini/antigravity/ but does NOT execute the hooks block in
+    // ~/.gemini/settings.json (live session produced no AfterTool/SessionStart
+    // turn signals while the same hooks fire in the Gemini CLI). Keep the
+    // conservative tier until Antigravity ships a verified hook system.
     capability: "substrate_fallback",
     toolingNotes: [
       "Antigravity sessions tend to benefit from concise startup context and explicit next-step framing.",
