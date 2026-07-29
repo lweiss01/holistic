@@ -213,7 +213,11 @@ export function findNearestHolisticRoot(startDir: string): string {
   for (let level = 0; level < 10; level++) {
     if (
       fs.existsSync(path.join(dir, "holistic.repo.json")) ||
-      HOLISTIC_RUNTIME_DIR_NAMES.some((name) => fs.existsSync(path.join(dir, name)))
+      // Presence-detected like the generated hook scripts: a runtime dir only
+      // marks a root when it holds state.json. The Andon API keeps its auth
+      // token in ~/.holistic, so a bare directory must not anchor a root or
+      // every unmarked path under the user profile resolves to the home dir.
+      HOLISTIC_RUNTIME_DIR_NAMES.some((name) => fs.existsSync(path.join(dir, name, "state.json")))
     ) {
       return dir;
     }

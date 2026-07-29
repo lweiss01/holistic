@@ -22,11 +22,12 @@ export const tests: Array<{ name: string; run: () => void }> = [
     }
   },
   {
-    name: "findNearestHolisticRoot returns the dir itself when it contains .holistic-local/",
+    name: "findNearestHolisticRoot returns the dir itself when it contains .holistic-local/ with state.json",
     run: () => {
       const dir = makeTempDir();
       try {
         fs.mkdirSync(path.join(dir, ".holistic-local"));
+        fs.writeFileSync(path.join(dir, ".holistic-local", "state.json"), "{}", "utf8");
         assert.equal(findNearestHolisticRoot(dir), dir);
       } finally {
         fs.rmSync(dir, { recursive: true, force: true });
@@ -34,12 +35,31 @@ export const tests: Array<{ name: string; run: () => void }> = [
     }
   },
   {
-    name: "findNearestHolisticRoot returns the dir itself when it contains .holistic/",
+    name: "findNearestHolisticRoot returns the dir itself when it contains .holistic/ with state.json",
     run: () => {
       const dir = makeTempDir();
       try {
         fs.mkdirSync(path.join(dir, ".holistic"));
+        fs.writeFileSync(path.join(dir, ".holistic", "state.json"), "{}", "utf8");
         assert.equal(findNearestHolisticRoot(dir), dir);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  },
+  {
+    name: "findNearestHolisticRoot ignores a runtime dir without state.json (e.g. ~/.holistic holding only a token)",
+    run: () => {
+      // The Andon API keeps its auth token in ~/.holistic, so a bare runtime
+      // dir exists on any machine running Mission Control. It must not anchor
+      // a root, or unmarked paths under the profile resolve to the home dir.
+      const dir = makeTempDir();
+      try {
+        fs.mkdirSync(path.join(dir, ".holistic"));
+        fs.writeFileSync(path.join(dir, ".holistic", "andon-token"), "not-a-state-file", "utf8");
+        const subdir = path.join(dir, "deep", "path");
+        fs.mkdirSync(subdir, { recursive: true });
+        assert.equal(findNearestHolisticRoot(subdir), subdir);
       } finally {
         fs.rmSync(dir, { recursive: true, force: true });
       }
