@@ -193,16 +193,21 @@ function lastSessionSignalMs(session) {
     ?? parseTimestampMs(session?.startedAt);
 }
 
-export function isSessionFreshEnoughForRuntimeWriter(session, nowMs, maxAgeMs = staleSessionMs) {
-  // Freshness is purely a function of how recently state.json was updated.
-  // A completion signal no longer forces "fresh forever" — a turn-complete
-  // signal means the agent is WAITING for the human, not that the session is
-  // immortal. If state.json stops updating, liveness must decay naturally.
+export function isSessionFreshEnoughForRuntimeWriter(session, nowMs, maxAgeMs = staleSessionMs, turnSignalAtMs = null) {
+  // Freshness is a function of the most recent DIRECT signal: a state.json
+  // update OR a turn-state sidecar write. Turn hooks fire on every tool call
+  // but deliberately never touch state.json, so during a long autonomous turn
+  // state.json ages while the agent is demonstrably working; gating on
+  // state.json alone silenced the writer mid-turn (no heartbeats, no
+  // Stop->waiting assert) and Mission Control dropped the live card as cold.
+  // A completion signal still does not force "fresh forever" — when both
+  // state.json and the sidecar stop updating, liveness must decay naturally.
   const lastSignal = lastSessionSignalMs(session);
-  if (lastSignal === null) {
+  const newestSignal = Math.max(lastSignal ?? Number.NEGATIVE_INFINITY, turnSignalAtMs ?? Number.NEGATIVE_INFINITY);
+  if (!Number.isFinite(newestSignal)) {
     return false;
   }
-  return nowMs - lastSignal <= maxAgeMs;
+  return nowMs - newestSignal <= maxAgeMs;
 }
 
 export function buildStartedEvent(session, nowIso) {
@@ -336,14 +341,21 @@ export function resolveTurnStateFile(stateFile) {
   return path.join(path.dirname(stateFile), "turn-state.json");
 }
 
-export function readTurnStateSidecar(stateFile) {
+export function readTurnStateSidecarRecord(stateFile) {
   try {
     const parsed = parseState(fs.readFileSync(resolveTurnStateFile(stateFile), "utf8"));
     const value = parsed?.turnState;
-    return value === "waiting" || value === "running" ? value : null;
+    return {
+      turnState: value === "waiting" || value === "running" ? value : null,
+      recordedAtMs: parseTimestampMs(parsed?.recordedAt)
+    };
   } catch {
-    return null;
+    return { turnState: null, recordedAtMs: null };
   }
+}
+
+export function readTurnStateSidecar(stateFile) {
+  return readTurnStateSidecarRecord(stateFile).turnState;
 }
 
 function resolveWriterStateFile() {
@@ -377,7 +389,7 @@ function saveWriterState(writerState) {
   fs.writeFileSync(stateFile, `${JSON.stringify(writerState, null, 2)}\n`, "utf8");
 }
 
-export function buildRuntimeWriterEvents(session, nowMs, writerState, heartbeatIntervalMs = intervalMs, turnStateOverride = null) {
+export function buildRuntimeWriterEvents(session, nowMs, writerState, heartbeatIntervalMs = intervalMs, turnStateOverride = null, turnSignalAtMs = null) {
   const nowIso = new Date(nowMs).toISOString();
   const events = [];
   const sessionEnded = Boolean(session.endedAt);
@@ -400,7 +412,7 @@ export function buildRuntimeWriterEvents(session, nowMs, writerState, heartbeatI
     };
   }
 
-  const sessionIsFresh = isSessionFreshEnoughForRuntimeWriter(session, nowMs);
+  const sessionIsFresh = isSessionFreshEnoughForRuntimeWriter(session, nowMs, staleSessionMs, turnSignalAtMs);
   if (!sessionIsFresh) {
     return {
       events,
@@ -522,8 +534,9 @@ async function tick() {
   const session = state.activeSession;
   const nowMs = Date.now();
   const writerState = loadWriterState();
+  const turnSidecar = readTurnStateSidecarRecord(stateFile);
   const { events, shouldEmitStart, shouldEmitHeartbeat, shouldEmitComplete, assertedLifecycle, lifecycle } =
-    buildRuntimeWriterEvents(session, nowMs, writerState, intervalMs, readTurnStateSidecar(stateFile));
+    buildRuntimeWriterEvents(session, nowMs, writerState, intervalMs, turnSidecar.turnState, turnSidecar.recordedAtMs);
 
   const posted = await postEvents(events);
   if (!posted) {

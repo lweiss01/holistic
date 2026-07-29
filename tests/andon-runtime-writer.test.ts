@@ -153,6 +153,98 @@ const tests: Array<{ name: string; run: () => void }> = [
     }
   },
   {
+    name: "Andon runtime writer stays live during a long turn when only the turn-state sidecar advances",
+    run: () => {
+      // state.json last touched hours ago (turn hooks never write it), but the
+      // sidecar shows tool activity seconds ago: the session is demonstrably
+      // live and the writer must keep emitting heartbeats and asserts.
+      const longTurnSession = {
+        ...session,
+        startedAt: "2026-04-30T20:00:00.000Z",
+        updatedAt: "2026-04-30T20:00:30.000Z"
+      };
+      const state = {
+        lastStartedSessionId: longTurnSession.id,
+        lastHeartbeatAtMs: 0,
+        lastCompletedSessionId: null,
+        lastLifecycle: "waiting",
+        lastLifecycleAssertAtMs: 0
+      };
+      const nowMs = Date.parse("2026-04-30T23:01:00.000Z");
+      const result = writer.buildRuntimeWriterEvents(longTurnSession, nowMs, state, 10_000, "running", nowMs - 5_000);
+
+      assert.equal(result.skippedStaleSession, false);
+      assert.equal(result.events.some((event) => event.type === "session.heartbeat"), true);
+      assert.equal(result.events.some((event) => event.type === "work.started"), true);
+      assert.equal(result.lifecycle, "running");
+    }
+  },
+  {
+    name: "Andon runtime writer asserts waiting from a fresh sidecar even when state.json is stale",
+    run: () => {
+      // The Stop hook's waiting flip lands in the sidecar; a stale state.json
+      // must not gate the assert, or an idle card stays frozen as running.
+      const longTurnSession = {
+        ...session,
+        startedAt: "2026-04-30T20:00:00.000Z",
+        updatedAt: "2026-04-30T20:00:30.000Z"
+      };
+      const state = {
+        lastStartedSessionId: longTurnSession.id,
+        lastHeartbeatAtMs: 0,
+        lastCompletedSessionId: null,
+        lastLifecycle: "running",
+        lastLifecycleAssertAtMs: 0
+      };
+      const nowMs = Date.parse("2026-04-30T23:01:00.000Z");
+      const result = writer.buildRuntimeWriterEvents(longTurnSession, nowMs, state, 10_000, "waiting", nowMs - 2_000);
+
+      assert.equal(result.skippedStaleSession, false);
+      assert.equal(result.events.some((event) => event.type === "session.needs_input"), true);
+      assert.equal(result.lifecycle, "waiting");
+    }
+  },
+  {
+    name: "Andon runtime writer still decays to stale when state.json and the sidecar are both old",
+    run: () => {
+      const abandonedSession = {
+        ...session,
+        startedAt: "2026-04-30T20:00:00.000Z",
+        updatedAt: "2026-04-30T20:00:30.000Z"
+      };
+      const state = { lastStartedSessionId: null, lastHeartbeatAtMs: 0, lastCompletedSessionId: null };
+      const nowMs = Date.parse("2026-04-30T23:01:00.000Z");
+      const staleSidecarMs = Date.parse("2026-04-30T20:05:00.000Z");
+      const result = writer.buildRuntimeWriterEvents(abandonedSession, nowMs, state, 10_000, "running", staleSidecarMs);
+
+      assert.equal(result.skippedStaleSession, true);
+      assert.equal(result.events.length, 0);
+    }
+  },
+  {
+    name: "Andon runtime writer sidecar record exposes turnState and recordedAt for freshness",
+    run: () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "holistic-writer-sidecar-"));
+      try {
+        const stateFile = path.join(dir, "state.json");
+        fs.writeFileSync(path.join(dir, "turn-state.json"), JSON.stringify({
+          turnState: "waiting",
+          recordedAt: "2026-04-30T23:00:59.000Z"
+        }), "utf8");
+
+        const record = writer.readTurnStateSidecarRecord(stateFile);
+        assert.equal(record.turnState, "waiting");
+        assert.equal(record.recordedAtMs, Date.parse("2026-04-30T23:00:59.000Z"));
+
+        const missing = writer.readTurnStateSidecarRecord(path.join(dir, "nope", "state.json"));
+        assert.equal(missing.turnState, null);
+        assert.equal(missing.recordedAtMs, null);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  },
+  {
     name: "Andon runtime writer heartbeat never emits agent.summary_emitted",
     run: () => {
       const event = writer.buildHeartbeatEvent(session, "2026-04-30T23:02:00.000Z");
