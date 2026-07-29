@@ -1299,6 +1299,14 @@ function writeDerivedDoc(paths: RuntimePaths, filePath: string, content: string,
     return;
   }
 
+  // The docs promise that a HOLISTIC-USER-EDITED line (or removing the
+  // generated marker) makes Holistic leave a file alone permanently. That must
+  // hold for every derived doc, not just adapters: writeDerivedDocs runs on
+  // every checkpoint, so an unhonored marker silently reverts user edits.
+  if (isUserAuthoredDoc(filePath)) {
+    return;
+  }
+
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   writeTextFileIfChanged(filePath, content);
 }

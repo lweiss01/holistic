@@ -743,6 +743,33 @@ export const tests = [
     }
   },
   {
+    name: "user-edited marker protects every derived doc from regeneration, not just adapters",
+    run: () => {
+      const { rootDir } = makeRepo();
+      const { paths } = loadState(rootDir);
+      const state = createInitialState(rootDir);
+
+      writeDerivedDocs(paths, state);
+      assert.match(fs.readFileSync(paths.agentsDoc, "utf8"), /HOLISTIC-GENERATED/);
+
+      // A user opts the AGENTS doc out to keep local additions (for example a
+      // repo-specific issue-tracker section). writeDerivedDocs runs on every
+      // checkpoint, so the marker must survive regeneration everywhere.
+      const customised = `<!-- ${USER_EDITED_MARKER}: keep local additions -->\n\n# AGENTS\n\n## Repo-specific tooling\n\nUse bd for issues.\n`;
+      fs.writeFileSync(paths.agentsDoc, customised, "utf8");
+
+      writeDerivedDocs(paths, state);
+      assert.equal(
+        fs.readFileSync(paths.agentsDoc, "utf8"),
+        customised,
+        "a user-edited derived doc must never be regenerated",
+      );
+
+      // Untouched generated docs still refresh normally.
+      assert.match(fs.readFileSync(paths.masterDoc, "utf8"), /HOLISTIC-GENERATED/);
+    }
+  },
+  {
     name: "andon event dispatches remove themselves so long-lived processes do not leak",
     run: async () => {
       const previousBase = process.env.ANDON_API_BASE_URL;
