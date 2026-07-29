@@ -65,6 +65,9 @@ holistic-audit-fixes.md
 .vibedrift/
 vibedrift-report.html
 vibedrift-report-detailed.html
+
+# Repo report exports (local-only, auto-generated)
+.repo-report/
 .next/
 build/
 __pycache__/
