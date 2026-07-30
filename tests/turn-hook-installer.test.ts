@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { installAllTurnHooks } from "../src/core/setup.ts";
+import { installAllTurnHooks, refreshStaleAdapterDocs } from "../src/core/setup.ts";
 import { getRuntimePaths } from "../src/core/state.ts";
 import { writeDerivedDocs } from "../src/core/docs.ts";
 import { createInitialState } from "../src/core/state.ts";
@@ -552,6 +552,139 @@ export const tests: Array<{ name: string; run: () => void }> = [
           "a foreign hook in the same event must be preserved untouched"
         );
         assert.match(config.hooks.Stop[1].hooks[0].command as string, /-Agent nested-agent$/);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  },
+  {
+    name: "installAllTurnHooks warns when a realtime_hooks adapter has no Turn Hook Config",
+    run: () => {
+      // The failure this makes loud: an adapter that lost its generated marker is
+      // never refreshed, so it never gains a Turn Hook Config, so the installer
+      // silently installs nothing and Andon can never flip running/waiting.
+      const dir = makeTempDir();
+      try {
+        makeGitRepo(dir);
+        const paths = getRuntimePaths(dir);
+        fs.mkdirSync(paths.adaptersDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(paths.adaptersDir, "claims-realtime.md"),
+          "# Claims Realtime\n\n## Capability\n\n```yaml\ncapability: realtime_hooks\n```\n",
+          "utf8"
+        );
+        const sysDir = path.join(paths.holisticDir, "system");
+        fs.mkdirSync(sysDir, { recursive: true });
+        fs.writeFileSync(path.join(sysDir, "andon-turn-hook.ps1"), "# fake\n", "utf8");
+
+        const result = installAllTurnHooks(dir, paths, "win32");
+
+        assert.equal(result.installedAgents.length, 0);
+        assert.ok(
+          result.warnings.some((w) => w.includes("claims-realtime.md") && w.includes("realtime_hooks")),
+          `expected a realtime_hooks warning, got: ${JSON.stringify(result.warnings)}`
+        );
+        assert.ok(
+          result.warnings.some((w) => w.includes("No turn hooks were installed")),
+          "installing zero hooks must not be silent"
+        );
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  },
+  {
+    name: "installAllTurnHooks warns about a marker-less adapter that predates the template",
+    run: () => {
+      const dir = makeTempDir();
+      try {
+        makeGitRepo(dir);
+        const paths = getRuntimePaths(dir);
+        fs.mkdirSync(paths.adaptersDir, { recursive: true });
+        // No generated marker, no Capability section: exactly the stale shape that
+        // froze every adapter in the dogfooding repo.
+        fs.writeFileSync(
+          path.join(paths.adaptersDir, "stale.md"),
+          "# Stale Adapter\n\n## Startup Contract\n\n1. Read HOLISTIC.md.\n",
+          "utf8"
+        );
+        const sysDir = path.join(paths.holisticDir, "system");
+        fs.mkdirSync(sysDir, { recursive: true });
+        fs.writeFileSync(path.join(sysDir, "andon-turn-hook.ps1"), "# fake\n", "utf8");
+
+        const result = installAllTurnHooks(dir, paths, "win32");
+        assert.ok(
+          result.warnings.some((w) => w.includes("stale.md") && w.includes("--refresh-adapters")),
+          `expected a stale-adapter warning naming the fix, got: ${JSON.stringify(result.warnings)}`
+        );
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  },
+  {
+    name: "installAllTurnHooks stays quiet for a legitimately hook-less adapter tier",
+    run: () => {
+      // session_lifecycle_only and substrate_fallback adapters have no turn hooks
+      // BY DESIGN. Warning about them would train the operator to ignore warnings.
+      const dir = makeTempDir();
+      try {
+        makeGitRepo(dir);
+        const paths = getRuntimePaths(dir);
+        fs.mkdirSync(paths.adaptersDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(paths.adaptersDir, "no-hooks-by-design.md"),
+          "<!-- HOLISTIC-GENERATED -->\n\n## Capability\n\n```yaml\ncapability: substrate_fallback\n```\n",
+          "utf8"
+        );
+        const sysDir = path.join(paths.holisticDir, "system");
+        fs.mkdirSync(sysDir, { recursive: true });
+        fs.writeFileSync(path.join(sysDir, "andon-turn-hook.ps1"), "# fake\n", "utf8");
+
+        const result = installAllTurnHooks(dir, paths, "win32");
+        assert.equal(
+          result.warnings.filter((w) => w.includes("no-hooks-by-design.md")).length,
+          0,
+          "a correctly hook-less tier must not warn"
+        );
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  },
+  {
+    name: "refreshStaleAdapterDocs re-stamps marker-less adapters but never user-edited ones",
+    run: () => {
+      const dir = makeTempDir();
+      try {
+        makeGitRepo(dir);
+        const paths = setupHolisticWithAdapters(dir);
+
+        // Strip the marker from one generated adapter, and mark another as
+        // explicitly user-edited (the documented permanent opt-out).
+        const geminiPath = path.join(paths.adaptersDir, "gemini.md");
+        const codexPath = path.join(paths.adaptersDir, "codex.md");
+        fs.writeFileSync(
+          geminiPath,
+          fs.readFileSync(geminiPath, "utf8").replace(/<!-- HOLISTIC-GENERATED[^\n]*\n/, ""),
+          "utf8"
+        );
+        fs.writeFileSync(codexPath, "# My Codex\n\n<!-- HOLISTIC-USER-EDITED -->\n\nHand written.\n", "utf8");
+
+        const refreshed = refreshStaleAdapterDocs(dir, paths);
+
+        assert.ok(refreshed.includes("gemini.md"), "a marker-less generated adapter should be re-stamped");
+        assert.ok(!refreshed.includes("codex.md"), "a HOLISTIC-USER-EDITED adapter must never be re-stamped");
+        assert.equal(
+          fs.readFileSync(codexPath, "utf8"),
+          "# My Codex\n\n<!-- HOLISTIC-USER-EDITED -->\n\nHand written.\n",
+          "user-edited adapter must be byte-identical after refresh"
+        );
+        // The re-stamped adapter is refreshed, so it regains the sections that
+        // being marker-less had frozen out.
+        const gemini = fs.readFileSync(geminiPath, "utf8");
+        assert.ok(gemini.includes("## Capability"), "refreshed adapter should regain the capability section");
+        assert.ok(gemini.includes("Turn Hook Config"), "Gemini is realtime_hooks so it should regain turn hook config");
       } finally {
         fs.rmSync(dir, { recursive: true, force: true });
       }

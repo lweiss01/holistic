@@ -134,7 +134,7 @@ export function renderHelpText(): string {
 Setup Commands:
   holistic init [--install-daemon] [--install-hooks] [--platform win32|darwin|linux] [--interval 30] [--remote origin] [--state-ref refs/holistic/state] [--state-branch holistic/state]
   holistic bootstrap [--dry-run] [--platform win32|darwin|linux] [--interval 30] [--yes]
-  holistic repair [--platform win32|darwin|linux] [--refresh-hooks false] [--install-daemon true] [--configure-mcp true]
+  holistic repair [--platform win32|darwin|linux] [--refresh-hooks false] [--install-daemon true] [--configure-mcp true] [--refresh-adapters true]
   holistic uninstall [--purge] [--yes] | Remove machine helpers, autostart, and MCP entry. Keeps session memory unless --purge.
 
 Read-Only & Diagnostic Commands:
@@ -710,10 +710,15 @@ async function handleRepair(rootDir: string, parsed: ParsedArgs): Promise<number
     refreshHooks: firstFlag(parsed.flags, "refresh-hooks", "true") !== "false",
     installDaemon: firstFlag(parsed.flags, "install-daemon", "false") === "true",
     configureMcp: firstFlag(parsed.flags, "configure-mcp", "false") === "true",
+    refreshAdapters: firstFlag(parsed.flags, "refresh-adapters", "false") === "true",
   });
   reportHookWarnings(result.gitHookWarnings);
+  reportHookWarnings(result.turnHookWarnings);
 
   const statusItems: string[] = ["system helpers regenerated"];
+  if (result.adaptersRefreshed.length > 0) {
+    statusItems.push(`${result.adaptersRefreshed.length} adapter doc(s) re-stamped and refreshed`);
+  }
   if (result.gitHooksInstalled) {
     statusItems.push("git hooks refreshed");
   }

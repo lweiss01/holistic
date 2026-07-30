@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { repoLocalCliPaths } from './cli-fallback.ts';
-import { agentNameFromAdapterFileName, writeDerivedDocs } from './docs.ts';
+import { agentNameFromAdapterFileName, hasGeneratedMarker, restampGeneratedMarker, writeDerivedDocs } from './docs.ts';
 import { captureRepoSnapshot, enumerateGitWorktrees, resolveGitDir } from './git.ts';
 import { installGitHooks, refreshGitHooks, getGitHooksStatus, type GitHookInstallResult, type HookCommand } from './git-hooks.ts';
 import { getRuntimePaths, isPathInsideDirectory, loadState, saveState } from './state.ts';
@@ -68,12 +68,21 @@ export interface RepairOptions {
   refreshHooks?: boolean;
   installDaemon?: boolean;
   configureMcp?: boolean;
+  /**
+   * Re-stamp adapter docs that lost their generated marker so they are
+   * refreshed from the built-in templates again. Opt-in: a missing marker is
+   * indistinguishable from a deliberate customisation, so this must never
+   * happen by default.
+   */
+  refreshAdapters?: boolean;
 }
 
 export interface RepairResult extends InitResult {
   mcpConfigured: boolean;
   mcpConfigFile: string | null;
   checks: string[];
+  adaptersRefreshed: string[];
+  turnHookWarnings: string[];
 }
 
 export type McpLoggingMode = "off" | "minimal" | "default";
@@ -1399,6 +1408,22 @@ function parseTurnHookConfigFromDoc(docContent: string): TurnHookConfig | null {
   return cfg.hookEvents.length > 0 ? cfg : null;
 }
 
+/**
+ * The capability an on-disk adapter declares. renderAdapter enforces the
+ * capability/turn-hook invariant at GENERATION time, but an adapter on disk may
+ * be hand-authored or predate the template, so the same invariant has to be
+ * re-checked here against whatever is actually installed.
+ */
+function parseCapabilityFromDoc(docContent: string): string | null {
+  const m = docContent.match(/## Capability[\s\S]*?```yaml\n\s*capability:\s*([a-z_]+)/);
+  return m ? m[1] : null;
+}
+
+export interface TurnHookInstallResult {
+  installedAgents: string[];
+  warnings: string[];
+}
+
 function applyTurnHookToConfig(configPath: string, turnHookCmd: string, hookEvents: string[], hookKey: string): void {
   // Only install if the agent's config directory already exists. Never create it proactively:
   // creating .claude/ or .codex/ would make getSetupStatus report hooks as missing for
@@ -1467,24 +1492,47 @@ function applyTurnHookToConfig(configPath: string, turnHookCmd: string, hookEven
   }
 }
 
-export function installAllTurnHooks(repoRoot: string, paths: RuntimePaths, platform: NodeJS.Platform = process.platform, homeDir: string = os.homedir()): void {
+export function installAllTurnHooks(repoRoot: string, paths: RuntimePaths, platform: NodeJS.Platform = process.platform, homeDir: string = os.homedir()): TurnHookInstallResult {
+  const result: TurnHookInstallResult = { installedAgents: [], warnings: [] };
   const adaptersDir = paths.adaptersDir;
-  if (!fs.existsSync(adaptersDir)) return;
+  if (!fs.existsSync(adaptersDir)) return result;
 
   let adapterFiles: string[];
   try {
     adapterFiles = fs.readdirSync(adaptersDir).filter((f) => f.endsWith(".md"));
-  } catch { return; }
+  } catch { return result; }
 
   for (const fileName of adapterFiles) {
     try {
-      const content = fs.readFileSync(path.join(adaptersDir, fileName), "utf8");
+      const adapterPath = path.join(adaptersDir, fileName);
+      const content = fs.readFileSync(adapterPath, "utf8");
       const config = parseTurnHookConfigFromDoc(content);
-      if (!config) continue;
+      const agent = agentNameFromAdapterFileName(fileName);
+
+      if (!config) {
+        // Silence here is what made this whole subsystem fail invisibly: an
+        // adapter that lost its generated marker is never refreshed, so it
+        // never gains a Turn Hook Config, so no turn hooks install at all and
+        // Andon can never flip running/waiting for that agent.
+        const capability = parseCapabilityFromDoc(content);
+        if (capability === "realtime_hooks") {
+          result.warnings.push(
+            `${fileName} declares capability realtime_hooks but has no Turn Hook Config section; `
+            + `no turn signals will be installed for ${agent}.`
+          );
+        } else if (!capability && !hasGeneratedMarker(adapterPath)) {
+          result.warnings.push(
+            `${fileName} predates the capability/turn-hook template and has no generated marker, `
+            + `so it is treated as user-authored and never refreshed. `
+            + `Run 'holistic repair --refresh-adapters true' if it was not customised.`
+          );
+        }
+        continue;
+      }
 
       // The adapter file name is the agent identity; it travels into the hook
       // command so the sidecar this agent writes is attributable to it.
-      const turnHookCmd = andonTurnHookCommand(paths, platform, agentNameFromAdapterFileName(fileName));
+      const turnHookCmd = andonTurnHookCommand(paths, platform, agent);
 
       const target = platform === "win32" ? config.hookConfigWindows : config.hookConfigPosix;
       if (!target) continue;
@@ -1506,6 +1554,7 @@ export function installAllTurnHooks(repoRoot: string, paths: RuntimePaths, platf
         }
       }
       applyTurnHookToConfig(configPath, turnHookCmd, config.hookEvents, target.hookKey);
+      result.installedAgents.push(agent);
 
       // A home-based config is global: one write covers every worktree, and
       // resolving "~/..." against a worktree would create a literal "~" dir.
@@ -1524,6 +1573,15 @@ export function installAllTurnHooks(repoRoot: string, paths: RuntimePaths, platf
       }
     } catch { /* skip malformed adapter docs */ }
   }
+
+  if (result.installedAgents.length === 0 && adapterFiles.length > 0) {
+    result.warnings.push(
+      `No turn hooks were installed from ${adapterFiles.length} adapter doc(s); `
+      + `Andon cannot flip running/waiting for any agent in this repo.`
+    );
+  }
+
+  return result;
 }
 
 // ---- End turn hook installer ----
@@ -2066,6 +2124,36 @@ export function refreshHolisticHooks(rootDir: string): GitHookInstallResult {
   return refreshGitHooks(rootDir, resolveGitDir(rootDir), buildHookCommand(rootDir, paths));
 }
 
+/**
+ * Re-stamp adapter docs that lost the generated marker, then refresh them from
+ * the built-in templates. Returns the file names that were re-stamped.
+ *
+ * This exists because a marker-less adapter is silently frozen: it is treated as
+ * user-authored, so it never receives new template sections (capability, turn
+ * hook config), which in turn disables the whole data-driven turn-hook
+ * installer for that agent. Docs carrying HOLISTIC-USER-EDITED are never
+ * touched -- that marker is the documented permanent opt-out.
+ */
+export function refreshStaleAdapterDocs(rootDir: string, paths: RuntimePaths): string[] {
+  if (!fs.existsSync(paths.adaptersDir)) return [];
+  let adapterFiles: string[];
+  try {
+    adapterFiles = fs.readdirSync(paths.adaptersDir).filter((f) => f.endsWith(".md"));
+  } catch { return []; }
+
+  const restamped: string[] = [];
+  for (const fileName of adapterFiles) {
+    if (restampGeneratedMarker(path.join(paths.adaptersDir, fileName))) {
+      restamped.push(fileName);
+    }
+  }
+  if (restamped.length > 0) {
+    const { state } = loadState(rootDir);
+    writeDerivedDocs(paths, state);
+  }
+  return restamped;
+}
+
 export function repairHolistic(rootDir: string, options: RepairOptions = {}): RepairResult {
   const { paths } = loadState(rootDir);
   writeManagedGitAttributes(rootDir, paths);
@@ -2073,6 +2161,8 @@ export function repairHolistic(rootDir: string, options: RepairOptions = {}): Re
   const platform = options.platform ?? process.platform;
   const homeDir = options.homeDir ?? os.homedir();
   const config = readExistingRuntimeConfig(paths);
+
+  const adaptersRefreshed = options.refreshAdapters ? refreshStaleAdapterDocs(rootDir, paths) : [];
 
   writeSystemArtifacts(rootDir, paths, config.intervalSeconds, config.remote, config.syncTarget, config.portableState);
 
@@ -2096,7 +2186,7 @@ export function repairHolistic(rootDir: string, options: RepairOptions = {}): Re
     installClaudeCodeHooks(rootDir, holisticCmd, platform);
     installAndonHooks(rootDir, paths, platform);
   }
-  installAllTurnHooks(rootDir, paths, platform, homeDir);
+  const turnHookResult = installAllTurnHooks(rootDir, paths, platform, homeDir);
 
   const configuredMcpPath = options.configureMcp
     ? writeClaudeDesktopMcpConfig(rootDir, platform, homeDir)
@@ -2112,6 +2202,9 @@ export function repairHolistic(rootDir: string, options: RepairOptions = {}): Re
   if (startupTarget) {
     checks.push("daemon");
   }
+  if (turnHookResult.installedAgents.length > 0) {
+    checks.push("turn-hooks");
+  }
 
   return {
     installed: Boolean(startupTarget),
@@ -2125,6 +2218,8 @@ export function repairHolistic(rootDir: string, options: RepairOptions = {}): Re
     mcpConfigured: Boolean(configuredMcpPath),
     mcpConfigFile: configuredMcpPath,
     checks,
+    adaptersRefreshed,
+    turnHookWarnings: turnHookResult.warnings,
   };
 }
 
