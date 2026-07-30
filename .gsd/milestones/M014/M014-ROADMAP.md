@@ -30,6 +30,6 @@ No dependency on M011. Can start in parallel with the Holistic milestones — th
 ## References
 
 - `docs/posttooluse-payload.md` Section 7 (path-shape note — critical; read before implementing)
-- `SPEC-decisions-capture-andon.md` Section 3.2 (scope-expansion detector)
-- `SPEC-andon-ingestion-contract-addendum.md` Section 4 (build order step 1 note about path form confirmation)
+- `docs/SPEC-decisions-capture-andon.md` Section 3.2 (scope-expansion detector)
+- `docs/SPEC-andon-ingestion-contract-addendum.md` Section 4 (build order step 1 note about path form confirmation)
 - `packages/andon-core/src/status-engine.ts` — `isPathOutsideScope` consumer

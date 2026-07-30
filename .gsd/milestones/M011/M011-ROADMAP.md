@@ -29,7 +29,7 @@ Holistic
 
 ## References
 
-- `SPEC-decisions-capture-andon.md` Section 1 (decision records and supersession lifecycle)
+- `docs/SPEC-decisions-capture-andon.md` Section 1 (decision records and supersession lifecycle)
 - Section 1.3.3a (supersession semantics: Rule 1, Rule 2, Rule 3) — read before implementing S03
 - Section 1.5 (acceptance criteria)
 - `.beads/issues.jsonl` — structural precedent for append-only JSONL

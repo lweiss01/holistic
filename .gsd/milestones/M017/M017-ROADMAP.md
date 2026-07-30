@@ -31,8 +31,8 @@ The `contradicts_rejected` condition (agent re-proposes a `rejectedApproaches` e
 
 ## References
 
-- `SPEC-decisions-capture-andon.md` Section 3.2 step 4 (decision-aware drift)
+- `docs/SPEC-decisions-capture-andon.md` Section 3.2 step 4 (decision-aware drift)
 - Section 3.3 (control-loop framing: integrated error over single-event triggers)
 - Section 3.4 (acceptance criteria)
-- `SPEC-andon-ingestion-contract-addendum.md` Section 2 (decision-aware drift is adapter-agnostic, addendum step 5)
+- `docs/SPEC-andon-ingestion-contract-addendum.md` Section 2 (decision-aware drift is adapter-agnostic, addendum step 5)
 - Ownership table in parent spec Section 0 — Andon bridge read-only invariant

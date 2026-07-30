@@ -32,7 +32,7 @@ An AGT `BEHAVIOR_DRIFT` event that arrives through the OTel adapter MAY be passe
 
 ## References
 
-- `SPEC-andon-ingestion-contract-addendum.md` Section 1 (field mapping and asymmetry)
+- `docs/SPEC-andon-ingestion-contract-addendum.md` Section 1 (field mapping and asymmetry)
 - Section 2 (two-tier decision and OTel adapter role)
 - Section 3 (AGT seam: feed-not-compete)
 - Section 3.3 (hard boundaries: what Andon does not do with AGT)

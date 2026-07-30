@@ -28,7 +28,7 @@ Holistic
 
 ## References
 
-- `SPEC-decisions-capture-andon.md` Section 2 (automatic capture and trigger model)
+- `docs/SPEC-decisions-capture-andon.md` Section 2 (automatic capture and trigger model)
 - Section 2.4 (escalation predicate — read before implementing S01)
 - Section 2.5 (what to build)
 - Section 2.6 (acceptance criteria)

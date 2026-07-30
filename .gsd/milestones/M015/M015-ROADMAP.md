@@ -32,8 +32,8 @@ Andon
 
 ## References
 
-- `SPEC-andon-ingestion-contract-addendum.md` Section 2 (SourceAdapter interface and two-tier model)
+- `docs/SPEC-andon-ingestion-contract-addendum.md` Section 2 (SourceAdapter interface and two-tier model)
 - Section 2.1 (adapter interface shape)
-- `SPEC-decisions-capture-andon.md` Section 3.2 (scope-expansion and retry/thrash detectors)
+- `docs/SPEC-decisions-capture-andon.md` Section 3.2 (scope-expansion and retry/thrash detectors)
 - `docs/posttooluse-payload.md` Section 3 (field inventory), Section 4 (AgentEvent mapping), Section 5 (detector feasibility)
 - `packages/andon-core/src/status-engine.ts` — `isPathOutsideScope` and `AT_RISK_FAILURE_THRESHOLD`

@@ -27,7 +27,7 @@ Can land alongside or immediately after M011. Has no blocking dependency on M011
 
 ## References
 
-- `SPEC-decisions-capture-andon.md` Section 4 (trust and provenance)
+- `docs/SPEC-decisions-capture-andon.md` Section 4 (trust and provenance)
 - Section 4.1 (in-boundary, mostly built)
 - Section 4.2 (cross-operator, named not built)
 - Section 4.3 (acceptance criteria)
