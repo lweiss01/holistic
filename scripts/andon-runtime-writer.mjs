@@ -78,6 +78,32 @@ function resolveStateFile() {
   return localState;
 }
 
+/**
+ * Read state.json, falling back to .holistic/ when .holistic-local/ is absent.
+ * Returns the path actually read so the turn-state sidecar is resolved next to
+ * the SAME state file; resolving it next to a file we did not read would look
+ * for sidecars in a directory the hooks never write to.
+ */
+function loadStateFileWithFallback() {
+  const primary = resolveStateFile();
+  try {
+    return { raw: fs.readFileSync(primary, "utf8"), stateFile: primary };
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      throw error;
+    }
+    if (!primary.includes(".holistic-local")) {
+      return null;
+    }
+    const fallback = primary.replace(".holistic-local", ".holistic");
+    try {
+      return { raw: fs.readFileSync(fallback, "utf8"), stateFile: fallback };
+    } catch {
+      return null;
+    }
+  }
+}
+
 function asPhase(session) {
   const branchy = session?.currentPlan?.join(" ").toLowerCase() ?? "";
   if (branchy.includes("test")) return "test";
@@ -336,27 +362,90 @@ export function buildWorkStartedEvent(session, nowIso) {
  * state.json. They deliberately do not touch state.json itself: they fire on
  * every tool call and cannot take the state lock, so writing there loses
  * concurrent updates and can be read half-written.
+ *
+ * Each agent writes its OWN sidecar (turn-state.<agent>.json). A single shared
+ * file could not answer "which agent ended its turn": the writer stamped every
+ * signal with the active session's agent, so a Gemini turn rendered as a Claude
+ * card, and two agents in one repo overwrote each other last-write-wins. The
+ * unsuffixed turn-state.json remains supported as an unattributed legacy signal
+ * for installs whose hooks predate the agent argument.
  */
-export function resolveTurnStateFile(stateFile) {
-  return path.join(path.dirname(stateFile), "turn-state.json");
+export function turnStateAgentSlug(agent) {
+  return String(agent ?? "").replace(/[^A-Za-z0-9._-]/g, "").toLowerCase();
 }
 
-export function readTurnStateSidecarRecord(stateFile) {
+export function resolveTurnStateFile(stateFile, agent = null) {
+  const slug = turnStateAgentSlug(agent);
+  const name = slug ? `turn-state.${slug}.json` : "turn-state.json";
+  return path.join(path.dirname(stateFile), name);
+}
+
+function readSidecarFile(filePath) {
   try {
-    const parsed = parseState(fs.readFileSync(resolveTurnStateFile(stateFile), "utf8"));
+    const parsed = parseState(fs.readFileSync(filePath, "utf8"));
     const value = parsed?.turnState;
     return {
       turnState: value === "waiting" || value === "running" ? value : null,
-      recordedAtMs: parseTimestampMs(parsed?.recordedAt)
+      recordedAtMs: parseTimestampMs(parsed?.recordedAt),
+      agent: typeof parsed?.agent === "string" ? turnStateAgentSlug(parsed.agent) : null
     };
   } catch {
-    return { turnState: null, recordedAtMs: null };
+    return null;
   }
 }
 
-export function readTurnStateSidecar(stateFile) {
-  return readTurnStateSidecarRecord(stateFile).turnState;
+/**
+ * Resolve the turn signal for ONE agent. Another agent's sidecar is never
+ * returned -- not for turnState and not for freshness. Letting a foreign
+ * sidecar through would both mis-attribute the status and keep an abandoned
+ * session alive on a different agent's activity.
+ */
+export function readTurnStateSidecarRecord(stateFile, agent = null) {
+  const empty = { turnState: null, recordedAtMs: null, agent: null };
+  const slug = turnStateAgentSlug(agent);
+
+  if (slug) {
+    const own = readSidecarFile(resolveTurnStateFile(stateFile, slug));
+    if (own && own.turnState) {
+      return { ...own, agent: own.agent ?? slug };
+    }
+  }
+
+  // Legacy shared sidecar: usable only when unattributed, or when it happens to
+  // name the agent we are asking about.
+  const legacy = readSidecarFile(resolveTurnStateFile(stateFile, null));
+  if (!legacy || !legacy.turnState) {
+    return empty;
+  }
+  if (legacy.agent && slug && legacy.agent !== slug) {
+    return empty;
+  }
+  if (legacy.agent && !slug) {
+    return empty;
+  }
+  return legacy;
 }
+
+export function readTurnStateSidecar(stateFile, agent = null) {
+  return readTurnStateSidecarRecord(stateFile, agent).turnState;
+}
+
+/**
+ * The agent whose turn signal is allowed to drive this session's card. An
+ * unknown agent yields "", which restricts the lookup to the unattributed
+ * legacy sidecar rather than matching some arbitrary agent's file.
+ */
+export function sessionTurnStateAgent(session) {
+  const candidate = String(session?.agent || session?.runtime || "").trim();
+  if (!candidate || candidate.toLowerCase() === "unknown") {
+    return "";
+  }
+  return turnStateAgentSlug(candidate);
+}
+
+// Matches the legacy shared sidecar and every per-agent sidecar, but not the
+// ".tmp" files the hooks write immediately before their atomic rename.
+const TURN_STATE_FILE_PATTERN = /^turn-state(\.[A-Za-z0-9._-]+)?\.json$/;
 
 function resolveWriterStateFile() {
   const explicit = process.env.ANDON_RUNTIME_WRITER_STATE_FILE?.trim();
@@ -503,28 +592,11 @@ async function postEvents(events) {
 }
 
 async function tick() {
-  const stateFile = resolveStateFile();
-  let raw;
-  try {
-    raw = fs.readFileSync(stateFile, "utf8");
-  } catch (e) {
-    if (e.code === "ENOENT") {
-      // Fall back to .holistic/state.json if .holistic-local doesn't exist
-      if (stateFile.includes(".holistic-local")) {
-        const fallbackFile = stateFile.replace(".holistic-local", ".holistic");
-        try {
-          raw = fs.readFileSync(fallbackFile, "utf8");
-        } catch {
-          return; // Neither file exists
-        }
-      } else {
-        return; // .holistic/state.json doesn't exist either
-      }
-    } else {
-      throw e;
-    }
+  const loaded = loadStateFileWithFallback();
+  if (!loaded) {
+    return;
   }
-  const state = parseState(raw);
+  const state = parseState(loaded.raw);
   // Process ended sessions too (so the final session.completed fires once);
   // only bail when there is no active session at all.
   if (!state || !state.activeSession) {
@@ -534,7 +606,7 @@ async function tick() {
   const session = state.activeSession;
   const nowMs = Date.now();
   const writerState = loadWriterState();
-  const turnSidecar = readTurnStateSidecarRecord(stateFile);
+  const turnSidecar = readTurnStateSidecarRecord(loaded.stateFile, sessionTurnStateAgent(session));
   const { events, shouldEmitStart, shouldEmitHeartbeat, shouldEmitComplete, assertedLifecycle, lifecycle } =
     buildRuntimeWriterEvents(session, nowMs, writerState, intervalMs, turnSidecar.turnState, turnSidecar.recordedAtMs);
 
@@ -585,19 +657,28 @@ if (isMainModule()) {
   // not exist until the first turn hook fires, and an atomic replace swaps the
   // inode, which drops a watch bound directly to the old file.
   const stateFileToWatch = resolveStateFile();
-  const turnStateFile = resolveTurnStateFile(stateFileToWatch);
-  const watchDir = path.dirname(turnStateFile);
-  const turnStateBasename = path.basename(turnStateFile);
+  const watchDir = path.dirname(stateFileToWatch);
   let lastKnownTurnState = null;
   let watchDebounceTimer = null;
   try {
+    // Watch every turn-state sidecar, not one fixed name: each agent writes its
+    // own file. Which one actually counts is decided per tick by matching the
+    // active session's agent, so a foreign agent's write cannot flip this card.
     fs.watch(watchDir, { persistent: false }, (_eventType, filename) => {
-      if (filename && filename !== turnStateBasename) {
+      if (filename && !TURN_STATE_FILE_PATTERN.test(filename)) {
         return;
       }
       clearTimeout(watchDebounceTimer);
       watchDebounceTimer = setTimeout(() => {
-        const currentTurnState = readTurnStateSidecar(stateFileToWatch);
+        const loaded = loadStateFileWithFallback();
+        if (!loaded) {
+          return;
+        }
+        const watchedState = parseState(loaded.raw);
+        const currentTurnState = readTurnStateSidecar(
+          loaded.stateFile,
+          sessionTurnStateAgent(watchedState?.activeSession)
+        );
         if (currentTurnState !== null && currentTurnState !== lastKnownTurnState) {
           lastKnownTurnState = currentTurnState;
           tick().catch(() => {});

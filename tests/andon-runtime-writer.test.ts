@@ -401,6 +401,106 @@ const tests: Array<{ name: string; run: () => void }> = [
       fs.writeFileSync(sidecar, JSON.stringify({ turnState: "bogus" }), "utf8");
       assert.equal(writer.readTurnStateSidecar(stateFile), null);
     }
+  },
+  {
+    name: "Andon runtime writer resolves a per-agent turn-state sidecar path",
+    run: () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "holistic-turn-peragent-"));
+      try {
+        const stateFile = path.join(dir, "state.json");
+        assert.equal(writer.resolveTurnStateFile(stateFile, "gemini"), path.join(dir, "turn-state.gemini.json"));
+        assert.equal(writer.resolveTurnStateFile(stateFile, "claude"), path.join(dir, "turn-state.claude.json"));
+        // No agent keeps the legacy shared path for older installs.
+        assert.equal(writer.resolveTurnStateFile(stateFile), path.join(dir, "turn-state.json"));
+        // Path traversal in an agent value can never escape the runtime dir.
+        assert.equal(
+          writer.resolveTurnStateFile(stateFile, "../../evil"),
+          path.join(dir, "turn-state.....evil.json")
+        );
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  },
+  {
+    name: "Andon runtime writer never lets one agent's turn signal drive another agent's session",
+    run: () => {
+      // The bug this guards: a single shared sidecar meant a Gemini turn flipped
+      // the Claude card, because turnState came from the file while agentName
+      // came from the active session.
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "holistic-turn-attrib-"));
+      try {
+        const stateFile = path.join(dir, "state.json");
+        fs.writeFileSync(
+          path.join(dir, "turn-state.gemini.json"),
+          JSON.stringify({ turnState: "running", recordedAt: "2026-07-30T03:14:57.000Z", agent: "gemini" }),
+          "utf8"
+        );
+
+        // Gemini's own lookup sees it.
+        const gemini = writer.readTurnStateSidecarRecord(stateFile, "gemini");
+        assert.equal(gemini.turnState, "running");
+        assert.equal(gemini.agent, "gemini");
+
+        // Claude must NOT see it -- neither the state nor the freshness stamp,
+        // or a foreign agent's activity would resurrect an abandoned session.
+        const claude = writer.readTurnStateSidecarRecord(stateFile, "claude");
+        assert.equal(claude.turnState, null);
+        assert.equal(claude.recordedAtMs, null);
+
+        // An unknown-agent session falls back to the legacy file only.
+        const unknown = writer.readTurnStateSidecarRecord(stateFile, "");
+        assert.equal(unknown.turnState, null);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  },
+  {
+    name: "Andon runtime writer prefers a per-agent sidecar over the legacy shared one",
+    run: () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "holistic-turn-precedence-"));
+      try {
+        const stateFile = path.join(dir, "state.json");
+        // Legacy unattributed file says waiting; the agent's own file says running.
+        fs.writeFileSync(
+          path.join(dir, "turn-state.json"),
+          JSON.stringify({ turnState: "waiting", recordedAt: "2026-07-30T03:00:00.000Z" }),
+          "utf8"
+        );
+        assert.equal(writer.readTurnStateSidecar(stateFile, "claude"), "waiting", "legacy file serves an install with no per-agent file yet");
+
+        fs.writeFileSync(
+          path.join(dir, "turn-state.claude.json"),
+          JSON.stringify({ turnState: "running", recordedAt: "2026-07-30T03:10:00.000Z", agent: "claude" }),
+          "utf8"
+        );
+        assert.equal(writer.readTurnStateSidecar(stateFile, "claude"), "running", "per-agent file wins once present");
+
+        // A legacy file that names a DIFFERENT agent is not usable here.
+        fs.writeFileSync(
+          path.join(dir, "turn-state.json"),
+          JSON.stringify({ turnState: "waiting", recordedAt: "2026-07-30T03:00:00.000Z", agent: "gemini" }),
+          "utf8"
+        );
+        assert.equal(writer.readTurnStateSidecar(stateFile, "codex"), null);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  },
+  {
+    name: "Andon runtime writer derives the turn-state agent from the session",
+    run: () => {
+      assert.equal(writer.sessionTurnStateAgent({ agent: "gemini" }), "gemini");
+      assert.equal(writer.sessionTurnStateAgent({ agent: "Claude" }), "claude");
+      // runtime is the fallback identity when agent is absent.
+      assert.equal(writer.sessionTurnStateAgent({ runtime: "codex" }), "codex");
+      // Unknown must resolve to "" so the lookup does not match turn-state.unknown.json.
+      assert.equal(writer.sessionTurnStateAgent({ agent: "unknown" }), "");
+      assert.equal(writer.sessionTurnStateAgent({}), "");
+      assert.equal(writer.sessionTurnStateAgent(undefined), "");
+    }
   }
 ];
 

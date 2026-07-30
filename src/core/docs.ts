@@ -587,6 +587,21 @@ ${handoffFallbackNote}
 
 export type AdapterCapability = "realtime_hooks" | "session_lifecycle_only" | "substrate_fallback";
 
+/**
+ * The adapter file name IS the agent identity: the turn-hook installer recovers
+ * the agent from it to stamp per-agent turn signals. Both directions live here
+ * so the convention has one home; a mismatch would silently mis-attribute every
+ * turn signal for that agent.
+ */
+export function adapterFileNameForAgent(commandName: string): string {
+  return commandName === "claude" ? "claude-cowork.md" : `${commandName}.md`;
+}
+
+export function agentNameFromAdapterFileName(fileName: string): string {
+  const base = fileName.replace(/\.md$/i, "");
+  return base === "claude-cowork" ? "claude" : base;
+}
+
 export interface AdapterProfile {
   appName: string;
   commandName: string;
@@ -1331,7 +1346,7 @@ export function writeDerivedDocs(paths: RuntimePaths, state: HolisticState, opti
   writeDerivedDoc(paths, `${paths.contextDir}/README.md`, withProvenance(renderContextReadme(state)), mode);
 
   for (const profile of ADAPTER_PROFILES) {
-    const fileName = profile.commandName === "claude" ? "claude-cowork.md" : `${profile.commandName}.md`;
+    const fileName = adapterFileNameForAgent(profile.commandName);
     const adapterPath = path.join(paths.adaptersDir, fileName);
     // Adapters are data, not generated output. A hand-authored adapter (for
     // example one adding turn_hook_config for a new agent) must survive every

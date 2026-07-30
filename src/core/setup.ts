@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { repoLocalCliPaths } from './cli-fallback.ts';
-import { writeDerivedDocs } from './docs.ts';
+import { agentNameFromAdapterFileName, writeDerivedDocs } from './docs.ts';
 import { captureRepoSnapshot, enumerateGitWorktrees, resolveGitDir } from './git.ts';
 import { installGitHooks, refreshGitHooks, getGitHooksStatus, type GitHookInstallResult, type HookCommand } from './git-hooks.ts';
 import { getRuntimePaths, isPathInsideDirectory, loadState, saveState } from './state.ts';
@@ -860,14 +860,22 @@ function andonHookCommand(paths: RuntimePaths, platform: NodeJS.Platform): strin
   return `sh "${scriptPath}"`;
 }
 
-function andonTurnHookCommand(paths: RuntimePaths, platform: NodeJS.Platform): string {
+/**
+ * The agent argument is what makes a turn signal attributable. It is resolved
+ * from the adapter file name at install time, so nothing in the hook script or
+ * the writer branches on agent name -- the identity travels as data.
+ */
+function andonTurnHookCommand(paths: RuntimePaths, platform: NodeJS.Platform, agent?: string): string {
   const sysDir = systemDir(paths);
+  const slug = (agent ?? "").replace(/[^A-Za-z0-9._-]/g, "").toLowerCase();
   if (platform === "win32") {
     const scriptPath = path.join(sysDir, "andon-turn-hook.ps1");
-    return `powershell -NoProfile -ExecutionPolicy RemoteSigned -File "${scriptPath}"`;
+    const base = `powershell -NoProfile -ExecutionPolicy RemoteSigned -File "${scriptPath}"`;
+    return slug ? `${base} -Agent ${slug}` : base;
   }
   const scriptPath = path.join(sysDir, "andon-turn-hook.sh");
-  return `sh "${scriptPath}"`;
+  const base = `sh "${scriptPath}"`;
+  return slug ? `${base} ${slug}` : base;
 }
 
 function renderAndonHookPs1(): string {
@@ -1159,7 +1167,12 @@ function renderAndonTurnHookPs1(): string {
     "# holds, and a read-modify-write there loses concurrent updates. Rewriting the",
     "# whole file through ConvertFrom-Json/ConvertTo-Json was also lossy, and the",
     "# in-place write could be observed half-finished and quarantined as corrupt.",
-    "param()",
+    "#",
+    "# -Agent is filled in by the installer from the adapter file name, so the",
+    "# sidecar records WHICH agent ended its turn. Without it every agent wrote",
+    "# one shared file: signals were attributed to whichever agent owned the",
+    "# active session, and two agents in one repo clobbered each other.",
+    "param([string]$Agent = '')",
     "$ErrorActionPreference = 'SilentlyContinue'",
     "",
     "# 1. Read JSON from stdin",
@@ -1170,6 +1183,9 @@ function renderAndonTurnHookPs1(): string {
     "# 2. Map hook event to turnState value",
     "$hookName = $hookData.hook_event_name",
     "$turnStateValue = if ($hookName -eq 'Stop') { 'waiting' } else { 'running' }",
+    "",
+    "# 2b. Normalize the agent so it is safe as a file name segment.",
+    "$agentSlug = ($Agent -replace '[^A-Za-z0-9._-]', '').ToLowerInvariant()",
     "",
     "# 3. Find the Holistic runtime directory via walk-up from hookData.cwd.",
     "# Prefer the hook-provided cwd: in worktrees $PWD can be the wrong tree.",
@@ -1192,11 +1208,18 @@ function renderAndonTurnHookPs1(): string {
     "if (-not $runtimeDir) { exit 0 }",
     "",
     "# 4. Write the sidecar with an atomic replace so a concurrent reader never",
-    "# observes a partial write.",
-    "$turnFile = Join-Path $runtimeDir 'turn-state.json'",
+    "# observes a partial write. Per-agent file name: concurrent agents must not",
+    "# overwrite each other's turn state. Unknown agent falls back to the shared",
+    "# legacy file, which the writer still reads as unattributed.",
+    "$turnFileName = if ($agentSlug) { \"turn-state.$agentSlug.json\" } else { 'turn-state.json' }",
+    "$turnFile = Join-Path $runtimeDir $turnFileName",
     "$tmpFile = \"$turnFile.tmp\"",
     "$recordedAt = (Get-Date).ToUniversalTime().ToString('o')",
-    "$payload = \"{`\"turnState`\":`\"$turnStateValue`\",`\"recordedAt`\":`\"$recordedAt`\"}\"",
+    "$payload = if ($agentSlug) {",
+    "    \"{`\"turnState`\":`\"$turnStateValue`\",`\"recordedAt`\":`\"$recordedAt`\",`\"agent`\":`\"$agentSlug`\"}\"",
+    "} else {",
+    "    \"{`\"turnState`\":`\"$turnStateValue`\",`\"recordedAt`\":`\"$recordedAt`\"}\"",
+    "}",
     "[System.IO.File]::WriteAllText($tmpFile, $payload, [System.Text.UTF8Encoding]::new($false))",
     "Move-Item -Force -Path $tmpFile -Destination $turnFile",
     "exit 0",
@@ -1214,6 +1237,11 @@ function renderAndonTurnHookSh(): string {
     "# This hook writes a dedicated sidecar and MUST NOT edit state.json. It fires",
     "# on every tool call and cannot take the state lock that every TypeScript",
     "# writer holds, so a read-modify-write there loses concurrent updates.",
+    "#",
+    "# $1 is the agent, filled in by the installer from the adapter file name, so",
+    "# the sidecar records WHICH agent ended its turn. Without it every agent",
+    "# wrote one shared file and signals were mis-attributed to whichever agent",
+    "# owned the active session.",
     "",
     "if ! command -v jq >/dev/null 2>&1; then exit 0; fi",
     "",
@@ -1228,6 +1256,9 @@ function renderAndonTurnHookSh(): string {
     "else",
     "    turn_state_value='running'",
     "fi",
+    "",
+    "# 2b. Normalize the agent so it is safe as a file name segment.",
+    "agent_slug=$(printf '%s' \"${1:-}\" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9._-')",
     "",
     "# 3. Find the Holistic runtime directory via walk-up from hookData.cwd.",
     "# Prefer the hook-provided cwd: in worktrees $PWD can be the wrong tree.",
@@ -1251,10 +1282,22 @@ function renderAndonTurnHookSh(): string {
     "",
     "# 4. Write the sidecar with an atomic replace so a concurrent reader never",
     "# observes a partial write.",
-    "turn_file=\"$runtime_dir/turn-state.json\"",
+    "# Per-agent file name: concurrent agents must not overwrite each other's turn",
+    "# state. Unknown agent falls back to the shared legacy file, which the writer",
+    "# still reads as unattributed.",
+    "if [ -n \"$agent_slug\" ]; then",
+    "    turn_file=\"$runtime_dir/turn-state.$agent_slug.json\"",
+    "else",
+    "    turn_file=\"$runtime_dir/turn-state.json\"",
+    "fi",
     "recorded_at=$(date -u +\"%Y-%m-%dT%H:%M:%SZ\" 2>/dev/null || echo \"\")",
-    "printf '{\"turnState\":\"%s\",\"recordedAt\":\"%s\"}' \"$turn_state_value\" \"$recorded_at\" > \"${turn_file}.tmp\" 2>/dev/null \\",
-    "    && mv \"${turn_file}.tmp\" \"$turn_file\" 2>/dev/null || true",
+    "if [ -n \"$agent_slug\" ]; then",
+    "    printf '{\"turnState\":\"%s\",\"recordedAt\":\"%s\",\"agent\":\"%s\"}' \"$turn_state_value\" \"$recorded_at\" \"$agent_slug\" > \"${turn_file}.tmp\" 2>/dev/null \\",
+    "        && mv \"${turn_file}.tmp\" \"$turn_file\" 2>/dev/null || true",
+    "else",
+    "    printf '{\"turnState\":\"%s\",\"recordedAt\":\"%s\"}' \"$turn_state_value\" \"$recorded_at\" > \"${turn_file}.tmp\" 2>/dev/null \\",
+    "        && mv \"${turn_file}.tmp\" \"$turn_file\" 2>/dev/null || true",
+    "fi",
     "exit 0",
   ].join("\n");
 }
@@ -1363,16 +1406,28 @@ function applyTurnHookToConfig(configPath: string, turnHookCmd: string, hookEven
   if (!fs.existsSync(path.dirname(configPath))) return;
   const existing = readJsonObject(configPath);
 
+  // An existing turn hook is REWRITTEN in place when the desired command has
+  // changed, not left alone. Hooks installed before the command carried an
+  // -Agent argument would otherwise keep writing unattributed turn signals
+  // forever, because the only marker we match on ("andon-turn-hook") is present
+  // in both the old and the new form.
   if (hookKey === "(root)") {
     // Codex style: event keys at root, entries are [{command: "..."}]
     const next: Record<string, unknown> = { ...existing };
     for (const event of hookEvents) {
       const existingEvent = Array.isArray(next[event]) ? [...(next[event] as unknown[])] : [];
-      const hasTurnHook = existingEvent.some(
-        (h) => h && typeof (h as Record<string, unknown>).command === "string" &&
-          isAndonTurnHookCommand((h as Record<string, unknown>).command as string)
-      );
-      if (!hasTurnHook) {
+      let foundTurnHook = false;
+      for (let i = 0; i < existingEvent.length; i++) {
+        const entry = existingEvent[i] as Record<string, unknown> | null;
+        const command = entry && typeof entry.command === "string" ? entry.command : null;
+        if (command && isAndonTurnHookCommand(command)) {
+          foundTurnHook = true;
+          if (command !== turnHookCmd) {
+            existingEvent[i] = { ...entry, command: turnHookCmd };
+          }
+        }
+      }
+      if (!foundTurnHook) {
         existingEvent.push({ command: turnHookCmd });
       }
       next[event] = existingEvent;
@@ -1385,19 +1440,28 @@ function applyTurnHookToConfig(configPath: string, turnHookCmd: string, hookEven
       : {};
     for (const event of hookEvents) {
       const existingEvent = Array.isArray(hooksBlock[event]) ? [...(hooksBlock[event] as unknown[])] : [];
-      const hasTurnHook = existingEvent.some((group) => {
+      let foundTurnHook = false;
+      const nextEvent = existingEvent.map((group) => {
         const g = group as Record<string, unknown>;
-        return Array.isArray(g.hooks) && (g.hooks as unknown[]).some(
-          (h) => {
-            const hh = h as Record<string, unknown>;
-            return typeof hh.command === "string" && isAndonTurnHookCommand(hh.command as string);
+        if (!g || !Array.isArray(g.hooks)) return group;
+        let groupChanged = false;
+        const nextHooks = (g.hooks as unknown[]).map((hook) => {
+          const h = hook as Record<string, unknown>;
+          if (h && typeof h.command === "string" && isAndonTurnHookCommand(h.command)) {
+            foundTurnHook = true;
+            if (h.command !== turnHookCmd) {
+              groupChanged = true;
+              return { ...h, command: turnHookCmd };
+            }
           }
-        );
+          return hook;
+        });
+        return groupChanged ? { ...g, hooks: nextHooks } : group;
       });
-      if (!hasTurnHook) {
-        existingEvent.push({ hooks: [{ type: "command", command: turnHookCmd }] });
+      if (!foundTurnHook) {
+        nextEvent.push({ hooks: [{ type: "command", command: turnHookCmd }] });
       }
-      hooksBlock[event] = existingEvent;
+      hooksBlock[event] = nextEvent;
     }
     fs.writeFileSync(configPath, JSON.stringify({ ...existing, [hookKey]: hooksBlock }, null, 2) + "\n", "utf8");
   }
@@ -1412,13 +1476,15 @@ export function installAllTurnHooks(repoRoot: string, paths: RuntimePaths, platf
     adapterFiles = fs.readdirSync(adaptersDir).filter((f) => f.endsWith(".md"));
   } catch { return; }
 
-  const turnHookCmd = andonTurnHookCommand(paths, platform);
-
   for (const fileName of adapterFiles) {
     try {
       const content = fs.readFileSync(path.join(adaptersDir, fileName), "utf8");
       const config = parseTurnHookConfigFromDoc(content);
       if (!config) continue;
+
+      // The adapter file name is the agent identity; it travels into the hook
+      // command so the sidecar this agent writes is attributable to it.
+      const turnHookCmd = andonTurnHookCommand(paths, platform, agentNameFromAdapterFileName(fileName));
 
       const target = platform === "win32" ? config.hookConfigWindows : config.hookConfigPosix;
       if (!target) continue;

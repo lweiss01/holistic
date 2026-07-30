@@ -423,4 +423,138 @@ export const tests: Array<{ name: string; run: () => void }> = [
       }
     }
   },
+  {
+    name: "installAllTurnHooks stamps the adapter's agent into the hook command",
+    run: () => {
+      // Without the agent argument every agent wrote one shared sidecar and the
+      // writer attributed the signal to whichever agent owned the active session.
+      const dir = makeTempDir();
+      try {
+        makeGitRepo(dir);
+        const paths = getRuntimePaths(dir);
+        fs.mkdirSync(paths.adaptersDir, { recursive: true });
+        fs.writeFileSync(path.join(paths.adaptersDir, "test-agent.md"), MINIMAL_TURN_HOOK_DOC, "utf8");
+        const sysDir = path.join(paths.holisticDir, "system");
+        fs.mkdirSync(sysDir, { recursive: true });
+        fs.writeFileSync(path.join(sysDir, "andon-turn-hook.ps1"), "# fake\n", "utf8");
+        fs.writeFileSync(path.join(sysDir, "andon-turn-hook.sh"), "# fake\n", "utf8");
+        fs.mkdirSync(path.join(dir, ".test-hooks"), { recursive: true });
+
+        installAllTurnHooks(dir, paths, "win32");
+        const winCfg = JSON.parse(fs.readFileSync(path.join(dir, ".test-hooks", "hooks.json"), "utf8"));
+        assert.match(winCfg.Stop[0].command as string, /-Agent test-agent$/, "windows command must carry -Agent");
+
+        fs.rmSync(path.join(dir, ".test-hooks", "hooks.json"));
+        installAllTurnHooks(dir, paths, "linux");
+        const posixCfg = JSON.parse(fs.readFileSync(path.join(dir, ".test-hooks", "hooks.json"), "utf8"));
+        assert.match(posixCfg.Stop[0].command as string, /andon-turn-hook\.sh" test-agent$/, "posix command must carry the agent argument");
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  },
+  {
+    name: "installAllTurnHooks resolves claude-cowork.md to the claude agent",
+    run: () => {
+      // The adapter file name is the agent identity, and Claude's file is the one
+      // exception to the <agent>.md convention.
+      const dir = makeTempDir();
+      const fakeHome = makeTempDir();
+      try {
+        makeGitRepo(dir);
+        const paths = setupHolisticWithAdapters(dir);
+        fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
+
+        installAllTurnHooks(dir, paths, "win32", fakeHome);
+
+        const settings = JSON.parse(fs.readFileSync(path.join(dir, ".claude", "settings.json"), "utf8"));
+        const commands = (settings.hooks?.Stop ?? []).flatMap(
+          (g: { hooks?: Array<{ command?: string }> }) => (g.hooks ?? []).map((h) => h.command ?? "")
+        );
+        const turnHookCmd = commands.find((c: string) => c.includes("andon-turn-hook"));
+        assert.ok(turnHookCmd, "a turn hook should be installed for Claude");
+        assert.match(turnHookCmd as string, /-Agent claude$/, "claude-cowork.md must resolve to agent 'claude', not 'claude-cowork'");
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+        fs.rmSync(fakeHome, { recursive: true, force: true });
+      }
+    }
+  },
+  {
+    name: "installAllTurnHooks upgrades an identity-less turn hook command in place",
+    run: () => {
+      // Hooks installed before the agent argument existed must be rewritten, not
+      // left alone and not duplicated: the marker we match on ("andon-turn-hook")
+      // appears in both the old and the new command form.
+      const dir = makeTempDir();
+      try {
+        makeGitRepo(dir);
+        const paths = getRuntimePaths(dir);
+        fs.mkdirSync(paths.adaptersDir, { recursive: true });
+        fs.writeFileSync(path.join(paths.adaptersDir, "test-agent.md"), MINIMAL_TURN_HOOK_DOC, "utf8");
+        const sysDir = path.join(paths.holisticDir, "system");
+        fs.mkdirSync(sysDir, { recursive: true });
+        fs.writeFileSync(path.join(sysDir, "andon-turn-hook.ps1"), "# fake\n", "utf8");
+        const legacyCmd = `powershell -NoProfile -ExecutionPolicy RemoteSigned -File "${path.join(sysDir, "andon-turn-hook.ps1")}"`;
+
+        const hooksDir = path.join(dir, ".test-hooks");
+        fs.mkdirSync(hooksDir, { recursive: true });
+        fs.writeFileSync(path.join(hooksDir, "hooks.json"), JSON.stringify({
+          Stop: [{ command: legacyCmd }],
+          UserPromptSubmit: [{ command: legacyCmd }]
+        }, null, 2) + "\n", "utf8");
+
+        installAllTurnHooks(dir, paths, "win32");
+
+        const config = JSON.parse(fs.readFileSync(path.join(hooksDir, "hooks.json"), "utf8"));
+        assert.equal(config.Stop.length, 1, "the legacy entry must be upgraded, not duplicated");
+        assert.match(config.Stop[0].command as string, /-Agent test-agent$/, "legacy command must gain the agent argument");
+        assert.equal(config.UserPromptSubmit.length, 1);
+        assert.match(config.UserPromptSubmit[0].command as string, /-Agent test-agent$/);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  },
+  {
+    name: "installAllTurnHooks upgrades an identity-less nested (Claude-style) turn hook in place",
+    run: () => {
+      const dir = makeTempDir();
+      try {
+        makeGitRepo(dir);
+        const paths = getRuntimePaths(dir);
+        fs.mkdirSync(paths.adaptersDir, { recursive: true });
+        const claudeStyleDoc = MINIMAL_TURN_HOOK_DOC.replaceAll("hook_key: (root)", "hook_key: hooks");
+        fs.writeFileSync(path.join(paths.adaptersDir, "nested-agent.md"), claudeStyleDoc, "utf8");
+        const sysDir = path.join(paths.holisticDir, "system");
+        fs.mkdirSync(sysDir, { recursive: true });
+        fs.writeFileSync(path.join(sysDir, "andon-turn-hook.ps1"), "# fake\n", "utf8");
+        const legacyCmd = `powershell -NoProfile -ExecutionPolicy RemoteSigned -File "${path.join(sysDir, "andon-turn-hook.ps1")}"`;
+
+        const hooksDir = path.join(dir, ".test-hooks");
+        fs.mkdirSync(hooksDir, { recursive: true });
+        fs.writeFileSync(path.join(hooksDir, "hooks.json"), JSON.stringify({
+          hooks: {
+            Stop: [
+              { hooks: [{ type: "command", command: "unrelated-user-hook" }] },
+              { hooks: [{ type: "command", command: legacyCmd }] }
+            ]
+          }
+        }, null, 2) + "\n", "utf8");
+
+        installAllTurnHooks(dir, paths, "win32");
+
+        const config = JSON.parse(fs.readFileSync(path.join(hooksDir, "hooks.json"), "utf8"));
+        assert.equal(config.hooks.Stop.length, 2, "no duplicate group appended");
+        assert.equal(
+          config.hooks.Stop[0].hooks[0].command,
+          "unrelated-user-hook",
+          "a foreign hook in the same event must be preserved untouched"
+        );
+        assert.match(config.hooks.Stop[1].hooks[0].command as string, /-Agent nested-agent$/);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  },
 ];
