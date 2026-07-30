@@ -909,7 +909,18 @@ function operationalItem(session: SessionRecord, projection: OperationalProjecti
   return normalizeTopLevelOperationalItem(item);
 }
 
+// Reasons that mean "this aged out of the attention window". A projection that
+// reached one of these has already left Mission Control AND explained why, so the
+// demotion below must not overwrite it with the generic "parked": that would
+// destroy the trail from a dashboard state back to its source data, and these are
+// exactly the reasons an operator asks about ("why did that card disappear?").
+const AGED_OUT_OPERATIONAL_REASONS = new Set(["stale_review", "stale_needs_action", "stale_degraded"]);
+
 function normalizeTopLevelOperationalItem(item: OperationalSessionApiItem): OperationalSessionApiItem {
+  if (item.category === "historical" && AGED_OUT_OPERATIONAL_REASONS.has(item.reason) && !item.actionRequired) {
+    return item;
+  }
+
   const hasDirectRuntimeTruth = item.sourceOfTruth === "runtime";
   const hasRuntimeSignal = item.runtimeSignal !== "unknown" || item.lastAgentSignalTimestamp !== null;
   const hasExplicitInput = item.category === "needs_action" && item.reason === "waiting_for_input";

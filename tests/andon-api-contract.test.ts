@@ -1037,6 +1037,70 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     }
   },
   {
+    name: "Andon API contract abandoned needs_input card ages off Mission Control into history",
+    run: async () => {
+      // Observed live: a 60-day-old "Needs Input" card sat on Mission Control
+      // demanding input, because needs_action had no staleness ceiling while
+      // review did. Asserted end to end because the API's top-level normalizer
+      // is a second gate that a projection-only test cannot see through.
+      const database = createDatabase();
+      const longAgo = iso(-60 * 24 * 60 * 60_000);
+      upsertRuntimeSession(database, runtimeSession({
+        id: "session-abandoned-input",
+        status: "waiting_for_input",
+        updatedAt: longAgo
+      }));
+      addHeartbeat(database, "session-abandoned-input", longAgo);
+
+      await withApi(database, async (baseUrl) => {
+        const missionPayload = await (await fetch(`${baseUrl}/mission-control`)).json() as {
+          sessions: Array<{ session: { id: string }; category: string; reason: string; actionRequired: boolean }>;
+        };
+        const historyPayload = await (await fetch(`${baseUrl}/history`)).json() as {
+          sessions: Array<{ session: { id: string }; category: string; reason: string; actionRequired: boolean }>;
+        };
+
+        assert.equal(
+          missionPayload.sessions.some((item) => item.session.id === "session-abandoned-input"),
+          false,
+          "an abandoned needs_input card must not occupy Mission Control"
+        );
+        const historical = historyPayload.sessions.find((item) => item.session.id === "session-abandoned-input");
+        assert.ok(historical, "the aged-out card must be reachable in history");
+        assert.equal(historical?.category, "historical");
+        // The specific reason must survive the top-level normalizer, or the
+        // operator cannot tell why the card left the board.
+        assert.equal(historical?.reason, "stale_needs_action");
+        assert.equal(historical?.actionRequired, false);
+      });
+    }
+  },
+  {
+    name: "Andon API contract a currently waiting session still reaches Mission Control",
+    run: async () => {
+      // Guard against the aging rule hiding real work: hiding a live waiting
+      // agent is worse than showing a stale card.
+      const database = createDatabase();
+      const justNow = iso(-5_000);
+      upsertRuntimeSession(database, runtimeSession({
+        id: "session-waiting-live",
+        status: "waiting_for_input",
+        updatedAt: justNow
+      }));
+      addHeartbeat(database, "session-waiting-live", justNow);
+
+      await withApi(database, async (baseUrl) => {
+        const missionPayload = await (await fetch(`${baseUrl}/mission-control`)).json() as {
+          sessions: Array<{ session: { id: string }; category: string; actionRequired: boolean }>;
+        };
+        const live = missionPayload.sessions.find((item) => item.session.id === "session-waiting-live");
+        assert.ok(live, "a freshly waiting session must stay on Mission Control");
+        assert.equal(live?.category, "needs_action");
+        assert.equal(live?.actionRequired, true);
+      });
+    }
+  },
+  {
     name: "Andon API contract shutdown restart with no fresh heartbeat does not leave zombie Live",
     run: async () => {
       const database = createDatabase();

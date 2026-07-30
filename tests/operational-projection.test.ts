@@ -434,6 +434,177 @@ const tests: Array<{ name: string; run: () => void }> = [
       assert.equal(acknowledged.category, "historical");
       assert.notEqual(unacknowledged.category, "live");
     }
+  },
+  {
+    name: "operational projection ages an abandoned needs_action card off Mission Control",
+    run: () => {
+      // Observed live: a 60-day-old "Needs Input" card sat on Mission Control
+      // demanding input. Review already aged out; needs_action had no ceiling, so
+      // abandoned attention demands accumulated forever and made the board
+      // unreadable (6 of 7 cards were stale demands).
+      const sixtyDaysAgo = new Date(Date.parse(NOW) - 60 * 24 * 60 * 60 * 1000).toISOString();
+
+      const legacy = projectOperationalSession({
+        sessionId: "session-abandoned-legacy",
+        legacySession: {
+          id: "session-abandoned-legacy",
+          status: "waiting_for_input",
+          endedAt: null,
+          lastEventAt: sixtyDaysAgo,
+          // repository.ts derives appearsActive from `!endedAt`, so every phantom
+          // row lands here; this is the exact live shape.
+          appearsActive: true
+        },
+        now: NOW
+      });
+
+      assert.equal(legacy.category, "historical");
+      assert.equal(legacy.reason, "stale_needs_action");
+      assert.equal(legacy.belongsOnMissionControl, false);
+      assert.equal(legacy.belongsInHistory, true);
+      // An aged-out card must not still demand attention from History.
+      assert.equal(legacy.actionRequired, false);
+      assert.equal(legacy.operatorAttention, "none");
+
+      const runtime = projectOperationalSession({
+        sessionId: "session-abandoned-runtime",
+        runtimeSession: runtimeSession({
+          id: "session-abandoned-runtime",
+          status: "waiting_for_input",
+          updatedAt: sixtyDaysAgo,
+          lastHeartbeatAt: sixtyDaysAgo
+        }),
+        now: NOW
+      });
+
+      assert.equal(runtime.category, "historical");
+      assert.equal(runtime.reason, "stale_needs_action");
+      assert.equal(runtime.actionRequired, false);
+    }
+  },
+  {
+    name: "operational projection keeps a genuinely waiting session on the board",
+    run: () => {
+      // The risk in aging needs_action out is hiding real work. An agent waiting
+      // on a human keeps heartbeating, and live process proof must always win.
+      const waiting = projectOperationalSession({
+        sessionId: "session-waiting-now",
+        runtimeSession: runtimeSession({ id: "session-waiting-now", status: "waiting_for_input" }),
+        runtimeProcessAlive: true,
+        now: NOW
+      });
+
+      assert.equal(waiting.category, "needs_action");
+      assert.equal(waiting.belongsOnMissionControl, true);
+      assert.equal(waiting.actionRequired, true);
+
+      // Live process proof overrides age: a long human absence must not hide it.
+      const sixtyDaysAgo = new Date(Date.parse(NOW) - 60 * 24 * 60 * 60 * 1000).toISOString();
+      const oldButAlive = projectOperationalSession({
+        sessionId: "session-waiting-old-alive",
+        runtimeSession: runtimeSession({
+          id: "session-waiting-old-alive",
+          status: "waiting_for_input",
+          updatedAt: sixtyDaysAgo,
+          lastHeartbeatAt: sixtyDaysAgo
+        }),
+        runtimeProcessAlive: true,
+        now: NOW
+      });
+
+      assert.equal(oldButAlive.category, "needs_action");
+      assert.equal(oldButAlive.belongsOnMissionControl, true);
+    }
+  },
+  {
+    name: "operational projection ages an abandoned blocked session off Mission Control",
+    run: () => {
+      // Audit product risk: "Failed terminated sessions remain blocked forever."
+      const sixtyDaysAgo = new Date(Date.parse(NOW) - 60 * 24 * 60 * 60 * 1000).toISOString();
+      const abandoned = projectOperationalSession({
+        sessionId: "session-abandoned-blocked",
+        runtimeSession: runtimeSession({
+          id: "session-abandoned-blocked",
+          status: "blocked",
+          updatedAt: sixtyDaysAgo,
+          lastHeartbeatAt: sixtyDaysAgo
+        }),
+        now: NOW
+      });
+
+      assert.equal(abandoned.category, "historical");
+      assert.equal(abandoned.reason, "stale_degraded");
+      assert.equal(abandoned.belongsOnMissionControl, false);
+      assert.equal(abandoned.actionRequired, false);
+
+      // A freshly blocked session is still real intervention work.
+      const freshlyBlocked = projectOperationalSession({
+        sessionId: "session-blocked-now",
+        runtimeSession: runtimeSession({ id: "session-blocked-now", status: "blocked" }),
+        runtimeProcessAlive: true,
+        now: NOW
+      });
+
+      assert.equal(freshlyBlocked.category, "degraded_active");
+      assert.equal(freshlyBlocked.operatorAttention, "intervention_needed");
+    }
+  },
+  {
+    name: "operational projection ages out an actionable canonical hint that has gone cold",
+    run: () => {
+      const sixtyDaysAgo = new Date(Date.parse(NOW) - 60 * 24 * 60 * 60 * 1000).toISOString();
+      const stale = projectOperationalSession({
+        sessionId: "session-canonical-stale",
+        runtimeSession: runtimeSession({
+          id: "session-canonical-stale",
+          status: "running",
+          updatedAt: sixtyDaysAgo,
+          lastHeartbeatAt: sixtyDaysAgo
+        }),
+        canonicalStatusHint: "needs_input",
+        now: NOW
+      });
+
+      assert.equal(stale.category, "historical");
+      assert.equal(stale.reason, "stale_needs_action");
+      assert.equal(stale.belongsOnMissionControl, false);
+
+      // A fresh canonical needs_input hint still belongs on the board.
+      const fresh = projectOperationalSession({
+        sessionId: "session-canonical-fresh",
+        runtimeSession: runtimeSession({ id: "session-canonical-fresh", status: "running" }),
+        canonicalStatusHint: "needs_input",
+        now: NOW
+      });
+
+      assert.equal(fresh.category, "needs_action");
+      assert.equal(fresh.belongsOnMissionControl, true);
+    }
+  },
+  {
+    name: "operational projection stale review no longer reports action required from history",
+    run: () => {
+      // Pre-existing inconsistency this fix also closes: an aged-out review was
+      // historical and off the board, yet still carried actionRequired with a
+      // "Review the requested output." prompt because its RAW status was unchanged.
+      const fortyOneHoursAgo = new Date(Date.parse(NOW) - 41 * 60 * 60 * 1000).toISOString();
+      const staleReview = projectOperationalSession({
+        sessionId: "session-stale-review",
+        runtimeSession: runtimeSession({
+          id: "session-stale-review",
+          status: "awaiting_review",
+          updatedAt: fortyOneHoursAgo,
+          lastHeartbeatAt: fortyOneHoursAgo
+        }),
+        now: NOW
+      });
+
+      assert.equal(staleReview.category, "historical");
+      assert.equal(staleReview.reason, "stale_review");
+      assert.equal(staleReview.belongsOnMissionControl, false);
+      assert.equal(staleReview.actionRequired, false);
+      assert.equal(staleReview.operatorAttention, "none");
+    }
   }
 ];
 

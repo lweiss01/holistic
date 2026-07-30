@@ -20,6 +20,19 @@ export const OPERATIONAL_PROJECTION_COLD_MS = 2 * 60 * 1000;
 export const OPERATIONAL_PROJECTION_EXPIRED_MS = 10 * 60 * 1000;
 export const OPERATIONAL_PROJECTION_LEGACY_HISTORY_MS = 60 * 60 * 1000;
 export const OPERATIONAL_PROJECTION_REVIEW_STALE_MS = 24 * 60 * 60 * 1000;
+/**
+ * Ceiling on how long a needs_action or degraded_active session may keep
+ * demanding operator attention. Review already aged out; needs_action and
+ * degraded did not, so an abandoned "waiting for input" or "blocked" card sat on
+ * Mission Control forever (observed live: a 60-day-old Needs Input card). That
+ * breaks the rule that old sessions must never count as current intervention
+ * work, and a board of permanent false demands is unreadable at a glance.
+ *
+ * Matches the review window for consistency. A session with live process proof
+ * is never aged out by this: an agent legitimately waiting on a human keeps
+ * heartbeating, so real waiting work cannot be hidden by it.
+ */
+export const OPERATIONAL_PROJECTION_ACTIONABLE_STALE_MS = 24 * 60 * 60 * 1000;
 
 export type OperationalSourceOfTruth = "runtime" | "legacy" | "mixed" | "missing";
 export type OperationalConfidence = "high" | "medium" | "low";
@@ -69,6 +82,8 @@ export type OperationalProjectionReason =
   | "terminated"
   | "parked"
   | "stale_review"
+  | "stale_needs_action"
+  | "stale_degraded"
   | "stale_legacy_only"
   | "legacy_active_without_runtime"
   | "contradictory_telemetry"
@@ -99,6 +114,7 @@ export interface OperationalProjectionInput {
   coldAfterMs?: number;
   legacyHistoricalAfterMs?: number;
   reviewStaleAfterMs?: number;
+  actionableStaleAfterMs?: number;
 }
 
 export interface OperationalProjection {
@@ -406,6 +422,23 @@ function isStaleReviewSignal(input: OperationalProjectionInput, lastSignalTimest
   return reviewAge !== null && reviewAge > (input.reviewStaleAfterMs ?? OPERATIONAL_PROJECTION_REVIEW_STALE_MS);
 }
 
+/**
+ * Whether an attention-demanding signal has gone cold enough to be abandoned
+ * rather than current work. Live process proof always wins: a session we can see
+ * running is never aged out, so genuinely waiting agents stay on the board.
+ */
+function isStaleActionableSignal(
+  input: OperationalProjectionInput,
+  lastSignalTimestamp: string | null,
+  now: number
+): boolean {
+  if (input.runtimeProcessAlive === true) {
+    return false;
+  }
+  const age = ageMs(lastSignalTimestamp, now);
+  return age !== null && age > (input.actionableStaleAfterMs ?? OPERATIONAL_PROJECTION_ACTIONABLE_STALE_MS);
+}
+
 function confidenceFor(category: RuntimeOperationalCategory, reason: OperationalProjectionReason): OperationalConfidence {
   if (category === "unknown") {
     return "low";
@@ -422,6 +455,14 @@ function lifecycleStateFor(
   rawRuntimeStatus: RuntimeStatus | "missing",
   freshness: RuntimeFreshness
 ): LifecycleState {
+  // An aged-out card is set aside, not awaiting anything. Without this guard a
+  // historical projection whose RAW status is still "waiting_for_input",
+  // "awaiting_review" or "blocked" falls into the actionable branches below and
+  // reports actionRequired with an operator prompt, even though it has already
+  // left Mission Control.
+  if (reason === "stale_review" || reason === "stale_needs_action" || reason === "stale_degraded") {
+    return "parked";
+  }
   if (reason === "awaiting_assignment" || rawRuntimeStatus === "awaiting_assignment") return "awaiting_assignment";
   if (category === "needs_action") return "waiting_input";
   if (category === "review") return "review_ready";
@@ -501,9 +542,13 @@ function recommendedActionFor(category: RuntimeOperationalCategory, reason: Oper
       : "Investigate the issue.";
   }
   if (category === "historical") {
-    return reason === "stale_review"
-      ? "Review aged out of Mission Control; open History if follow-up is needed."
-      : "No action needed.";
+    if (reason === "stale_review") {
+      return "Review aged out of Mission Control; open History if follow-up is needed.";
+    }
+    if (reason === "stale_needs_action" || reason === "stale_degraded") {
+      return "Aged out of Mission Control as abandoned; open History if follow-up is needed.";
+    }
+    return "No action needed.";
   }
   return "Check session state.";
 }
@@ -542,6 +587,22 @@ function legacyProjection(input: OperationalProjectionInput, now: number): Opera
   }
 
   if (input.humanInputNeeded || input.legacySession?.status === "waiting_for_input") {
+    if (isStaleActionableSignal(input, lastSignalTimestamp, now)) {
+      return projection(input, {
+        category: "historical",
+        reason: "stale_needs_action",
+        rawRuntimeStatus: "missing",
+        derivedOperationalStatus: "historical",
+        sourceOfTruth,
+        freshness,
+        lastSignalTimestamp,
+        lastHeartbeatAt: null,
+        lastMeaningfulActivityAt: null,
+        now,
+        evidence: ["Input-needed signal is older than the Mission Control attention window; treated as abandoned."]
+      });
+    }
+
     return projection(input, {
       category: "needs_action",
       reason: "waiting_for_input",
@@ -668,6 +729,36 @@ export function projectOperationalSession(input: OperationalProjectionInput): Op
       evidence: [
         ...evidenceBase,
         "Canonical telemetry contains fresh work-started activity; heartbeat and runtime connection remain secondary signal health."
+      ]
+    });
+  }
+
+  // An actionable canonical hint on a session whose telemetry has gone cold is an
+  // abandoned demand, not current work. Placed after the running branch so fresh
+  // work-started still wins, and excluding awaiting_review so review keeps its
+  // own stale_review reason and window.
+  if (
+    (input.canonicalStatusHint === "needs_input"
+      || input.canonicalStatusHint === "awaiting_assignment"
+      || input.canonicalStatusHint === "blocked"
+      || input.canonicalStatusHint === "at_risk")
+    && isStaleActionableSignal(input, lastSignalTimestamp, now)
+  ) {
+    const degraded = input.canonicalStatusHint === "blocked" || input.canonicalStatusHint === "at_risk";
+    return projection(input, {
+      category: "historical",
+      reason: degraded ? "stale_degraded" : "stale_needs_action",
+      rawRuntimeStatus,
+      derivedOperationalStatus: "historical",
+      sourceOfTruth,
+      freshness,
+      lastSignalTimestamp,
+      lastHeartbeatAt,
+      lastMeaningfulActivityAt,
+      now,
+      evidence: [
+        ...evidenceBase,
+        `Canonical ${input.canonicalStatusHint} signal is older than the Mission Control attention window and no live process proof exists.`
       ]
     });
   }
@@ -845,6 +936,25 @@ export function projectOperationalSession(input: OperationalProjectionInput): Op
   }
 
   if (isRuntimeNeedsActionStatus(rawRuntimeStatus) || input.humanInputNeeded) {
+    if (isStaleActionableSignal(input, lastSignalTimestamp, now)) {
+      return projection(input, {
+        category: "historical",
+        reason: "stale_needs_action",
+        rawRuntimeStatus,
+        derivedOperationalStatus: "historical",
+        sourceOfTruth,
+        freshness,
+        lastSignalTimestamp,
+        lastHeartbeatAt,
+        lastMeaningfulActivityAt,
+        now,
+        evidence: [
+          ...evidenceBase,
+          "Attention signal is older than the Mission Control attention window and no live process proof exists; treated as abandoned."
+        ]
+      });
+    }
+
     return projection(input, {
       category: "needs_action",
       reason: rawRuntimeStatus === "awaiting_assignment" ? "awaiting_assignment" : "waiting_for_input",
@@ -895,6 +1005,27 @@ export function projectOperationalSession(input: OperationalProjectionInput): Op
   }
 
   if (isRuntimeDegradedStatus(rawRuntimeStatus)) {
+    // Audit finding: a failed/blocked session used to stay degraded_active
+    // forever, so terminated failures accumulated as permanent intervention work.
+    if (isStaleActionableSignal(input, lastSignalTimestamp, now)) {
+      return projection(input, {
+        category: "historical",
+        reason: "stale_degraded",
+        rawRuntimeStatus,
+        derivedOperationalStatus: "historical",
+        sourceOfTruth,
+        freshness,
+        lastSignalTimestamp,
+        lastHeartbeatAt,
+        lastMeaningfulActivityAt,
+        now,
+        evidence: [
+          ...evidenceBase,
+          "Blocked/failed signal is older than the Mission Control attention window and no live process proof exists."
+        ]
+      });
+    }
+
     return projection(input, {
       category: "degraded_active",
       reason: "blocked_or_failed",
