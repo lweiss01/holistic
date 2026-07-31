@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.7.0 - 2026-07-31
+
+Agent-agnostic live supervision. Andon grows from a demo scaffold into a Mission
+Control board that reports what agents are actually doing, and the agent-specific
+parts move out of the daemon into adapter data. Also a substantial security pass
+on the local Andon network surface. 329 tests passing.
+
+### Agent-agnostic turn signals
+
+- Every adapter profile now declares a **capability tier**: `realtime_hooks` (turn hooks work, running and waiting flip live), `session_lifecycle_only` (start and end signals only), or `substrate_fallback` (status inferred from completion signals). The invariant is enforced at doc generation time.
+- New agents are registered as **data**, not code. The turn-hook installer reads `turn_hook_config` from adapter docs and generates the per-agent hook scripts, so supporting another agent means adding an adapter doc rather than branching inside the daemon.
+- Added a **Gemini** `realtime_hooks` adapter targeting the global `~/.gemini/settings.json`, with `~/` expansion confined to the home directory and never resolved against worktrees. Corrected **Codex** to `session_lifecycle_only` after confirming it has no turn hooks.
+- Turn hooks propagate into **all active git worktrees** at install and on `post-checkout`, and turn signals are attributed to the emitting agent rather than the incumbent session.
+- The state root walk-up now requires a real `state.json`, so the MCP server and the runtime writer always agree on which state file they are using.
+
+### Andon Mission Control
+
+- Replaced the ad hoc fleet view with an **operational projection**: explicit truth categories, decision-based status, and honest agent attribution, consumed verbatim by the dashboard.
+- The board **degrades honestly** when a signal is missing instead of guessing. Runtime-first fleet resolution, ingest-mirror treated as a missing signal, legacy sessions surfaced as disconnected rather than fabricated as live.
+- Added per-session **timelines and replay**, a generic **session beacon** for agent telemetry, and platform-neutral source visibility.
+- Abandoned attention demands now **age off** the board rather than accumulating as permanent cards.
+- Performance: bounded timelines, a session cache, SSE debounce, and dashboard request timeouts.
+
+### Security
+
+- Andon services now require a **loopback auth token**, created on first start, alongside an origin allowlist. The services are reachable from any page the browser loads, so this closes a real exposure.
+- Event delivery is **restricted to loopback**. `ANDON_API_BASE_URL` previously accepted any host with failures visible only under `ANDON_DEBUG`, so pointing it elsewhere silently exfiltrated every checkpoint. Remote delivery now requires `ANDON_ALLOW_REMOTE=1`.
+- Closed **RCE, path traversal, and daemon startup crashes**; containment now resolves symlinks so a linked directory cannot redirect writes.
+- Stopped turn hooks from **corrupting `state.json`**, defanged prompt injection through derived docs, and bounded in-flight event dispatch so long-lived processes no longer leak.
+- Secret redaction no longer **destroys prose** that merely mentions a secret keyword.
+- The test suite no longer **writes into the live Andon database**. `ANDON_DISABLED` accepts `true`, `1`, `yes`, and `on`, and emission is refused outright when a test runner is detected.
+
+### CLI and state
+
+- Added `holistic uninstall` (keeps session memory unless you pass `--purge`) and a `bootstrap --dry-run` preflight.
+- `handoff` can now **rescue answers** when the session is lost mid-flow instead of discarding them.
+- The **pending work queue is bounded** and no longer drops carryover detail when it fills.
+- The `HOLISTIC-USER-EDITED` marker is honored on **every** derived doc, so a doc you have edited by hand is never regenerated.
+- Hook commands and handoff instructions resolve the **configured** runtime directory, which repos using a custom runtime path depended on.
+- Fixed Mission Control signal ages rendering as roughly 20000d when a card fell back to its last event timestamp.
+
 ## 0.6.5 - 2026-04-18
 
 Development-tree updates for the optional **Andon** supervision scaffold and Holistic telemetry hooks.

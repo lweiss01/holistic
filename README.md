@@ -17,7 +17,7 @@ Your agents switch. Your repo remembers.
 
 Most agent-memory tools are laptop-bound. They assume you sit at one terminal and switch between CLIs. Real work is messier than that: a desktop assistant here, an IDE agent there, a mobile follow-up later, a second machine tomorrow.
 
-Holistic gives your repo a durable memory layer that survives all of it: agent switches, app switches, device switches, context compaction, and half-finished sessions. The state lives on a dedicated branch that syncs across machines, not in a local folder one laptop owns.
+Holistic gives your repo a durable memory layer that survives all of it: agent switches, app switches, device switches, context compaction, and half-finished sessions. The state syncs through the repo itself on a hidden git ref, not in a local folder one laptop owns.
 
 If you build with more than one AI coding assistant, you already have the problem Holistic solves.
 
@@ -25,7 +25,7 @@ If you build with more than one AI coding assistant, you already have the proble
 
 There are several good cross-agent handoff tools now. Here is where Holistic is not the same:
 
-- **Cross-device, not just cross-agent.** Other tools keep state in a local folder on one machine. Holistic syncs through the repo itself on a dedicated state branch, so a session you start on your phone picks up what your laptop agent did this morning.
+- **Cross-device, not just cross-agent.** Other tools keep state in a local folder on one machine. Holistic syncs through the repo itself on a hidden ref (`refs/holistic/state`), so a session you start on your phone picks up what your laptop agent did this morning, without adding branch noise to your PR list.
 - **Regression memory, not just handoff.** Most tools move context forward. Holistic also guards against backsliding. A regression watchlist records what must not break again, so the fourth agent does not undo what the second agent fixed.
 - **Human-reviewed checkpoints.** A checkpoint is written for an agent with zero context, then shown to you for review before it is saved. You edit the memory, the repo stores it, every agent reads it.
 
@@ -41,8 +41,17 @@ Then initialize it once in any repo:
 
 ```bash
 cd /path/to/your/project
-holistic init --remote origin --state-branch holistic/state
+holistic init
 ```
+
+That defaults to the `origin` remote and the hidden state ref
+`refs/holistic/state`. Pass `--state-branch holistic/state` only if you want the
+legacy visible branch instead.
+
+Cross-device sync is **opt-in**. Until you set `portableState: true` in
+`.holistic/config.json` (or pass `--portable` at init), Holistic keeps everything
+local and the generated sync scripts exit early, so nothing leaves the machine.
+`holistic doctor` tells you which mode you are in.
 
 To work from source instead:
 
@@ -72,14 +81,15 @@ Holistic anchors memory in files the repo already tracks:
 
 - `HOLISTIC.md` is the first file an agent should read.
 - `.holistic/state.json` holds machine-readable state.
-- `.holistic/sessions/` is an append-only session history.
+- `.holistic/sessions/` is an append-only session history. Sessions that have been finished and unreferenced for 30 days move to `.holistic/sessions/archive/`, which stays readable but keeps the active set small.
+- `.holistic/context/` holds the derived docs agents read at startup: the current plan, project history, and the regression watchlist.
 
 The architecture is split on purpose, because a daemon on your laptop cannot help a session that starts on your phone:
 
 | Layer | Purpose | Portable |
 | --- | --- | --- |
 | Repo memory | Shared handoff, history, regression, and session state | Yes |
-| State branch | Cross-device distribution of Holistic state | Yes |
+| State ref | Cross-device distribution of Holistic state | Yes |
 | Local daemon | Passive capture on one machine, optional | No |
 | Andon (optional) | Live monitoring of running agents, source-only | No |
 
@@ -97,17 +107,39 @@ The next agent reads `HOLISTIC.md`, reviews project history and regression memor
 
 ## Commands
 
+Setup:
+
 | Command | Purpose |
 | --- | --- |
 | `holistic init` | Initialize Holistic for a repo |
 | `holistic bootstrap` | Install machine helpers: git hooks, daemon, MCP config |
-| `holistic doctor` | Diagnose setup and configuration health |
-| `holistic repair` | Regenerate machine-local helpers |
-| `holistic resume` | Produce a recap and recovery flow |
-| `holistic checkpoint` | Save durable mid-session state |
+| `holistic repair` | Regenerate machine-local helpers after a path move or Node reinstall |
+| `holistic uninstall` | Remove machine helpers, autostart, and the MCP entry. Keeps session memory unless you pass `--purge` |
+
+Read-only and diagnostic:
+
+| Command | Purpose |
+| --- | --- |
+| `holistic status` | View current repository health and sync status |
+| `holistic doctor` | Run deep diagnostics and verify system health (`--json` for machine output) |
+| `holistic resume` | Produce a recap and recovery flow (`holistic start` is an alias) |
+| `holistic diff` | Compare session state between two points in time |
+| `holistic search` | Find and retrieve session state by ID |
+| `holistic version` | Print the installed version |
+
+Stateful:
+
+| Command | Purpose |
+| --- | --- |
+| `holistic checkpoint` | Save durable mid-session state (reason required) |
 | `holistic handoff` | Finalize the session handoff |
 | `holistic start-new` | Start a fresh tracked session while preserving unfinished work |
 | `holistic watch` | Foreground watch mode for automatic checkpoints |
+| `holistic serve` | Run the MCP server over stdio for MCP-capable agents |
+
+The split is the trust model, not just tidiness: read-only commands never write.
+They will surface a health warning about an outdated hook, but they will not
+silently fix it.
 
 `bootstrap` writes outside the repo (a startup entry, git hooks, and Claude
 Desktop MCP config), so it shows you what it intends to change and does nothing
@@ -132,6 +164,20 @@ your browser loads, they enforce an origin allowlist and a loopback auth token
 created on first start. Read [SECURITY.md](SECURITY.md#network-surface) before
 running it, and set `HOLISTIC_ANDON=0` if you want the daemon to leave it alone.
 
+### How much Andon can see depends on the agent
+
+Agents differ in what they expose, so each one is registered as data (an adapter
+doc), never as a branch in the daemon. Every adapter declares a capability tier,
+and the board degrades honestly rather than inventing a status:
+
+| Tier | What it means |
+| --- | --- |
+| `realtime_hooks` | The agent has working turn hooks, so running and waiting flip live |
+| `session_lifecycle_only` | Session start and end signals only, no turn boundaries |
+| `substrate_fallback` | No lifecycle hooks; status is inferred from completion signals |
+
+Adding a new agent means adding an adapter doc, not editing the daemon.
+
 ## Example workflow
 
 ```
@@ -152,11 +198,13 @@ Session 3 on mobile with Codex
 
 Holistic is source-first and evolving. What is on deck:
 
-- **Supersession semantics.** Today a checkpoint that turns out to be wrong can only be overwritten or left to mislead. Supersession will let a checkpoint be marked deprecated without deleting it, with a pointer to the entry that replaces it and a short reason. This keeps the history honest instead of letting the memory layer fill with confident but stale claims. (Raised by readers of the dev.to series, and the next concrete build.)
-- **Published releases and changelog.** Tagged GitHub releases that track the npm versions, so the repo and the package tell the same story.
+- **Decisions and supersession.** Today a checkpoint that turns out to be wrong can only be overwritten or left to mislead. An append-only decision log with explicit supersession will let an entry be marked deprecated without deleting it, carrying a pointer to what replaced it and a short reason. This keeps the history honest instead of letting the memory layer fill with confident but stale claims. Specced; next concrete build.
+- **Bounded derived docs.** Project history and the regression watchlist are rendered from session files and grow without limit, which eventually defeats the purpose of a doc agents are told to read first. Both are moving to a hot window with full detail plus a cold index.
 - **Richer regression detection.** Move the regression watchlist from a manual list toward checkpoints that can flag the specific files or behaviors a prior fix depended on.
 - **Cross-agent messaging (under consideration).** A way for one agent to leave a targeted note for a specific next agent, not just a broadcast state update. Being evaluated against the goal of keeping the format simple.
-- **Adapter coverage.** Clearer, tested setup for each agent environment (Claude Code, Codex, Gemini/Antigravity, Cursor) rather than a single generic path.
+
+Recently shipped: per-agent adapter coverage with declared capability tiers
+(above), and tagged releases that track the npm versions.
 
 ## Background
 
