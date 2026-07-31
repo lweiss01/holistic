@@ -462,6 +462,42 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     },
   },
   {
+    name: "Andon Mission Control derives signal age from the fallback timestamp when no age is supplied",
+    run: () => {
+      const nowMs = Date.parse("2026-04-29T12:15:00.000Z");
+      const [viewModel] = buildMissionSessionViewModels([
+        makeMissionSession("live", {
+          signalAgeMs: null,
+          agentSignalAgeMs: null,
+          lastSignalTimestamp: "2026-04-29T12:10:00.000Z",
+          lastAgentSignalTimestamp: "2026-04-29T12:13:00.000Z",
+        }),
+      ], nowMs);
+
+      assert.ok(viewModel);
+      assert.equal(viewModel.lastSignalAge, "5m");
+      assert.equal(viewModel.lastAgentSignalAge, "agent 2m");
+    },
+  },
+  {
+    name: "Andon Mission Control reports no signal when neither an age nor a timestamp exists",
+    run: () => {
+      const [viewModel] = buildMissionSessionViewModels([
+        makeMissionSession("live", {
+          signalAgeMs: null,
+          agentSignalAgeMs: null,
+          lastSignalTimestamp: null,
+          lastAgentSignalTimestamp: null,
+          session: { lastEventAt: null },
+        }),
+      ], Date.parse("2026-04-29T12:15:00.000Z"));
+
+      assert.ok(viewModel);
+      assert.equal(viewModel.lastSignalAge, "no signal");
+      assert.equal(viewModel.lastAgentSignalAge, "agent no signal");
+    },
+  },
+  {
     name: "Andon Detail and Mission Control expose the same canonical primaryStatus label",
     run: () => {
       const session = makeMissionSession("review", {

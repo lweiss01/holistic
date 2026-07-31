@@ -294,14 +294,17 @@ function formatDuration(startedAt: string | null | undefined, endedAt: string | 
   return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
 }
 
-export function formatSignalAge(signalAgeMs: number | null, fallbackTimestamp?: string | null): string {
-  const ageMs = signalAgeMs ?? (
-    fallbackTimestamp ? Math.max(0, Date.now() - new Date(fallbackTimestamp).getTime()) : null
-  );
-  if (ageMs == null || !Number.isFinite(ageMs)) {
+function formatSignalAge(
+  signalAgeMs: number | null,
+  fallbackTimestampMs?: number | null,
+  nowMs: number = Date.now()
+): string {
+  const computedAgeMs =
+    signalAgeMs ?? (fallbackTimestampMs != null ? Math.max(0, nowMs - fallbackTimestampMs) : null);
+  if (computedAgeMs == null || !Number.isFinite(computedAgeMs)) {
     return "no signal";
   }
-  const seconds = Math.floor(ageMs / 1000);
+  const seconds = Math.floor(computedAgeMs / 1000);
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m`;
@@ -365,6 +368,7 @@ function attentionFlags(item: MissionControlSession): string[] {
 function summarizeMissionRuntime(
   sessions: MissionSessionViewModel[],
   sources: AgentSessionSourceSummary[],
+  nowMs: number
 ): MissionControlBoardViewModel["runtimeSummary"] {
   const runningCount = sessions.filter((session) => session.primaryStatus === "running").length;
   const attentionCount = sessions.filter((session) =>
@@ -386,18 +390,29 @@ function summarizeMissionRuntime(
     sourceCount: sources.length,
     activeSourceCount,
     connectedSourceCount,
-    lastAgentSignalAge: formatSignalAge(youngestSignalMs),
+    lastAgentSignalAge: formatSignalAge(youngestSignalMs, null, nowMs),
   };
 }
 
 export function buildMissionSessionViewModels(
   sessions: MissionControlSession[],
+  nowMs: number = Date.now()
 ): MissionSessionViewModel[] {
   return sessions
     .filter((item) => item.belongsToMissionControl !== false)
     .filter((item) => item.category !== "historical")
     .map((item) => {
       const trafficLight = mapPrimaryStatusToTrafficLight(item.primaryStatus);
+
+      // Parse timestamps once per session to avoid repeated Date parsing
+      const lastSignalMs = item.lastSignalTimestamp
+        ? new Date(item.lastSignalTimestamp).getTime()
+        : item.session.lastEventAt
+        ? new Date(item.session.lastEventAt).getTime()
+        : null;
+      const lastAgentSignalMs = item.lastAgentSignalTimestamp
+        ? new Date(item.lastAgentSignalTimestamp).getTime()
+        : null;
 
       return {
         id: item.session.id,
@@ -411,8 +426,8 @@ export function buildMissionSessionViewModels(
         reason: trimLine(item.reason.replace(/_/g, " "), 64),
         operatorActivity: item.operatorActivity.replace(/-/g, " "),
         freshness: `${item.freshness} signal`,
-        lastSignalAge: formatSignalAge(item.signalAgeMs, item.lastSignalTimestamp ?? item.session.lastEventAt),
-        lastAgentSignalAge: `agent ${formatSignalAge(item.agentSignalAgeMs, item.lastAgentSignalTimestamp)}`,
+        lastSignalAge: formatSignalAge(item.signalAgeMs, lastSignalMs, nowMs),
+        lastAgentSignalAge: `agent ${formatSignalAge(item.agentSignalAgeMs, lastAgentSignalMs, nowMs)}`,
         runtimeAliveLabel: runtimeAliveLabel(item),
         primaryStatusLabel: primaryStatusLabel(item),
         actionRequired: item.actionRequired,
@@ -433,8 +448,9 @@ export function buildMissionSessionViewModels(
 export function buildMissionControlBoardViewModel(
   response: MissionControlResponse,
 ): MissionControlBoardViewModel {
-  const sessions = buildMissionSessionViewModels(response.sessions);
-  const generatedAge = formatSignalAge(null, response.generatedAt);
+  const nowMs = Date.now();
+  const sessions = buildMissionSessionViewModels(response.sessions, nowMs);
+  const generatedAge = formatSignalAge(null, response.generatedAt ? new Date(response.generatedAt).getTime() : null, nowMs);
   const sources = response.sources ?? [];
   const ingestionStatus = response.ingestionStatus ?? {
     status: "unknown",
@@ -454,7 +470,7 @@ export function buildMissionControlBoardViewModel(
     totals: response.totals,
     sessionCount: sessions.length,
     historyCount: response.historicalCount ?? response.totals.historical ?? response.sessions.filter((item) => item.category === "historical").length,
-    runtimeSummary: summarizeMissionRuntime(sessions, sources),
+    runtimeSummary: summarizeMissionRuntime(sessions, sources, nowMs),
     sessions,
     sources,
     ingestionStatus,
@@ -469,7 +485,10 @@ export function buildMissionControlBoardViewModel(
   };
 }
 
-export function buildHistorySessionViewModels(response: MissionControlResponse): HistorySessionViewModel[] {
+export function buildHistorySessionViewModels(
+  response: MissionControlResponse,
+  nowMs: number = Date.now()
+): HistorySessionViewModel[] {
   return response.sessions
     .filter((item) => item.belongsToHistory !== false)
     .filter((item) => item.category === "historical")
@@ -484,18 +503,29 @@ export function buildHistorySessionViewModels(response: MissionControlResponse):
       rawRuntimeStatus: item.rawRuntimeStatus,
       sourceOfTruth: item.sourceOfTruth,
       freshness: item.freshness,
-      lastAgentSignalAge: formatSignalAge(item.agentSignalAgeMs, item.lastAgentSignalTimestamp),
+      lastAgentSignalAge: formatSignalAge(
+        item.agentSignalAgeMs,
+        item.lastAgentSignalTimestamp ? new Date(item.lastAgentSignalTimestamp).getTime() : null,
+        nowMs
+      ),
       runtimeAliveLabel: runtimeAliveLabel(item),
       confidence: item.confidence,
       endedAtLabel: formatDateTime(item.session.endedAt ?? item.lastSignalTimestamp ?? item.session.lastEventAt),
       durationLabel: formatDuration(item.session.startedAt, item.session.endedAt),
-      lastSignalAge: formatSignalAge(item.signalAgeMs, item.lastSignalTimestamp ?? item.session.lastEventAt),
+      lastSignalAge: formatSignalAge(
+        item.signalAgeMs,
+        (item.lastSignalTimestamp ?? item.session.lastEventAt) ? new Date(item.lastSignalTimestamp ?? item.session.lastEventAt).getTime() : null,
+        nowMs
+      ),
       detailHref: `/session/${encodeURIComponent(item.session.id)}`,
       replayHref: `/session/${encodeURIComponent(item.session.id)}/replay`,
     }));
 }
 
-export function buildDetailProjectionViewModel(item: MissionControlSession): DetailProjectionViewModel {
+export function buildDetailProjectionViewModel(
+  item: MissionControlSession,
+  nowMs: number = Date.now()
+): DetailProjectionViewModel {
   return {
     id: item.session.id,
     category: item.category,
@@ -510,8 +540,16 @@ export function buildDetailProjectionViewModel(item: MissionControlSession): Det
     derivedOperationalStatus: item.derivedOperationalStatus,
     sourceOfTruth: item.sourceOfTruth,
     freshness: item.freshness,
-    lastSignalAge: formatSignalAge(item.signalAgeMs, item.lastSignalTimestamp ?? item.session.lastEventAt),
-    lastAgentSignalAge: formatSignalAge(item.agentSignalAgeMs, item.lastAgentSignalTimestamp),
+    lastSignalAge: formatSignalAge(
+      item.signalAgeMs,
+      (item.lastSignalTimestamp ?? item.session.lastEventAt) ? new Date(item.lastSignalTimestamp ?? item.session.lastEventAt).getTime() : null,
+      nowMs
+    ),
+    lastAgentSignalAge: formatSignalAge(
+      item.agentSignalAgeMs,
+      item.lastAgentSignalTimestamp ? new Date(item.lastAgentSignalTimestamp).getTime() : null,
+      nowMs
+    ),
     runtimeAliveLabel: runtimeAliveLabel(item),
     confidence: item.confidence,
     operatorActivity: item.operatorActivity.replace(/-/g, " "),
