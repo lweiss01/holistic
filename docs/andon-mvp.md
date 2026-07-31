@@ -62,9 +62,22 @@ If port `4318` is already occupied by a healthy Andon API, `npm run andon:api` n
 |----------|-------|---------|
 | `HOLISTIC_REPO` | Andon API process | File-backed Holistic bridge; if missing or not a directory, the mock bridge is used. |
 | `ANDON_API_BASE_URL` | Holistic CLI | Target for lifecycle events emitted from `src/core/andon.ts` (default `http://127.0.0.1:4318`). |
-| `ANDON_DISABLED` | Holistic CLI | Set to `true` to disable outbound Andon posts. |
-| `ANDON_DEBUG` | Holistic CLI | Log Andon POST failures. |
+| `ANDON_DISABLED` | Holistic CLI | Disable outbound Andon posts. Accepts `true`, `1`, `yes`, or `on`. |
+| `ANDON_ALLOW_TEST_EMIT` | Tests | Opt back into emission under a test runner (see below). `ANDON_DISABLED` still wins. |
+| `ANDON_DEBUG` | Holistic CLI | Log Andon POST failures and suppressed events. |
 | `VITE_ANDON_API_BASE_URL` | Dashboard (`npm run dev`) | API base URL for browser fetches (default `http://127.0.0.1:4318`). |
+
+### Emission under test
+
+Emission is off whenever a test runner is detected (`NODE_ENV=test`,
+`HOLISTIC_TEST_MODE`, `NODE_TEST_CONTEXT`, `VITEST`, or `JEST_WORKER_ID`).
+Without that guard, a full suite run drove real CLI, checkpoint, and handoff
+paths against the default loopback target and wrote fixture sessions into the
+operator's live dashboard database. `tests/run-tests.ts` also sets the flags
+explicitly via `tests/test-env.ts`, imported before anything that can emit.
+
+A test that needs to assert on dispatch itself sets `ANDON_ALLOW_TEST_EMIT=1`
+and points `ANDON_API_BASE_URL` at a throwaway loopback port.
 
 ## Current API Baseline
 

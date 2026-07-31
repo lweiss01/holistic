@@ -56,10 +56,60 @@ export function resolveAndonBaseUrl(): string | null {
   return raw.replace(/\/$/, "");
 }
 
+const TRUTHY_FLAG_VALUES = new Set(["true", "1", "yes", "on"]);
+
+function isTruthyFlag(value: string | undefined): boolean {
+  return value != null && TRUTHY_FLAG_VALUES.has(value.trim().toLowerCase());
+}
+
+/**
+ * Detect a test runner without asking the runner to cooperate.
+ *
+ * The suite exercises CLI, checkpoint, and handoff paths, all of which emit.
+ * Because emission defaulted to on and only suppressed on the exact string
+ * "true", every full test run injected fixture sessions ("First objective",
+ * "Handoff traversal probe", agent "codex") into the operator's real Andon
+ * database - hundreds of rows polluting the live board. The runner now sets
+ * the flags explicitly, but a heuristic backstop keeps a stray `node --test`
+ * or a test file run directly from writing to live state.
+ */
+function isTestEnvironment(): boolean {
+  return (
+    process.env.NODE_ENV === "test"
+    || isTruthyFlag(process.env.HOLISTIC_TEST_MODE)
+    || process.env.NODE_TEST_CONTEXT != null
+    || process.env.VITEST != null
+    || process.env.JEST_WORKER_ID != null
+  );
+}
+
+/**
+ * Why emission is suppressed, or null when events may be sent.
+ *
+ * ANDON_ALLOW_TEST_EMIT=1 is the opt-in for tests that assert on dispatch
+ * behavior itself; an explicit ANDON_DISABLED still wins over it.
+ */
+export function andonSuppressionReason(): string | null {
+  if (isTruthyFlag(process.env.ANDON_DISABLED)) {
+    return "ANDON_DISABLED";
+  }
+  if (isTruthyFlag(process.env.ANDON_ALLOW_TEST_EMIT)) {
+    return null;
+  }
+  if (isTestEnvironment()) {
+    return "test environment";
+  }
+  return null;
+}
+
 export function emitAndonEvent(
   event: AndonEventPayload
 ): void {
-  if (process.env.ANDON_DISABLED === "true") {
+  const suppressed = andonSuppressionReason();
+  if (suppressed) {
+    if (process.env.ANDON_DEBUG === "true") {
+      console.warn(`Andon event suppressed (${suppressed}): ${event.type}`);
+    }
     return;
   }
 

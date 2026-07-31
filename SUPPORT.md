@@ -66,8 +66,8 @@ Andon is a **local-first** companion stack in this repository (not part of the p
 | Variable | Purpose |
 |----------|---------|
 | `ANDON_API_BASE_URL` | Base URL for the Andon API (default `http://127.0.0.1:4318`). |
-| `ANDON_DISABLED` | Set to `true` to stop Holistic from posting events. |
-| `ANDON_DEBUG` | Set to `true` to log dropped events or connection errors from Holistic. |
+| `ANDON_DISABLED` | Stop Holistic from posting events. Accepts `true`, `1`, `yes`, or `on`. Emission is also off automatically under a test runner. |
+| `ANDON_DEBUG` | Set to `true` to log dropped events, suppressed events, or connection errors from Holistic. |
 | `HOLISTIC_REPO` | Absolute path to a Holistic-enabled repo; the Andon API uses it for a **file-backed** Holistic bridge (reads `.holistic/state.json` and session files). If unset or invalid, the API uses a mock bridge for demos. |
 | `VITE_ANDON_API_BASE_URL` | Dashboard dev server override for the API base URL (see `apps/andon-dashboard`). |
 

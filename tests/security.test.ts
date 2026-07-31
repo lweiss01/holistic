@@ -32,7 +32,7 @@ import {
 } from "../src/core/setup.ts";
 import { draftIsApplicable } from "../src/cli.ts";
 import { isUserAuthoredDoc, untrusted, USER_EDITED_MARKER, writeDerivedDocs } from "../src/core/docs.ts";
-import { emitAndonEvent, pendingAndonEventCount, resolveAndonBaseUrl } from "../src/core/andon.ts";
+import { andonSuppressionReason, emitAndonEvent, pendingAndonEventCount, resolveAndonBaseUrl } from "../src/core/andon.ts";
 import { andonAuthHeaders, andonTokenFilePath, readAndonToken } from "../src/core/andon-token.ts";
 import { getOrCreateToken } from "../services/shared/auth.ts";
 import { resolveLocalProcessCommand } from "../packages/runtime-local/src/process.ts";
@@ -774,9 +774,13 @@ export const tests = [
     run: async () => {
       const previousBase = process.env.ANDON_API_BASE_URL;
       const previousDisabled = process.env.ANDON_DISABLED;
-      // Point at a closed loopback port so each dispatch fails fast.
+      const previousAllowTestEmit = process.env.ANDON_ALLOW_TEST_EMIT;
+      // Point at a closed loopback port so each dispatch fails fast. The suite
+      // suppresses emission wholesale, so this test opts back in explicitly:
+      // it is asserting on dispatch bookkeeping, not on delivery.
       process.env.ANDON_API_BASE_URL = "http://127.0.0.1:1";
       delete process.env.ANDON_DISABLED;
+      process.env.ANDON_ALLOW_TEST_EMIT = "1";
 
       try {
         for (let index = 0; index < 5; index += 1) {
@@ -798,7 +802,62 @@ export const tests = [
         if (previousBase === undefined) delete process.env.ANDON_API_BASE_URL;
         else process.env.ANDON_API_BASE_URL = previousBase;
         if (previousDisabled !== undefined) process.env.ANDON_DISABLED = previousDisabled;
+        if (previousAllowTestEmit === undefined) delete process.env.ANDON_ALLOW_TEST_EMIT;
+        else process.env.ANDON_ALLOW_TEST_EMIT = previousAllowTestEmit;
       }
+    }
+  },
+  {
+    name: "andon emission is suppressed under a test runner and by any truthy disable flag",
+    run: () => {
+      const previousDisabled = process.env.ANDON_DISABLED;
+      const previousTestMode = process.env.HOLISTIC_TEST_MODE;
+      const previousAllowTestEmit = process.env.ANDON_ALLOW_TEST_EMIT;
+
+      try {
+        // ANDON_DISABLED was compared against the exact string "true", so the
+        // obvious spellings silently did nothing.
+        for (const value of ["true", "TRUE", "1", "yes", "on", " true "]) {
+          process.env.ANDON_DISABLED = value;
+          assert.equal(andonSuppressionReason(), "ANDON_DISABLED", `${value} must disable emission`);
+        }
+
+        // Off spellings do not disable, leaving the test-runner backstop.
+        delete process.env.ANDON_DISABLED;
+        delete process.env.ANDON_ALLOW_TEST_EMIT;
+        process.env.HOLISTIC_TEST_MODE = "1";
+        assert.equal(
+          andonSuppressionReason(),
+          "test environment",
+          "a test runner must not write into the live Andon database",
+        );
+
+        // Tests that assert on dispatch itself can opt back in.
+        process.env.ANDON_ALLOW_TEST_EMIT = "1";
+        assert.equal(andonSuppressionReason(), null);
+
+        // An explicit disable still wins over the opt-in.
+        process.env.ANDON_DISABLED = "true";
+        assert.equal(andonSuppressionReason(), "ANDON_DISABLED");
+      } finally {
+        if (previousDisabled === undefined) delete process.env.ANDON_DISABLED;
+        else process.env.ANDON_DISABLED = previousDisabled;
+        if (previousTestMode === undefined) delete process.env.HOLISTIC_TEST_MODE;
+        else process.env.HOLISTIC_TEST_MODE = previousTestMode;
+        if (previousAllowTestEmit === undefined) delete process.env.ANDON_ALLOW_TEST_EMIT;
+        else process.env.ANDON_ALLOW_TEST_EMIT = previousAllowTestEmit;
+      }
+    }
+  },
+  {
+    name: "emitAndonEvent dispatches nothing while the suite is running",
+    run: () => {
+      // The suite sets ANDON_DISABLED/HOLISTIC_TEST_MODE in tests/test-env.ts.
+      // If that guard is ever dropped, this fails instead of quietly writing
+      // fixture sessions to the operator's real dashboard.
+      const before = pendingAndonEventCount();
+      emitAndonEvent({ type: "session.started", sessionId: "session-must-not-be-sent" });
+      assert.equal(pendingAndonEventCount(), before, "the suite must not dispatch Andon events");
     }
   },
   {

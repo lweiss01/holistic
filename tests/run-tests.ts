@@ -1,3 +1,7 @@
+// Must stay the first import: it disables Andon emission before any module
+// that emits is evaluated. See tests/test-env.ts.
+import "./test-env.ts";
+
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { execFileSync } from "node:child_process";
