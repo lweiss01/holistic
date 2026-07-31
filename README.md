@@ -105,6 +105,44 @@ When you end a session, the agent produces a handoff summary, shows it to you fo
 
 The next agent reads `HOLISTIC.md`, reviews project history and regression memory, recaps where things stand, and asks whether to continue, adjust the plan, or start something new.
 
+## Which agents does it work with
+
+**Continuity works with any agent.** The memory layer is files in your repo, so
+any assistant that can read a repo can pick up where the last one left off, with
+no integration required.
+
+What differs per agent is how much the optional Andon board can see *live*.
+Each agent is registered as data (an adapter doc), never as a branch in the
+daemon, and every adapter declares a capability tier:
+
+| Agent | Live monitoring tier |
+| --- | --- |
+| Claude Code | `realtime_hooks` |
+| Gemini CLI | `realtime_hooks` |
+| Codex | `session_lifecycle_only` |
+| Cursor | `substrate_fallback` |
+| GitHub Copilot | `substrate_fallback` |
+| Antigravity | `substrate_fallback` |
+| Goose | `substrate_fallback` |
+
+The tiers are explained under [Andon](#how-much-andon-can-see-depends-on-the-agent).
+Adding an agent means adding an adapter doc, not editing the daemon.
+
+## MCP
+
+Holistic ships an MCP server, so MCP-capable agents get continuity as tools
+rather than as shell commands:
+
+```bash
+holistic serve
+```
+
+`holistic bootstrap` writes the Claude Desktop MCP entry for you. The tool
+surface is deliberately thin: `holistic_resume`, `holistic_checkpoint`,
+`holistic_handoff`, and `holistic_slash`. On connect, the server sends a short
+notification when carryover exists, so the agent knows to resume before it
+starts guessing.
+
 ## Commands
 
 Setup:
@@ -198,17 +236,60 @@ Session 3 on mobile with Codex
 
 Holistic is source-first and evolving. What is on deck:
 
+### Team mode: parallel agents, not just sequential ones
+
+Everything above is about **serial** continuity: one developer handing off from
+one agent to the next. The next step is **parallel** execution, using the git
+worktrees Holistic already understands:
+
+```bash
+holistic spawn --agent claude    # isolated worktree, fresh branch, tracked session
+holistic spawn --agent gemini    # a second worktree, working at the same time
+# ... both agents work in parallel ...
+holistic gather                  # review the diffs, merge what worked, clean up
+```
+
+Worktrees are the right primitive because the isolation is real: separate
+directories, separate branches, no agents writing over each other. `gather` is
+the interesting half. It has to reconcile two things at once, the **code** from
+N branches and the **memory** from N sets of checkpoints, and it keeps the human
+review step exactly where it belongs, at the merge.
+
+Scope for the first version is deliberately one developer running several
+agents. Several *developers* on one repo is a different problem, because a
+checkpoint stops being a note to yourself and becomes an attestation from
+someone else's agent, which Holistic cannot verify today. That is gated behind
+the trust work below rather than shipped alongside.
+
+### Also planned
+
 - **Decisions and supersession.** Today a checkpoint that turns out to be wrong can only be overwritten or left to mislead. An append-only decision log with explicit supersession will let an entry be marked deprecated without deleting it, carrying a pointer to what replaced it and a short reason. This keeps the history honest instead of letting the memory layer fill with confident but stale claims. Specced; next concrete build.
 - **Bounded derived docs.** Project history and the regression watchlist are rendered from session files and grow without limit, which eventually defeats the purpose of a doc agents are told to read first. Both are moving to a hot window with full detail plus a cold index.
 - **Richer regression detection.** Move the regression watchlist from a manual list toward checkpoints that can flag the specific files or behaviors a prior fix depended on.
+- **Cross-operator trust.** Everything today assumes every writing agent sits inside one person's trust boundary. Supporting teams honestly means a verifiable log, not just a shared branch. The direction is recorded rather than hand-waved.
 - **Cross-agent messaging (under consideration).** A way for one agent to leave a targeted note for a specific next agent, not just a broadcast state update. Being evaluated against the goal of keeping the format simple.
 
-Recently shipped: per-agent adapter coverage with declared capability tiers
-(above), and tagged releases that track the npm versions.
+Recently shipped: per-agent adapter coverage with declared capability tiers,
+agent-agnostic live monitoring through Andon Mission Control, a loopback auth
+token and loopback-only event delivery for the Andon services, and tagged
+releases that track the npm versions.
 
 ## Background
 
-The thinking behind Holistic is written up in an ongoing dev.to series on AI coding agent memory: why checkpoints beat transcripts, why continuity is a coordination problem rather than a memory problem, and where the idea breaks down once agents no longer share a trust boundary.
+Holistic came out of a fairly specific frustration: agent memory tools kept
+treating continuity as a storage problem, when in practice it is a coordination
+problem. The hard part is not writing state down. It is deciding what deserves
+to be remembered, keeping it honest as it ages, and getting it in front of the
+next agent before that agent starts guessing.
+
+I have written about that at length in an ongoing series on AI coding agent
+memory: why checkpoints beat transcripts, why regression memory matters more
+than handoff summaries, and where the whole idea breaks down once agents stop
+sharing a trust boundary.
+
+If you want the deeper treatment of the theory behind this tool, rather than
+just the tool itself, I collected it into a field guide:
+**[Read the field guide](https://a.co/d/02EDuWEa)**.
 
 ## Contributing
 
