@@ -51,14 +51,35 @@ function quoteCmdArg(value) {
   return /[\s"]/u.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 
+/**
+ * Environment for a nested npm call, with the parent's script policy removed.
+ *
+ * `npm run` exports the whole npm config as npm_config_* vars, so a developer
+ * whose own npmrc sets allow-scripts leaks it into the installs below. npm
+ * rejects that config on a project-scoped install (EALLOWSCRIPTS), which broke
+ * this script only when it was invoked through `npm run`, never when run
+ * directly. Dropping these keys lets npm resolve policy from npmrc as usual.
+ */
+function npmEnv(baseEnv = process.env) {
+  const env = { ...baseEnv };
+  for (const key of Object.keys(env)) {
+    if (/^npm_config_(allow_scripts|ignore_scripts)$/i.test(key)) {
+      delete env[key];
+    }
+  }
+  return env;
+}
+
 function runNpm(args, options = {}) {
+  const scoped = { ...options, env: npmEnv(options.env) };
+
   if (process.platform !== "win32") {
-    return run(npmCmd, args, options);
+    return run(npmCmd, args, scoped);
   }
 
   const shell = process.env.ComSpec ?? "cmd.exe";
   const commandLine = [npmCmd, ...args].map(quoteCmdArg).join(" ");
-  return run(shell, ["/d", "/s", "/c", commandLine], options);
+  return run(shell, ["/d", "/s", "/c", commandLine], scoped);
 }
 
 function ensureIncludes(haystack, needle, label) {
@@ -99,7 +120,13 @@ function main() {
     private: true,
   }, null, 2) + "\n", "utf8");
 
-  runNpm(["install", "--ignore-scripts", tarballPath], { cwd: installRoot });
+  // npm 11.17 rejects --ignore-scripts on a project-scoped install
+  // (EALLOWSCRIPTS) and points at config instead, so set it in .npmrc. The
+  // intent is unchanged: install the tarball without running its lifecycle
+  // scripts, because this is verifying the packaged artifact, not the build.
+  fs.writeFileSync(path.join(installRoot, ".npmrc"), "ignore-scripts=true\n", "utf8");
+
+  runNpm(["install", tarballPath], { cwd: installRoot });
 
   const installedBin = path.join(installedPackagePath(installRoot, packageName), "bin", "holistic.js");
   if (!fs.existsSync(installedBin)) {

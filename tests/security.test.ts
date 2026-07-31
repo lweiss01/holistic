@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { fileURLToPath } from "node:url";
 import { once } from "node:events";
 import { createServer } from "node:http";
 import { DatabaseSync } from "node:sqlite";
@@ -41,6 +42,8 @@ import { createRuntimeServiceHandler } from "../services/runtime-service/src/ser
 import { createAndonHandler } from "../services/andon-api/src/server.ts";
 import { legacyEventToRuntimeEventType } from "../services/andon-api/src/repository.ts";
 import type { HolisticState } from "../src/core/types.ts";
+
+const workspaceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 function makeTempDir(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), `${prefix}-`));
@@ -180,7 +183,12 @@ export const tests = [
       assert.match(masterDoc, /# HOLISTIC \(Safe Mode\)/);
       assert.match(masterDoc, /MINIMAL INSTRUCTIONS/);
       assert.doesNotMatch(masterDoc, /AGENT INSTRUCTIONS - READ THIS ENTIRE FILE/);
-      assert.match(masterDoc, /<!-- Holistic version: 0.6.5 -->/);
+      // Read the expected version rather than hardcoding it, so cutting a
+      // release does not fail this test for the wrong reason.
+      const packageVersion = JSON.parse(
+        fs.readFileSync(path.join(workspaceRoot, "package.json"), "utf8"),
+      ).version;
+      assert.match(masterDoc, new RegExp(`<!-- Holistic version: ${packageVersion.replace(/\./g, "\\.")} -->`));
     }
   },
   {

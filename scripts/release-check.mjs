@@ -35,14 +35,32 @@ function quoteCmdArg(value) {
   return /[\s"]/u.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 
+/**
+ * Environment for a nested npm call, with the parent's script policy removed.
+ * See the matching note in scripts/smoke-test.mjs: `npm run` exports the whole
+ * npm config as npm_config_* vars, and npm rejects an inherited allow-scripts
+ * on a project-scoped install (EALLOWSCRIPTS).
+ */
+function npmEnv(baseEnv = process.env) {
+  const env = { ...baseEnv };
+  for (const key of Object.keys(env)) {
+    if (/^npm_config_(allow_scripts|ignore_scripts)$/i.test(key)) {
+      delete env[key];
+    }
+  }
+  return env;
+}
+
 function runNpm(args, options = {}) {
+  const scoped = { ...options, env: npmEnv(options.env) };
+
   if (process.platform !== "win32") {
-    return run(npmCmd, args, options);
+    return run(npmCmd, args, scoped);
   }
 
   const shell = process.env.ComSpec ?? "cmd.exe";
   const commandLine = [npmCmd, ...args].map(quoteCmdArg).join(" ");
-  return run(shell, ["/d", "/s", "/c", commandLine], options);
+  return run(shell, ["/d", "/s", "/c", commandLine], scoped);
 }
 
 function ensureIncludes(haystack, needle, label) {
@@ -122,8 +140,12 @@ function main() {
   run("git", ["add", "README.md"], { cwd: repoUnderTest });
   run("git", ["commit", "-m", "init"], { cwd: repoUnderTest });
 
+  // --yes is required: bootstrap writes outside the repo, so without it the
+  // pre-flight gate stops and exits non-zero by design. smoke-test.mjs covers
+  // that gate; here we want the applied path.
   runInstalledBinary(binaryPath, [
     "bootstrap",
+    "--yes",
     "--install-daemon",
     "false",
     "--configure-mcp",
