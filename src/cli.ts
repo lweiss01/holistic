@@ -29,7 +29,6 @@ import {
   loadState,
   maybeWriteAutoDraftHandoff,
   normalizeCompletionSignalMetadata,
-  reactivateArchivedSession,
   readDraftHandoff,
   saveState,
   startNewSession,
@@ -1134,10 +1133,6 @@ async function handleDiff(rootDir: string, parsed: ParsedArgs): Promise<number> 
 
   const { state, paths } = loadState(rootDir);
 
-  // Reactivate archived sessions used in diff — explicit reuse brings them back.
-  reactivateArchivedSession(paths, from);
-  reactivateArchivedSession(paths, to);
-
   const fromSession = loadSessionById(state, paths, from);
   const toSession = loadSessionById(state, paths, to);
   if (!fromSession || !toSession) {
@@ -1174,9 +1169,6 @@ async function handleSearch(rootDir: string, parsed: ParsedArgs): Promise<number
   }
 
   const { state, paths } = loadState(rootDir);
-
-  // Try to reactivate from archive first.
-  reactivateArchivedSession(paths, sessionId);
 
   const session = loadSessionById(state, paths, sessionId);
   if (!session) {
