@@ -1021,8 +1021,8 @@ export function runSessionHygiene(
  * active storage.  Returns the session record on success, or null if the
  * session is not found in the archive directory.
  *
- * This is the single shared helper that diff, handoff, and search flows
- * use when explicit reuse makes an archived session relevant again.
+ * Stateful handoff uses this helper when explicit reuse makes an archived
+ * session relevant again. Read-only search and diff load archives in place.
  */
 export function reactivateArchivedSession(paths: RuntimePaths, sessionId: string): SessionRecord | null {
   if (!isSafeSessionId(sessionId)) {

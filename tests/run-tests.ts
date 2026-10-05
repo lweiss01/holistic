@@ -4,7 +4,7 @@ import "./test-env.ts";
 
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -96,6 +96,31 @@ function persist(rootDir: string, state: HolisticState): HolisticState {
 
 function readState(rootDir: string): HolisticState {
   return JSON.parse(fs.readFileSync(path.join(rootDir, ".holistic", "state.json"), "utf8")) as HolisticState;
+}
+
+function runReadOnlyCli(rootDir: string, command: "search" | "diff", args: string[]) {
+  const result = spawnSync(process.execPath, [
+    "--experimental-strip-types", path.join(workspaceRoot, "src", "cli.ts"), command, ...args,
+  ], {
+    cwd: rootDir,
+    encoding: "utf8",
+    env: { ...process.env, ANDON_DISABLED: "true", HOLISTIC_TEST_MODE: "1" },
+    timeout: 10_000,
+  });
+  if (result.error) throw result.error;
+  return result;
+}
+
+function sessionStorageSnapshot(rootDir: string): Record<string, string> {
+  const paths = getRuntimePaths(rootDir);
+  const snapshot: Record<string, string> = { "state.json": fs.readFileSync(paths.stateFile, "utf8") };
+  for (const [prefix, directory] of [["active", paths.sessionsDir], ["archive", paths.archiveSessionsDir]]) {
+    for (const name of fs.readdirSync(directory).sort()) {
+      const file = path.join(directory, name);
+      if (fs.statSync(file).isFile()) snapshot[`${prefix}/${name}`] = fs.readFileSync(file, "utf8");
+    }
+  }
+  return snapshot;
 }
 
 function archiveSession(
@@ -1120,7 +1145,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     },
   },
   {
-    name: "diff reactivates archived sessions back to active storage",
+    name: "diff CLI compares distinct archived sessions without changing storage",
     run: () => {
       const { rootDir } = makeRepo();
       let state = createInitialState(rootDir);
@@ -1141,25 +1166,28 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       assert.ok(fs.existsSync(path.join(paths.archiveSessionsDir, `${first.sessionId}.json`)));
       assert.ok(fs.existsSync(path.join(paths.archiveSessionsDir, `${second.sessionId}.json`)));
 
-      // Reactivate both via the helper (simulating what handleDiff does).
-      const reactivated1 = reactivateArchivedSession(paths, first.sessionId);
-      const reactivated2 = reactivateArchivedSession(paths, second.sessionId);
-      assert.ok(reactivated1);
-      assert.ok(reactivated2);
-
-      // Sessions should now be in active storage, not archive.
-      assert.ok(fs.existsSync(path.join(paths.sessionsDir, `${first.sessionId}.json`)));
-      assert.ok(fs.existsSync(path.join(paths.sessionsDir, `${second.sessionId}.json`)));
-      assert.equal(fs.existsSync(path.join(paths.archiveSessionsDir, `${first.sessionId}.json`)), false);
-      assert.equal(fs.existsSync(path.join(paths.archiveSessionsDir, `${second.sessionId}.json`)), false);
-
-      // loadSessionById should still find them.
       const fromSession = loadSessionById(state, paths, first.sessionId);
       const toSession = loadSessionById(state, paths, second.sessionId);
       assert.ok(fromSession);
       assert.ok(toSession);
-      const diff = computeSessionDiff(fromSession!, toSession!);
-      assert.ok(diff.timeSpan.durationMs !== 0 || diff.timeSpan.durationMs === 0);
+      assert.notEqual(first.sessionId, second.sessionId);
+      const before = sessionStorageSnapshot(rootDir);
+      const json = runReadOnlyCli(rootDir, "diff", ["--from", first.sessionId, "--to", second.sessionId, "--format", "json"]);
+      assert.equal(json.status, 0, json.stderr);
+      assert.deepEqual(JSON.parse(json.stdout), {
+        from: fromSession, to: toSession, diff: computeSessionDiff(fromSession, toSession),
+      });
+      assert.deepEqual(sessionStorageSnapshot(rootDir), before);
+
+      const text = runReadOnlyCli(rootDir, "diff", ["--from", first.sessionId, "--to", second.sessionId]);
+      assert.equal(text.status, 0, text.stderr);
+      assert.equal(text.stdout, renderDiff(fromSession, toSession, computeSessionDiff(fromSession, toSession)));
+      assert.deepEqual(sessionStorageSnapshot(rootDir), before);
+
+      const missing = runReadOnlyCli(rootDir, "diff", ["--from", first.sessionId, "--to", "session-missing"]);
+      assert.equal(missing.status, 1);
+      assert.match(missing.stderr, /could not be found/);
+      assert.deepEqual(sessionStorageSnapshot(rootDir), before);
     },
   },
   {
@@ -1199,7 +1227,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
     },
   },
   {
-    name: "search reactivates an archived session by exact id",
+    name: "explicit reactivation moves an archived session by exact id",
     run: () => {
       const { rootDir } = makeRepo();
       let state = createInitialState(rootDir);
@@ -1212,7 +1240,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       const paths = getRuntimePaths(rootDir);
       assert.ok(fs.existsSync(path.join(paths.archiveSessionsDir, `${archived.sessionId}.json`)));
 
-      // Reactivate via helper (simulating what handleSearch does).
+      // Explicit stateful reuse still reactivates through the helper.
       const reactivated = reactivateArchivedSession(paths, archived.sessionId);
       assert.ok(reactivated);
       assert.equal(reactivated?.id, archived.sessionId);
@@ -1220,6 +1248,35 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
       // Now in active storage.
       assert.ok(fs.existsSync(path.join(paths.sessionsDir, `${archived.sessionId}.json`)));
       assert.equal(fs.existsSync(path.join(paths.archiveSessionsDir, `${archived.sessionId}.json`)), false);
+    },
+  },
+  {
+    name: "search CLI reads archived and active sessions without changing storage",
+    run: () => {
+      const { rootDir } = makeRepo();
+      const archived = archiveSession(rootDir, createInitialState(rootDir), "Searchable archive", {
+        status: "Archived done", done: ["Archived task"], next: ["Continue archive"],
+      }, "archived-search.txt");
+      let state = startNewSession(rootDir, archived.state, "codex", "Active search work", ["Active step"]);
+      state = persist(rootDir, state);
+      const paths = getRuntimePaths(rootDir);
+      const before = sessionStorageSnapshot(rootDir);
+      for (const id of [archived.sessionId, state.activeSession!.id]) {
+        const expected = loadSessionById(state, paths, id);
+        const json = runReadOnlyCli(rootDir, "search", ["--id", id, "--format", "json"]);
+        assert.equal(json.status, 0, json.stderr);
+        assert.deepEqual(JSON.parse(json.stdout), expected);
+        assert.deepEqual(sessionStorageSnapshot(rootDir), before);
+        const text = runReadOnlyCli(rootDir, "search", ["--id", id]);
+        assert.equal(text.status, 0, text.stderr);
+        assert.match(text.stdout, new RegExp(`Session: ${id}`));
+        assert.match(text.stdout, new RegExp(`Goal: ${expected!.currentGoal}`));
+        assert.deepEqual(sessionStorageSnapshot(rootDir), before);
+      }
+      const missing = runReadOnlyCli(rootDir, "search", ["--id", "session-missing"]);
+      assert.equal(missing.status, 1);
+      assert.match(missing.stderr, /not found/);
+      assert.deepEqual(sessionStorageSnapshot(rootDir), before);
     },
   },
   {
