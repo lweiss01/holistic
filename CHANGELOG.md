@@ -1,5 +1,11 @@
 # Changelog
 
+
+## 0.7.2 - 2026-11-17
+
+- Updated the MCP TypeScript SDK and its transitive dependencies to address npm audit findings.
+- Includes the archive-preserving `search` and `diff` fix from #10. Thanks to @Lazarus000s for the fix and regression tests.
+
 ## 0.7.1 - 2026-11-17
 
 - `holistic search --id` and `holistic diff` now read archived sessions in place.
