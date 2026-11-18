@@ -81,11 +81,11 @@ This file is the explicit capability and coverage contract for the project.
 - Validation: unmapped
 - Notes: Hybrid time + relevance - must meet BOTH criteria to archive
 
-### R009 — When archived session is diffed, referenced in handoff, or searched, it moves back to active automatically
+### R009 — Handoff can reactivate archived sessions and inspection preserves the archive
 - Class: continuity
 - Status: active
-- Description: When archived session is diffed, referenced in handoff, or searched, it moves back to active automatically
-- Why it matters: Relevance-based - if you're using it, it's not stale anymore
+- Description: An exact archived session ID referenced in a handoff reactivates that session. Search and diff inspect archived sessions in place.
+- Why it matters: Handoff can resume work from an archived session, and historical inspection preserves session storage.
 - Source: user
 - Primary owning slice: M001/S03
 - Supporting slices: none

@@ -81,7 +81,7 @@ Holistic anchors memory in files the repo already tracks:
 
 - `HOLISTIC.md` is the first file an agent should read.
 - `.holistic/state.json` holds machine-readable state.
-- `.holistic/sessions/` is an append-only session history. Sessions that have been finished and unreferenced for 30 days move to `.holistic/sessions/archive/`, which stays readable but keeps the active set small.
+- `.holistic/sessions/` is an append-only session history. Sessions that have been finished and unreferenced for 30 days move to `.holistic/sessions/archive/`, which keeps the active set small. `holistic search --id` and `holistic diff` read archived sessions in place. An exact archived session ID in a handoff's `relatedSessions` reactivates that session.
 - `.holistic/context/` holds the derived docs agents read at startup: the current plan, project history, and the regression watchlist.
 
 The architecture is split on purpose, because a daemon on your laptop cannot help a session that starts on your phone:
