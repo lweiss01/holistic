@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.1 - 2026-11-17
+
+- `holistic search --id` and `holistic diff` now read archived sessions in place.
+- Handoffs can still reactivate an archived session by referencing its exact ID.
+
+Thanks to @Lazarus000s for the fix and regression tests in #10.
+
 ## 0.7.0 - 2026-07-31
 
 Agent-agnostic live supervision. Andon grows from a demo scaffold into a Mission
